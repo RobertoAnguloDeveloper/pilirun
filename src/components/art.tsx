@@ -34,27 +34,53 @@ export function Landscape({
 export function Avatar({ character, size = 80 }: { character: Character; size?: number }) {
   const ref = useRef<HTMLCanvasElement>(null);
   useEffect(() => {
-    const ctx = ref.current!.getContext('2d')!;
-    ctx.clearRect(0, 0, 160, 160);
-    if (character.image) {
-      const image = new Image();
-      image.onload = () => {
-        ctx.clearRect(0, 0, 160, 160);
-        ctx.drawImage(image, 15, 15, 130, 130);
-      };
-      image.src = character.image;
-      return () => {
-        image.onload = null;
-      };
-    }
-    if (character.pixels)
-      character.pixels.forEach((color, i) => {
-        if (color !== 'transparent') {
-          ctx.fillStyle = color;
-          ctx.fillRect((i % 16) * 8 + 16, Math.floor(i / 16) * 8 + 16, 8, 8);
+    const canvas = ref.current!;
+    const ctx = canvas.getContext('2d')!;
+    let frameId = 0;
+    let start = performance.now();
+
+    const renderFrame = (now: number) => {
+      const elapsed = (now - start) / 1000;
+      const breathe = Math.sin(elapsed * 3) * 2;
+      ctx.clearRect(0, 0, 160, 160);
+
+      if (character.image) {
+        const image = new Image();
+        image.onload = () => {
+          ctx.clearRect(0, 0, 160, 160);
+          ctx.save();
+          ctx.translate(80, 80);
+          ctx.scale(1 + Math.sin(elapsed * 2) * 0.02, 1 - Math.sin(elapsed * 2) * 0.02);
+          ctx.drawImage(image, -65, -65 + breathe * 0.5, 130, 130);
+          ctx.restore();
+        };
+        image.src = character.image;
+        if (image.complete && image.naturalWidth) {
+          ctx.save();
+          ctx.translate(80, 80);
+          ctx.scale(1 + Math.sin(elapsed * 2) * 0.02, 1 - Math.sin(elapsed * 2) * 0.02);
+          ctx.drawImage(image, -65, -65 + breathe * 0.5, 130, 130);
+          ctx.restore();
         }
-      });
-    else drawFox(ctx, 88, 86, 110, character.color);
+      } else if (character.pixels) {
+        ctx.save();
+        ctx.translate(0, breathe * 0.4);
+        character.pixels.forEach((color, i) => {
+          if (color !== 'transparent') {
+            ctx.fillStyle = color;
+            ctx.fillRect((i % 16) * 8 + 16, Math.floor(i / 16) * 8 + 16, 8, 8);
+          }
+        });
+        ctx.restore();
+      } else {
+        drawFox(ctx, 88, 86 + breathe, 110, character.color, elapsed * 2);
+      }
+
+      frameId = requestAnimationFrame(renderFrame);
+    };
+
+    frameId = requestAnimationFrame(renderFrame);
+    return () => cancelAnimationFrame(frameId);
   }, [character]);
   return (
     <canvas

@@ -10,36 +10,86 @@ export function drawFox(
   color: string,
   stride = 0,
   isHurt = false,
+  isJumping = false,
+  jumpVelocity = 0,
+  isSliding = false,
 ) {
   ctx.save();
   ctx.translate(x, y);
-  ctx.scale(size / 64, size / 64);
 
-  // Geometric silhouette stays crisp at small sizes
+  // Jump animation: stretch upward on ascent, tilt slightly forward on descent
+  if (isJumping) {
+    const tilt = Math.max(-0.25, Math.min(0.25, -jumpVelocity * 0.0003));
+    ctx.rotate(tilt);
+    const stretchY = jumpVelocity > 0 ? 1.15 : 0.95;
+    const stretchX = jumpVelocity > 0 ? 0.9 : 1.05;
+    ctx.scale((size / 64) * stretchX, (size / 64) * stretchY);
+  } else if (isSliding) {
+    // Aerodynamic slide compression
+    ctx.rotate(-0.08);
+    ctx.scale((size / 64) * 1.25, (size / 64) * 0.65);
+  } else {
+    // Running bob and stride tilt
+    const runBob = Math.abs(Math.sin(stride * 2)) * 3;
+    const runTilt = Math.sin(stride) * 0.05;
+    ctx.translate(0, -runBob);
+    ctx.rotate(runTilt);
+    ctx.scale(size / 64, size / 64);
+  }
+
+  // Animated tail wagging / trailing in wind
+  const tailAngle = isJumping
+    ? Math.sin(stride * 1.5) * 0.2 - 0.2
+    : Math.sin(stride) * 0.25;
+
+  ctx.save();
+  ctx.translate(-20, 21);
+  ctx.rotate(tailAngle);
   ctx.fillStyle = isHurt ? '#ff5252' : color;
   ctx.beginPath();
-  ctx.moveTo(-20, 21);
-  ctx.quadraticCurveTo(-56, 22, -45, -10);
-  ctx.lineTo(-29, 3);
+  ctx.moveTo(0, 0);
+  ctx.quadraticCurveTo(-36, 1, -25, -31);
+  ctx.lineTo(-9, -18);
   ctx.closePath();
   ctx.fill();
 
+  // Tail tip
   ctx.fillStyle = isHurt ? '#ffebee' : '#fff3d7';
   ctx.beginPath();
-  ctx.moveTo(-45, -10);
-  ctx.lineTo(-38, 13);
-  ctx.lineTo(-30, 4);
+  ctx.moveTo(-25, -31);
+  ctx.lineTo(-18, -8);
+  ctx.lineTo(-10, -17);
   ctx.closePath();
   ctx.fill();
+  ctx.restore();
 
+  // Torso / Body
   ctx.fillStyle = isHurt ? '#ff5252' : color;
   ctx.beginPath();
   ctx.ellipse(-3, 13, 23, 17, -0.1, 0, Math.PI * 2);
   ctx.fill();
 
-  ctx.fillRect(-19 + Math.sin(stride) * 5, 22, 10, 14);
-  ctx.fillRect(10 - Math.sin(stride) * 5, 21, 9, 15);
+  // Animated legs with 4-phase stride or airborne tuck
+  if (isJumping) {
+    // Paws tucked under body during aerial leap
+    ctx.fillStyle = isHurt ? '#b71c1c' : '#315c49';
+    ctx.fillRect(-15, 20, 11, 8);
+    ctx.fillRect(8, 19, 10, 8);
+  } else if (isSliding) {
+    // Legs stretched back in slide
+    ctx.fillStyle = isHurt ? '#b71c1c' : '#315c49';
+    ctx.fillRect(-24, 21, 18, 6);
+    ctx.fillRect(4, 20, 16, 6);
+  } else {
+    // Dynamic run cycle with alternating front/back leg swings
+    const leg1Offset = Math.sin(stride) * 11;
+    const leg2Offset = -Math.sin(stride) * 11;
+    ctx.fillRect(-19 + leg1Offset * 0.6, 22 + Math.max(0, -leg1Offset * 0.4), 10, 14);
+    ctx.fillRect(10 + leg2Offset * 0.6, 21 + Math.max(0, -leg2Offset * 0.4), 9, 15);
+  }
 
+  // Head and ears
+  ctx.fillStyle = isHurt ? '#ff5252' : color;
   ctx.beginPath();
   ctx.moveTo(-13, -12);
   ctx.lineTo(-13, -36);
@@ -53,6 +103,7 @@ export function drawFox(
   ctx.closePath();
   ctx.fill();
 
+  // Inner ears
   ctx.fillStyle = isHurt ? '#b71c1c' : '#563f36';
   ctx.beginPath();
   ctx.moveTo(-9, -28);
@@ -65,6 +116,7 @@ export function drawFox(
   ctx.lineTo(27, -18);
   ctx.fill();
 
+  // Muzzle & Whiskers
   ctx.fillStyle = isHurt ? '#ffebee' : '#fff3d7';
   ctx.beginPath();
   ctx.moveTo(-7, -1);
@@ -74,15 +126,19 @@ export function drawFox(
   ctx.lineTo(-8, 6);
   ctx.fill();
 
+  // Eye
   ctx.fillStyle = isHurt ? '#d32f2f' : '#243b32';
   ctx.fillRect(19, -13, 4, 5);
+  // Nose
   ctx.beginPath();
   ctx.arc(36, -3, 3, 0, Math.PI * 2);
   ctx.fill();
 
+  // Chest bandana / scarf with wind flutter
+  const scarfWave = Math.sin(stride * 2.5) * 3;
   ctx.fillStyle = isHurt ? '#b71c1c' : '#315c49';
   ctx.fillRect(-10, 5, 33, 5);
-  ctx.fillRect(-12, 8, 9, 15);
+  ctx.fillRect(-12 + scarfWave * 0.4, 8, 9, 15);
 
   ctx.restore();
 }
@@ -93,13 +149,11 @@ export function drawLandscape(
   height: number,
   world: WorldId,
   distance: number,
-  playerHeight = 0,
   reduced = false,
 ) {
   const palette = WORLDS[world] || WORLDS.forest;
-  // Parallax responds slightly to vertical speedrun jump height
-  const verticalShift = playerHeight * 0.14;
-  const ground = height * 0.79 + verticalShift;
+  // Ground remains fixed and stable so objects never move when character jumps
+  const ground = height * 0.79;
 
   // Sky background
   ctx.fillStyle = palette.sky;
@@ -196,7 +250,7 @@ export function drawLandscape(
         ctx.lineTo(px, ground - height * (0.15 + layer * 0.03));
         ctx.quadraticCurveTo(
           px + step * 0.45,
-          height * (0.23 + layer * 0.13) + verticalShift * 0.5,
+          height * (0.23 + layer * 0.13),
           px + step,
           ground - height * (0.15 + layer * 0.03),
         );
@@ -323,17 +377,17 @@ export class Renderer {
 
     // 1. Sky & Horizon
     ctx.fillStyle = palette.sky;
-    ctx.fillRect(0, 0, width, horizon + cameraBob - playerZJump);
+    ctx.fillRect(0, 0, width, horizon + cameraBob);
 
     // Mountain silhouettes on horizon
     ctx.fillStyle = palette.mountain;
     ctx.beginPath();
-    ctx.moveTo(0, horizon + cameraBob - playerZJump);
+    ctx.moveTo(0, horizon + cameraBob);
     for (let x = 0; x <= width; x += 60) {
-      const my = horizon + cameraBob - playerZJump - 35 - ((x * 17) % 25);
+      const my = horizon + cameraBob - 35 - ((x * 17) % 25);
       ctx.lineTo(x, my);
     }
-    ctx.lineTo(width, horizon + cameraBob - playerZJump);
+    ctx.lineTo(width, horizon + cameraBob);
     ctx.closePath();
     ctx.fill();
 
@@ -348,13 +402,13 @@ export class Renderer {
     ctx.fillStyle = roadGrad;
 
     // Ground surrounding track
-    ctx.fillRect(0, horizon + cameraBob - playerZJump, width, height);
+    ctx.fillRect(0, horizon + cameraBob, width, height);
 
-    // Perspective Runway Polygon
+    // Perspective Runway Polygon (Grounded)
     ctx.fillStyle = '#1c2826';
     ctx.beginPath();
-    ctx.moveTo(centerX - trackFarWidth / 2, horizon + cameraBob - playerZJump);
-    ctx.lineTo(centerX + trackFarWidth / 2, horizon + cameraBob - playerZJump);
+    ctx.moveTo(centerX - trackFarWidth / 2, horizon + cameraBob);
+    ctx.lineTo(centerX + trackFarWidth / 2, horizon + cameraBob);
     ctx.lineTo(centerX + trackNearWidth / 2, height);
     ctx.lineTo(centerX - trackNearWidth / 2, height);
     ctx.closePath();
@@ -366,7 +420,7 @@ export class Renderer {
     ctx.lineWidth = 2;
     for (let i = 1; i <= 14; i++) {
       const p = Math.pow((i + strideOffset) / 15, 2.5); // Perspective scaling
-      const y = horizon + cameraBob - playerZJump + p * (height - (horizon + cameraBob - playerZJump));
+      const y = horizon + cameraBob + p * (height - (horizon + cameraBob));
       const w = trackFarWidth + p * (trackNearWidth - trackFarWidth);
       ctx.beginPath();
       ctx.moveTo(centerX - w / 2, y);
@@ -378,14 +432,14 @@ export class Renderer {
     ctx.strokeStyle = palette.accent;
     ctx.lineWidth = 4;
     ctx.beginPath();
-    ctx.moveTo(centerX - trackFarWidth / 2, horizon + cameraBob - playerZJump);
+    ctx.moveTo(centerX - trackFarWidth / 2, horizon + cameraBob);
     ctx.lineTo(centerX - trackNearWidth / 2, height);
-    ctx.moveTo(centerX + trackFarWidth / 2, horizon + cameraBob - playerZJump);
+    ctx.moveTo(centerX + trackFarWidth / 2, horizon + cameraBob);
     ctx.lineTo(centerX + trackNearWidth / 2, height);
     ctx.stroke();
 
     // 3. Project 3D Track Items (Obstacles, coins, springs)
-    // Filter items in front of player and sort from far to near for correct depth rendering
+    // Items are strictly grounded on the road - they do NOT move when player jumps!
     const visibleItems = game.track.items
       .filter((item) => {
         const dist = item.x - game.distance;
@@ -401,7 +455,7 @@ export class Renderer {
       const p = Math.max(0, Math.min(1, 1 - depth / 2400));
       const scale = Math.pow(p, 2.2);
 
-      const y = horizon + cameraBob - playerZJump + scale * (height - (horizon + cameraBob - playerZJump));
+      const y = horizon + cameraBob + scale * (height - (horizon + cameraBob));
       const x = centerX; // Center lane
       const itemSize = 120 * scale;
 
@@ -537,7 +591,7 @@ export class Renderer {
       scale = Math.min(1, height / 430),
       px = width * 0.23;
 
-    drawLandscape(ctx, width, height, game.track.world, game.distance, game.height, reduced);
+    drawLandscape(ctx, width, height, game.track.world, game.distance, reduced);
     ctx.save();
 
     // 1. Draw Track Items (Obstacles, Collectibles, Springs, Rings)
@@ -674,14 +728,31 @@ export class Renderer {
       ctx.stroke();
     }
 
+    const isJumping = game.height > 0;
+    const isSliding = game.slide > 0;
+    const stride = game.distance * 0.05;
+
     if (this.image?.complete && this.image.naturalWidth) {
       ctx.save();
+      // Apply subtle procedural bob/tilt for uploaded sprite
+      if (isJumping) {
+        ctx.rotate(Math.max(-0.2, Math.min(0.2, -game.velocity * 0.0003)));
+      } else if (!isSliding) {
+        ctx.rotate(Math.sin(stride) * 0.04);
+        ctx.translate(0, -Math.abs(Math.sin(stride * 2)) * 2);
+      }
       ctx.beginPath();
       ctx.roundRect(-30 * scale, -30 * scale, 60 * scale, 60 * scale, 12);
       ctx.clip();
       ctx.drawImage(this.image, -30 * scale, -30 * scale, 60 * scale, 60 * scale);
       ctx.restore();
     } else if (this.character.pixels) {
+      ctx.save();
+      if (isJumping) {
+        ctx.rotate(Math.max(-0.15, Math.min(0.15, -game.velocity * 0.0003)));
+      } else if (!isSliding) {
+        ctx.translate(0, -Math.abs(Math.sin(stride * 2)) * 2);
+      }
       const unit = 4 * scale;
       this.character.pixels.forEach((c, i) => {
         if (c !== 'transparent') {
@@ -694,6 +765,7 @@ export class Renderer {
           );
         }
       });
+      ctx.restore();
     } else {
       drawFox(
         ctx,
@@ -701,8 +773,11 @@ export class Renderer {
         0,
         57 * scale,
         this.character.color,
-        game.height ? 0 : game.distance * 0.045,
+        stride,
         isHurtFlash,
+        isJumping,
+        game.velocity,
+        isSliding,
       );
     }
 

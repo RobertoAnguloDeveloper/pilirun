@@ -1300,6 +1300,91 @@ kbd {
   cursor: pointer;
   margin: 0;
 }
+.sprite-guide-banner {
+  background: linear-gradient(135deg, #edf6e5 0%, #e2eed6 100%);
+  border: 1px solid #c9dec0;
+  border-radius: 14px;
+  padding: 16px 20px;
+  margin: 18px 0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.guide-header {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+}
+.guide-sparkle {
+  color: #558737;
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+.guide-header strong {
+  font-size: 13px;
+  color: #1e3a2c;
+  display: block;
+}
+.guide-header p {
+  font-size: 11px;
+  color: #516757;
+  margin-top: 2px;
+}
+.guide-templates {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.template-pill-btn {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: #ffffff;
+  border: 1px solid #c2d7b5;
+  border-radius: 20px;
+  padding: 6px 14px;
+  font-size: 11px;
+  font-weight: 700;
+  color: #274b33;
+  transition: transform 0.15s, background 0.15s, border-color 0.15s;
+}
+.template-pill-btn:hover {
+  background: var(--lime);
+  border-color: #a4cf54;
+  transform: translateY(-1px);
+}
+.auto-sprite-generator {
+  padding: 14px;
+}
+.generator-steps {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 18px;
+}
+.step-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-size: 11px;
+  color: #4b6353;
+  background: #f8faf4;
+  border: 1px solid #e1ead6;
+  border-radius: 8px;
+  padding: 10px 14px;
+}
+.step-num {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: #244633;
+  color: var(--lime);
+  display: grid;
+  place-items: center;
+  font-size: 10px;
+  font-weight: 700;
+  flex-shrink: 0;
+}
 .upload-zone:focus-within {
   outline: 3px solid #8bb747;
 }
