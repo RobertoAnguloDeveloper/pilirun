@@ -21,7 +21,7 @@ import {
 } from 'lucide-react';
 import { GameEngine } from '@/game/engine';
 import { audioEngine } from '@/lib/audio';
-import type { CameraView, Character, Hud, RunResult, Track } from '@/lib/types';
+import { DEFAULT_PREFERENCES, type CameraView, type Character, type Hud, type RunResult, type Track } from '@/lib/types';
 
 export function GameView({
   track,
@@ -122,49 +122,77 @@ export function GameView({
     game.start();
 
     const key = (event: KeyboardEvent) => {
+      // Don't intercept typing in input fields
       if (
-        event.repeat ||
-        (event.target instanceof HTMLElement &&
-          ['INPUT', 'SELECT', 'TEXTAREA'].includes(event.target.tagName))
-      )
+        event.target instanceof HTMLElement &&
+        ['INPUT', 'SELECT', 'TEXTAREA'].includes(event.target.tagName)
+      ) {
         return;
-      if (event.key === ' ' && event.target instanceof HTMLButtonElement) return;
+      }
 
-      // Jump / Vertical Spring leap
-      if ([' ', 'ArrowUp', 'w', 'W'].includes(event.key)) {
+      const isSpace = event.code === 'Space' || event.key === ' ' || event.key === 'Spacebar';
+
+      // Always blur any button or activeElement if Space is pressed so it NEVER activates a button's onClick
+      if (isSpace) {
+        if (document.activeElement instanceof HTMLElement && document.activeElement !== canvas.current) {
+          document.activeElement.blur();
+        }
+        if (canvas.current && document.activeElement !== canvas.current) {
+          canvas.current.focus();
+        }
+      }
+
+      if (event.repeat && !isSpace) return;
+
+      // Jump / Vertical Spring leap (Space, ArrowUp, W)
+      if (isSpace || ['ArrowUp', 'w', 'W'].includes(event.key)) {
         event.preventDefault();
+        event.stopPropagation();
+        if (event.stopImmediatePropagation) event.stopImmediatePropagation();
         game.jump();
       }
-      // Slide / Fast Air Drop
-      if (['ArrowDown', 's', 'S'].includes(event.key)) {
+      // Slide / Fast Air Drop (ArrowDown, S)
+      else if (['ArrowDown', 's', 'S'].includes(event.key) || event.code === 'ArrowDown' || event.code === 'KeyS') {
         event.preventDefault();
+        event.stopPropagation();
+        if (event.stopImmediatePropagation) event.stopImmediatePropagation();
         game.slide();
       }
       // Camera perspective switch: First-person vs 3D side view
-      if (['c', 'C', 'v', 'V'].includes(event.key)) {
+      else if (['c', 'C', 'v', 'V'].includes(event.key) || event.code === 'KeyC' || event.code === 'KeyV') {
         event.preventDefault();
+        event.stopPropagation();
         game.toggleCameraView();
       }
-      // Fullscreen quick shortcut
-      if (['f', 'F'].includes(event.key)) {
+      // Fullscreen quick shortcut (ONLY on F)
+      else if (['f', 'F'].includes(event.key) || event.code === 'KeyF') {
         event.preventDefault();
+        event.stopPropagation();
         void toggleFullscreen();
       }
       // Pause
-      if (['Escape', 'p', 'P'].includes(event.key)) game.pause();
+      else if (['Escape', 'p', 'P'].includes(event.key) || event.code === 'KeyP') {
+        event.preventDefault();
+        event.stopPropagation();
+        game.pause();
+      }
     };
 
     const hidden = () => {
       if (document.hidden && game.simulation.phase === 'PLAYING') game.pause();
     };
 
-    document.addEventListener('keydown', key);
+    window.addEventListener('keydown', key, true);
     document.addEventListener('visibilitychange', hidden);
-    canvas.current!.focus();
+
+    // Auto-focus canvas so keyboard events route seamlessly
+    requestAnimationFrame(() => {
+      canvas.current?.focus();
+    });
 
     return () => {
       game.destroy();
-      document.removeEventListener('keydown', key);
+      window.removeEventListener('keydown', key, true);
       document.removeEventListener('visibilitychange', hidden);
     };
   }, [track, character, reduced, round, initialCameraView]);
@@ -192,7 +220,13 @@ export function GameView({
           <div className="game-top-controls">
             <button
               className="arcade-control-btn"
-              onClick={() => engine.current?.toggleCameraView()}
+              tabIndex={-1}
+              onPointerDown={(e) => e.currentTarget.blur()}
+              onClick={(e) => {
+                e.currentTarget.blur();
+                canvas.current?.focus();
+                engine.current?.toggleCameraView();
+              }}
               aria-label="Alternar cámara 1ª persona / lateral"
               title="Cambiar perspectiva (Tecla C o V)"
             >
@@ -201,14 +235,29 @@ export function GameView({
             </button>
             <button
               className="arcade-control-btn"
-              onClick={() => void toggleFullscreen()}
+              tabIndex={-1}
+              onPointerDown={(e) => e.currentTarget.blur()}
+              onClick={(e) => {
+                e.currentTarget.blur();
+                canvas.current?.focus();
+                void toggleFullscreen();
+              }}
               aria-label={isFullscreen ? 'Salir de pantalla completa' : 'Pantalla completa (Modo Videojuego)'}
               title="Pantalla Completa (Tecla F)"
             >
               {isFullscreen ? <Minimize2 size={18} /> : <Maximize2 size={18} />}
               <span>{isFullscreen ? 'Ventana' : 'Pantalla Completa'}</span>
             </button>
-            <button className="icon-button" onClick={onClose} aria-label="Salir de la carrera">
+            <button
+              className="icon-button"
+              tabIndex={-1}
+              onPointerDown={(e) => e.currentTarget.blur()}
+              onClick={(e) => {
+                e.currentTarget.blur();
+                onClose();
+              }}
+              aria-label="Salir de la carrera"
+            >
               <X />
             </button>
           </div>
@@ -273,8 +322,14 @@ export function GameView({
 
             <button
               className="hud-pause-btn"
+              tabIndex={-1}
+              onPointerDown={(e) => e.currentTarget.blur()}
               aria-label={hud.phase === 'PAUSED' ? 'Reanudar' : 'Pausar'}
-              onClick={() => engine.current?.pause()}
+              onClick={(e) => {
+                e.currentTarget.blur();
+                canvas.current?.focus();
+                engine.current?.pause();
+              }}
             >
               {hud.phase === 'PAUSED' ? <Play size={18} /> : <Pause size={18} />}
             </button>
@@ -316,23 +371,81 @@ export function GameView({
           {/* Pause Screen Overlay */}
           {hud.phase === 'PAUSED' && (
             <div className="game-overlay">
-              <div className="result-card">
+              <div className="result-card pause-modal-card">
                 <span className="round-icon">
                   <Pause />
                 </span>
-                <h2>Un respiro en el camino.</h2>
-                <p>Modo actual: {hud.cameraView === 'first_person' ? '1ª Persona (3D)' : 'Lateral 3D'}</p>
-                <button className="primary" onClick={() => engine.current?.pause()}>
-                  <Play size={18} /> Seguir corriendo
-                </button>
-                <button
-                  className="secondary"
-                  onClick={() => engine.current?.toggleCameraView()}
-                >
-                  <Camera size={18} /> Cambiar vista de cámara
-                </button>
+                <h2>Juego en Pausa</h2>
+                <p>Configura tu partida y ajustes sin salir del juego.</p>
+
+                <div className="pause-actions-grid">
+                  <button
+                    className="primary"
+                    tabIndex={-1}
+                    onPointerDown={(e) => e.currentTarget.blur()}
+                    onClick={(e) => {
+                      e.currentTarget.blur();
+                      canvas.current?.focus();
+                      engine.current?.pause();
+                    }}
+                  >
+                    <Play size={18} fill="currentColor" /> Reanudar [P]
+                  </button>
+                  <button
+                    className="secondary"
+                    tabIndex={-1}
+                    onPointerDown={(e) => e.currentTarget.blur()}
+                    onClick={(e) => {
+                      e.currentTarget.blur();
+                      canvas.current?.focus();
+                      engine.current?.toggleCameraView();
+                    }}
+                  >
+                    <Camera size={18} /> Perspectiva: {hud.cameraView === 'first_person' ? '1ª Persona (3D)' : 'Lateral (3D)'} [C]
+                  </button>
+                  <button
+                    className="secondary"
+                    tabIndex={-1}
+                    onPointerDown={(e) => e.currentTarget.blur()}
+                    onClick={(e) => {
+                      e.currentTarget.blur();
+                      canvas.current?.focus();
+                      void toggleFullscreen();
+                    }}
+                  >
+                    {isFullscreen ? <Minimize2 size={18} /> : <Maximize2 size={18} />}
+                    {isFullscreen ? 'Salir de Pantalla Completa' : 'Modo Pantalla Completa [F]'}
+                  </button>
+                  <button
+                    className="secondary"
+                    tabIndex={-1}
+                    onPointerDown={(e) => e.currentTarget.blur()}
+                    onClick={(e) => {
+                      e.currentTarget.blur();
+                      retry();
+                    }}
+                  >
+                    <RotateCcw size={18} /> Reiniciar Carrera [R]
+                  </button>
+                </div>
+
+                <div className="pause-settings-box">
+                  <div className="pause-setting-row">
+                    <span>Sonido y Efectos</span>
+                    <button
+                      className="arcade-chip-btn"
+                      onClick={() => {
+                        const next = !audioEngine.muted;
+                        audioEngine.configure({ ...DEFAULT_PREFERENCES, muted: next });
+                      }}
+                    >
+                      {audioEngine.muted ? 'Silenciado' : 'Activo'}
+                    </button>
+                  </div>
+                </div>
+
                 <button className="text-button" onClick={onClose}>
-                  Volver al campamento
+                  Salir al Menú Principal [ESC]
                 </button>
               </div>
             </div>

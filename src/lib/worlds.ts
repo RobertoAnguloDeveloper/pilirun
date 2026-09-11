@@ -74,9 +74,43 @@ export const WORLDS: Record<
   },
 };
 export const CHARACTERS: Character[] = [
-  { id: 'pili', name: 'Pili', color: '#ec9565' },
-  { id: 'menta', name: 'Menta', color: '#82b79b' },
-  { id: 'luna', name: 'Luna', color: '#b8a5d0' },
+  {
+    id: 'pili',
+    name: 'Pili (Sprite Dinámico)',
+    color: '#ec9565',
+    image: '/assets/character-sprite-1.png',
+    frames: {
+      run: [
+        '/assets/pili-run-0.png',
+        '/assets/pili-run-1.png',
+        '/assets/pili-run-2.png',
+        '/assets/pili-run-3.png',
+        '/assets/pili-run-4.png',
+        '/assets/pili-run-5.png',
+      ],
+      jump: [
+        '/assets/pili-jump-0.png',
+        '/assets/pili-jump-1.png',
+      ],
+      slide: [
+        '/assets/pili-slide-0.png',
+      ],
+      idle: [
+        '/assets/pili-idle-0.png',
+      ],
+    },
+  },
+  {
+    id: 'menta',
+    name: 'Menta',
+    color: '#82b79b',
+    image: '/assets/character-sprite-2.png',
+  },
+  {
+    id: 'luna',
+    name: 'Luna',
+    color: '#b8a5d0',
+  },
 ];
 function makeTrack(
   id: string,

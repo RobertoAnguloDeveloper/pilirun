@@ -1,0 +1,410 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg"
+     xmlns:xlink="http://www.w3.org/1999/xlink"
+     width="1536"
+     height="768"
+     viewBox="0 0 1536 768"
+     role="img"
+     aria-labelledby="title description"
+     shape-rendering="geometricPrecision">
+  <title id="title">White Rabbit Platformer Sprite Sheet</title>
+  <desc id="description">Eighteen vector SVG sprites for idle, running, jumping, falling and landing animations.</desc>
+
+  <!--
+    Vector sprite sheet. Every cell is 256 x 256.
+    Row 1: idle 01-04, jump takeoff 01-02
+    Row 2: run 01-06
+    Row 3: jump 03-04, fall 01-02, land/recover 01-02
+    The background is intentionally transparent.
+  -->
+  <defs>
+    <linearGradient id="fur" x1="0" y1="0" x2="0.8" y2="1">
+      <stop offset="0" stop-color="#FFFFFF"/>
+      <stop offset="0.75" stop-color="#F7F9FF"/>
+      <stop offset="1" stop-color="#DDE5F2"/>
+    </linearGradient>
+    <linearGradient id="furWarm" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#FFFFFF"/>
+      <stop offset="1" stop-color="#E9EEF8"/>
+    </linearGradient>
+    <linearGradient id="scarf" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#4CA7FF"/>
+      <stop offset="1" stop-color="#1262D4"/>
+    </linearGradient>
+    <linearGradient id="earPink" x1="0" y1="0" x2="0.8" y2="1">
+      <stop offset="0" stop-color="#FFB2BD"/>
+      <stop offset="1" stop-color="#F37D94"/>
+    </linearGradient>
+
+    <style>
+      .fur { fill: url(#fur); stroke: #182A49; stroke-width: 4; stroke-linecap: round; stroke-linejoin: round; }
+      .fur-warm { fill: url(#furWarm); stroke: #182A49; stroke-width: 4; stroke-linecap: round; stroke-linejoin: round; }
+      .ear-inner { fill: url(#earPink); stroke: #182A49; stroke-width: 3; stroke-linecap: round; stroke-linejoin: round; }
+      .scarf { fill: url(#scarf); stroke: #123E86; stroke-width: 4; stroke-linecap: round; stroke-linejoin: round; }
+      .line { fill: none; stroke: #182A49; stroke-width: 3.5; stroke-linecap: round; stroke-linejoin: round; }
+      .eye { fill: #4A2B32; stroke: #182A49; stroke-width: 2; }
+      .eye-shine { fill: #FFFFFF; stroke: none; }
+      .nose { fill: #F47F92; stroke: #182A49; stroke-width: 2; }
+      .cheek { fill: #FFB7C2; opacity: .65; stroke: none; }
+    </style>
+
+    <!-- Idle anatomy -->
+    <g id="idle-ears">
+      <path class="fur" d="M122 68C101 53 88 29 95 13C100 1 117 8 132 24C143 37 148 54 144 72Z"/>
+      <path class="ear-inner" d="M113 54C102 42 98 28 101 20C103 16 110 20 118 28C126 37 131 49 130 59Z"/>
+      <path class="fur" d="M149 68C146 41 154 12 172 7C187 3 191 22 187 40C184 56 176 68 163 76Z"/>
+      <path class="ear-inner" d="M158 57C157 36 163 18 172 16C180 14 181 27 178 38C175 49 169 57 162 63Z"/>
+    </g>
+
+    <g id="idle-ears-alert">
+      <path class="fur" d="M122 67C103 46 98 20 107 7C114-2 128 12 137 31C143 44 145 57 141 72Z"/>
+      <path class="ear-inner" d="M119 53C111 37 110 22 114 16C117 12 122 20 127 30C131 39 133 48 131 57Z"/>
+      <path class="fur" d="M151 67C154 39 166 12 183 9C198 6 197 26 190 43C184 57 175 68 162 75Z"/>
+      <path class="ear-inner" d="M161 57C165 36 173 20 181 18C188 17 186 30 182 40C177 50 171 58 164 63Z"/>
+    </g>
+
+    <g id="idle-body">
+      <circle class="fur" cx="68" cy="169" r="20"/>
+      <path class="fur" d="M70 145C79 125 106 121 130 134C151 125 179 136 186 159C193 185 174 210 137 214C99 217 69 196 70 145Z"/>
+    </g>
+
+    <g id="idle-legs-a">
+      <path class="fur-warm" d="M82 164C72 179 77 204 98 212C111 217 123 209 118 198C108 190 106 177 111 163Z"/>
+      <path class="fur-warm" d="M146 185C151 202 169 211 183 204C190 200 188 191 180 186L155 172Z"/>
+      <path class="fur-warm" d="M157 150C171 151 182 163 179 175C177 183 164 185 155 177L143 160Z"/>
+    </g>
+
+    <g id="idle-legs-b">
+      <path class="fur-warm" d="M83 164C74 181 81 207 101 213C114 217 124 207 117 197C107 189 107 176 113 163Z"/>
+      <path class="fur-warm" d="M145 187C152 202 171 210 184 202C190 198 187 190 178 186L153 173Z"/>
+      <path class="fur-warm" d="M157 150C168 154 179 165 177 175C175 182 164 182 155 175L144 159Z"/>
+    </g>
+
+    <g id="idle-legs-crouched">
+      <path class="fur-warm" d="M82 170C72 183 76 202 95 209C108 214 121 208 117 199C107 191 105 183 111 171Z"/>
+      <path class="fur-warm" d="M146 191C155 204 175 208 184 199C188 194 183 188 175 185L152 178Z"/>
+      <path class="fur-warm" d="M155 156C167 157 177 166 175 175C173 181 163 181 154 175L144 163Z"/>
+    </g>
+
+    <g id="idle-scarf">
+      <path class="scarf" d="M104 125C128 136 171 137 193 125L199 143C172 158 128 159 101 142Z"/>
+      <path class="scarf" d="M106 139C88 141 78 151 62 146C73 160 91 168 108 158Z"/>
+      <path class="scarf" d="M105 144C90 158 88 171 73 180C96 178 108 166 115 153Z"/>
+    </g>
+
+    <g id="idle-head">
+      <path class="fur" d="M108 82C110 59 129 45 155 47C181 49 201 68 201 94C201 120 182 138 157 139C130 140 108 122 107 98Z"/>
+      <ellipse class="eye" cx="168" cy="87" rx="9" ry="14"/>
+      <ellipse class="eye-shine" cx="171" cy="82" rx="3" ry="5"/>
+      <circle class="cheek" cx="183" cy="108" r="8"/>
+      <path class="nose" d="M192 94C198 91 202 94 201 98C200 102 195 104 191 100Z"/>
+      <path class="line" d="M191 101C186 108 181 109 176 106"/>
+      <path class="line" d="M176 106C177 113 184 116 190 111"/>
+    </g>
+
+    <g id="idle-head-closed">
+      <path class="fur" d="M108 82C110 59 129 45 155 47C181 49 201 68 201 94C201 120 182 138 157 139C130 140 108 122 107 98Z"/>
+      <path class="line" d="M159 87C163 91 168 91 172 87"/>
+      <path class="line" d="M191 101C186 108 181 109 176 106"/>
+      <path class="line" d="M176 106C177 113 184 116 190 111"/>
+      <circle class="cheek" cx="183" cy="108" r="8"/>
+      <path class="nose" d="M192 94C198 91 202 94 201 98C200 102 195 104 191 100Z"/>
+    </g>
+
+    <!-- Running anatomy -->
+    <g id="run-head">
+      <path class="fur" d="M151 62C130 47 118 25 121 11C124-2 142 7 155 20C165 30 170 47 168 64Z"/>
+      <path class="ear-inner" d="M145 50C136 38 132 25 135 19C137 15 144 20 151 27C158 36 161 47 159 56Z"/>
+      <path class="fur" d="M171 62C170 39 181 13 197 10C211 7 213 26 207 43C202 58 191 70 180 74Z"/>
+      <path class="ear-inner" d="M180 53C181 35 188 19 196 18C203 18 201 31 197 41C193 50 187 57 181 62Z"/>
+      <path class="fur" d="M135 71C140 50 158 38 183 43C207 47 222 66 220 89C218 111 200 125 177 126C155 127 135 112 133 93Z"/>
+      <ellipse class="eye" cx="194" cy="76" rx="8" ry="12"/>
+      <ellipse class="eye-shine" cx="197" cy="72" rx="3" ry="4"/>
+      <circle class="cheek" cx="207" cy="96" r="7"/>
+      <path class="nose" d="M214 84C220 82 224 84 223 88C222 92 217 94 213 90Z"/>
+      <path class="line" d="M213 91C207 99 201 99 196 96"/>
+      <path class="line" d="M196 96C198 103 204 106 210 101"/>
+    </g>
+
+    <g id="run-body">
+      <circle class="fur" cx="58" cy="155" r="18"/>
+      <path class="fur" d="M58 139C77 115 109 112 139 126C160 136 182 143 184 160C188 182 164 197 132 198C98 198 69 180 58 139Z"/>
+    </g>
+
+    <g id="run-scarf">
+      <path class="scarf" d="M129 108C146 116 170 119 190 111L193 127C171 139 144 137 126 126Z"/>
+      <path class="scarf" d="M132 119C112 117 98 124 81 116C89 133 108 143 132 135Z"/>
+      <path class="scarf" d="M130 126C111 139 108 152 91 159C112 161 130 149 139 134Z"/>
+    </g>
+
+    <g id="run-legs-01">
+      <path class="fur-warm" d="M92 169C74 179 58 193 43 191C35 189 35 180 44 174L85 151Z"/>
+      <path class="fur-warm" d="M119 183C103 198 90 210 74 211C66 211 64 202 72 196L108 168Z"/>
+      <path class="fur-warm" d="M147 171C165 182 181 188 195 184C202 182 202 173 194 169L153 154Z"/>
+    </g>
+    <g id="run-legs-02">
+      <path class="fur-warm" d="M91 171C74 187 64 203 49 207C41 209 37 200 44 193L82 158Z"/>
+      <path class="fur-warm" d="M121 184C112 204 106 217 92 222C84 224 79 216 85 208L107 170Z"/>
+      <path class="fur-warm" d="M148 170C171 175 188 179 199 172C205 168 202 160 194 158L153 154Z"/>
+    </g>
+    <g id="run-legs-03">
+      <path class="fur-warm" d="M91 169C77 174 63 183 50 179C43 177 42 168 50 164L88 151Z"/>
+      <path class="fur-warm" d="M119 184C103 190 88 194 77 188C70 184 73 176 82 175L112 166Z"/>
+      <path class="fur-warm" d="M149 170C168 186 184 197 196 196C204 195 206 186 197 181L158 154Z"/>
+    </g>
+    <g id="run-legs-04">
+      <path class="fur-warm" d="M90 168C74 161 59 153 47 157C39 160 40 169 49 173L87 181Z"/>
+      <path class="fur-warm" d="M119 184C101 178 84 174 75 181C69 187 75 194 84 193L112 191Z"/>
+      <path class="fur-warm" d="M149 171C164 157 180 147 194 151C202 153 202 162 193 167L157 183Z"/>
+    </g>
+    <g id="run-legs-05">
+      <path class="fur-warm" d="M90 168C77 153 69 138 55 137C47 136 43 145 51 151L86 181Z"/>
+      <path class="fur-warm" d="M119 184C101 168 89 155 91 145C93 137 102 138 107 146L128 176Z"/>
+      <path class="fur-warm" d="M149 172C163 185 179 202 193 205C201 207 205 198 197 192L157 161Z"/>
+    </g>
+    <g id="run-legs-06">
+      <path class="fur-warm" d="M91 168C81 185 75 201 61 207C53 210 49 202 55 195L84 157Z"/>
+      <path class="fur-warm" d="M119 184C113 202 111 216 98 223C90 227 84 219 90 211L108 171Z"/>
+      <path class="fur-warm" d="M149 171C170 176 187 178 198 170C204 165 201 157 193 156L154 155Z"/>
+    </g>
+
+    <g id="run-front-paw">
+      <path class="fur-warm" d="M151 130C164 128 179 134 185 144C190 153 184 161 175 158L146 145Z"/>
+    </g>
+
+    <!-- Jumping, falling and landing variations -->
+    <g id="jump-legs-takeoff">
+      <path class="fur-warm" d="M85 174C73 188 78 207 98 213C111 217 122 209 117 199C108 190 106 182 112 171Z"/>
+      <path class="fur-warm" d="M145 190C153 204 173 209 183 199C188 194 183 188 175 185L152 178Z"/>
+      <path class="fur-warm" d="M155 156C167 157 177 166 175 175C173 181 163 181 154 175L144 163Z"/>
+    </g>
+
+    <g id="jump-legs-tucked">
+      <path class="fur-warm" d="M91 164C76 171 67 181 72 190C77 198 91 194 103 183L113 166Z"/>
+      <path class="fur-warm" d="M124 180C110 189 107 202 116 207C127 213 138 201 144 188L143 175Z"/>
+      <path class="fur-warm" d="M153 157C167 157 179 163 181 172C182 180 170 183 158 177L145 166Z"/>
+    </g>
+
+    <g id="jump-legs-extended">
+      <path class="fur-warm" d="M91 163C72 156 57 149 48 156C42 161 47 169 57 171L93 177Z"/>
+      <path class="fur-warm" d="M121 180C103 171 88 165 80 172C73 179 81 187 91 188L122 190Z"/>
+      <path class="fur-warm" d="M151 158C171 150 188 147 197 154C203 159 198 167 188 168L153 173Z"/>
+    </g>
+
+    <g id="land-body">
+      <circle class="fur" cx="67" cy="176" r="18"/>
+      <path class="fur" d="M69 158C86 140 112 140 133 151C151 143 177 150 184 170C190 190 171 207 137 210C102 212 72 196 69 158Z"/>
+    </g>
+
+    <g id="land-legs">
+      <path class="fur-warm" d="M83 180C73 192 81 208 99 212C112 215 121 207 115 199C106 191 105 186 112 178Z"/>
+      <path class="fur-warm" d="M145 190C155 203 174 207 183 198C187 193 181 188 174 186L151 182Z"/>
+      <path class="fur-warm" d="M155 161C166 162 176 170 174 178C172 184 163 184 154 178L145 169Z"/>
+    </g>
+
+    <g id="land-scarf">
+      <path class="scarf" d="M104 139C128 148 169 149 191 139L196 155C170 168 128 168 101 155Z"/>
+      <path class="scarf" d="M106 151C89 153 79 161 64 157C75 171 92 177 109 169Z"/>
+      <path class="scarf" d="M105 157C91 169 90 180 76 187C96 185 108 176 114 164Z"/>
+    </g>
+
+    <g id="land-head">
+      <path class="fur" d="M108 97C110 74 129 60 155 62C181 64 201 83 201 109C201 135 182 153 157 154C130 155 108 137 107 113Z"/>
+      <ellipse class="eye" cx="168" cy="102" rx="9" ry="14"/>
+      <ellipse class="eye-shine" cx="171" cy="97" rx="3" ry="5"/>
+      <circle class="cheek" cx="183" cy="123" r="8"/>
+      <path class="nose" d="M192 109C198 106 202 109 201 113C200 117 195 119 191 115Z"/>
+      <path class="line" d="M191 116C186 123 181 124 176 121"/>
+      <path class="line" d="M176 121C177 128 184 131 190 126"/>
+    </g>
+
+    <g id="land-ears">
+      <path class="fur" d="M122 83C101 68 88 44 95 28C100 16 117 23 132 39C143 52 148 69 144 87Z"/>
+      <path class="ear-inner" d="M113 69C102 57 98 43 101 35C103 31 110 35 118 43C126 52 131 64 130 74Z"/>
+      <path class="fur" d="M149 83C146 56 154 27 172 22C187 18 191 37 187 55C184 71 176 83 163 91Z"/>
+      <path class="ear-inner" d="M158 72C157 51 163 33 172 31C180 29 181 42 178 53C175 64 169 72 162 78Z"/>
+    </g>
+
+    <!-- Reusable frame symbols -->
+    <symbol id="rabbit-idle-01" viewBox="0 0 256 256">
+      <use xlink:href="#idle-ears"/>
+      <use xlink:href="#idle-legs-a"/>
+      <use xlink:href="#idle-body"/>
+      <use xlink:href="#idle-scarf"/>
+      <use xlink:href="#idle-head"/>
+    </symbol>
+    <symbol id="rabbit-idle-02" viewBox="0 0 256 256">
+      <g transform="translate(0 3)">
+        <use xlink:href="#idle-ears"/>
+        <use xlink:href="#idle-legs-b"/>
+        <use xlink:href="#idle-body"/>
+        <use xlink:href="#idle-scarf"/>
+        <use xlink:href="#idle-head"/>
+      </g>
+    </symbol>
+    <symbol id="rabbit-idle-03" viewBox="0 0 256 256">
+      <g transform="translate(0 2)">
+        <use xlink:href="#idle-ears"/>
+        <use xlink:href="#idle-legs-a"/>
+        <use xlink:href="#idle-body"/>
+        <use xlink:href="#idle-scarf"/>
+        <use xlink:href="#idle-head-closed"/>
+      </g>
+    </symbol>
+    <symbol id="rabbit-idle-04" viewBox="0 0 256 256">
+      <use xlink:href="#idle-ears-alert"/>
+      <use xlink:href="#idle-legs-b"/>
+      <use xlink:href="#idle-body"/>
+      <use xlink:href="#idle-scarf"/>
+      <use xlink:href="#idle-head"/>
+    </symbol>
+
+    <symbol id="rabbit-jump-01" viewBox="0 0 256 256">
+      <g transform="translate(0 -2)">
+        <use xlink:href="#idle-ears-alert"/>
+        <use xlink:href="#jump-legs-takeoff"/>
+        <use xlink:href="#idle-body"/>
+        <use xlink:href="#idle-scarf"/>
+        <use xlink:href="#idle-head"/>
+      </g>
+    </symbol>
+    <symbol id="rabbit-jump-02" viewBox="0 0 256 256">
+      <g transform="translate(3 -14) rotate(-5 128 128)">
+        <use xlink:href="#run-head"/>
+        <use xlink:href="#run-body"/>
+        <use xlink:href="#jump-legs-tucked"/>
+        <use xlink:href="#run-front-paw"/>
+        <use xlink:href="#run-scarf"/>
+      </g>
+    </symbol>
+
+    <symbol id="rabbit-run-01" viewBox="0 0 256 256">
+      <use xlink:href="#run-head"/>
+      <use xlink:href="#run-body"/>
+      <use xlink:href="#run-legs-01"/>
+      <use xlink:href="#run-front-paw"/>
+      <use xlink:href="#run-scarf"/>
+    </symbol>
+    <symbol id="rabbit-run-02" viewBox="0 0 256 256">
+      <g transform="translate(0 -2)">
+        <use xlink:href="#run-head"/>
+        <use xlink:href="#run-body"/>
+        <use xlink:href="#run-legs-02"/>
+        <use xlink:href="#run-front-paw"/>
+        <use xlink:href="#run-scarf"/>
+      </g>
+    </symbol>
+    <symbol id="rabbit-run-03" viewBox="0 0 256 256">
+      <use xlink:href="#run-head"/>
+      <use xlink:href="#run-body"/>
+      <use xlink:href="#run-legs-03"/>
+      <use xlink:href="#run-front-paw"/>
+      <use xlink:href="#run-scarf"/>
+    </symbol>
+    <symbol id="rabbit-run-04" viewBox="0 0 256 256">
+      <g transform="translate(0 2)">
+        <use xlink:href="#run-head"/>
+        <use xlink:href="#run-body"/>
+        <use xlink:href="#run-legs-04"/>
+        <use xlink:href="#run-front-paw"/>
+        <use xlink:href="#run-scarf"/>
+      </g>
+    </symbol>
+    <symbol id="rabbit-run-05" viewBox="0 0 256 256">
+      <use xlink:href="#run-head"/>
+      <use xlink:href="#run-body"/>
+      <use xlink:href="#run-legs-05"/>
+      <use xlink:href="#run-front-paw"/>
+      <use xlink:href="#run-scarf"/>
+    </symbol>
+    <symbol id="rabbit-run-06" viewBox="0 0 256 256">
+      <g transform="translate(0 -1)">
+        <use xlink:href="#run-head"/>
+        <use xlink:href="#run-body"/>
+        <use xlink:href="#run-legs-06"/>
+        <use xlink:href="#run-front-paw"/>
+        <use xlink:href="#run-scarf"/>
+      </g>
+    </symbol>
+
+    <symbol id="rabbit-jump-03" viewBox="0 0 256 256">
+      <g transform="translate(1 -18) rotate(-8 128 128)">
+        <use xlink:href="#run-head"/>
+        <use xlink:href="#run-body"/>
+        <use xlink:href="#jump-legs-extended"/>
+        <use xlink:href="#run-front-paw"/>
+        <use xlink:href="#run-scarf"/>
+      </g>
+    </symbol>
+    <symbol id="rabbit-jump-04" viewBox="0 0 256 256">
+      <g transform="translate(0 -8) rotate(6 128 128)">
+        <use xlink:href="#run-head"/>
+        <use xlink:href="#run-body"/>
+        <use xlink:href="#jump-legs-tucked"/>
+        <use xlink:href="#run-front-paw"/>
+        <use xlink:href="#run-scarf"/>
+      </g>
+    </symbol>
+    <symbol id="rabbit-fall-01" viewBox="0 0 256 256">
+      <g transform="translate(-2 4) rotate(13 128 128)">
+        <use xlink:href="#run-head"/>
+        <use xlink:href="#run-body"/>
+        <use xlink:href="#jump-legs-tucked"/>
+        <use xlink:href="#run-front-paw"/>
+        <use xlink:href="#run-scarf"/>
+      </g>
+    </symbol>
+    <symbol id="rabbit-fall-02" viewBox="0 0 256 256">
+      <g transform="translate(-3 14) rotate(21 128 128)">
+        <use xlink:href="#run-head"/>
+        <use xlink:href="#run-body"/>
+        <use xlink:href="#jump-legs-tucked"/>
+        <use xlink:href="#run-front-paw"/>
+        <use xlink:href="#run-scarf"/>
+      </g>
+    </symbol>
+    <symbol id="rabbit-land-01" viewBox="0 0 256 256">
+      <use xlink:href="#land-ears"/>
+      <use xlink:href="#land-legs"/>
+      <use xlink:href="#land-body"/>
+      <use xlink:href="#land-scarf"/>
+      <use xlink:href="#land-head"/>
+    </symbol>
+    <symbol id="rabbit-land-02" viewBox="0 0 256 256">
+      <g transform="translate(0 -3)">
+        <use xlink:href="#idle-ears"/>
+        <use xlink:href="#idle-legs-a"/>
+        <use xlink:href="#idle-body"/>
+        <use xlink:href="#idle-scarf"/>
+        <use xlink:href="#idle-head"/>
+      </g>
+    </symbol>
+  </defs>
+
+  <!-- Visible sprite sheet: 6 columns x 3 rows, 256 px per frame. -->
+  <g id="sprite-sheet">
+    <!-- Row 1: idle, then jump takeoff -->
+    <use xlink:href="#rabbit-idle-01" x="0" y="0" width="256" height="256"/>
+    <use xlink:href="#rabbit-idle-02" x="256" y="0" width="256" height="256"/>
+    <use xlink:href="#rabbit-idle-03" x="512" y="0" width="256" height="256"/>
+    <use xlink:href="#rabbit-idle-04" x="768" y="0" width="256" height="256"/>
+    <use xlink:href="#rabbit-jump-01" x="1024" y="0" width="256" height="256"/>
+    <use xlink:href="#rabbit-jump-02" x="1280" y="0" width="256" height="256"/>
+
+    <!-- Row 2: complete six-frame run cycle -->
+    <use xlink:href="#rabbit-run-01" x="0" y="256" width="256" height="256"/>
+    <use xlink:href="#rabbit-run-02" x="256" y="256" width="256" height="256"/>
+    <use xlink:href="#rabbit-run-03" x="512" y="256" width="256" height="256"/>
+    <use xlink:href="#rabbit-run-04" x="768" y="256" width="256" height="256"/>
+    <use xlink:href="#rabbit-run-05" x="1024" y="256" width="256" height="256"/>
+    <use xlink:href="#rabbit-run-06" x="1280" y="256" width="256" height="256"/>
+
+    <!-- Row 3: jump, fall, landing and recovery -->
+    <use xlink:href="#rabbit-jump-03" x="0" y="512" width="256" height="256"/>
+    <use xlink:href="#rabbit-jump-04" x="256" y="512" width="256" height="256"/>
+    <use xlink:href="#rabbit-fall-01" x="512" y="512" width="256" height="256"/>
+    <use xlink:href="#rabbit-fall-02" x="768" y="512" width="256" height="256"/>
+    <use xlink:href="#rabbit-land-01" x="1024" y="512" width="256" height="256"/>
+    <use xlink:href="#rabbit-land-02" x="1280" y="512" width="256" height="256"/>
+  </g>
+</svg>

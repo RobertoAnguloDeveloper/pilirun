@@ -126,12 +126,12 @@ export function MusicLibrary({
           </div>
         </div>
         <div>
-          <span className="pill">SONIDO ORIGINAL</span>
-          <h2>Un respiro entre los árboles.</h2>
-          <p>Notas suaves, pasos ligeros. El sonido de PiliRun.</p>
+          <span className="pill">BANDA SONORA RETRO PLATFORMER</span>
+          <h2>Aventura Clásica de Plataformas</h2>
+          <p>Chiptune de 140 BPM, bajo saltarín, arpegios y batería arcade inspirada en los clásicos.</p>
           <button className="primary" disabled={busy} onClick={() => void play()}>
             {active === 'ambient' ? <Pause size={18} /> : <Play size={18} />}
-            {active === 'ambient' ? 'Pausar ambiente' : 'Escuchar ambiente'}
+            {active === 'ambient' ? 'Pausar Banda Sonora' : 'Escuchar Banda Sonora'}
           </button>
         </div>
         <AudioLines className="sound-decoration" />

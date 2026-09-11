@@ -44,6 +44,7 @@ export class GameEngine {
     this.last = 0;
     this.frame = requestAnimationFrame(this.tick);
     this.onHud(this.simulation.hud());
+    void audioEngine.play();
   }
   toggleCameraView() {
     this.simulation.toggleCameraView();
@@ -58,10 +59,13 @@ export class GameEngine {
   pause() {
     this.simulation.togglePause();
     this.onHud(this.simulation.hud());
-    if (this.simulation.phase === 'PAUSED') cancelAnimationFrame(this.frame);
-    else if (this.simulation.phase === 'PLAYING') {
+    if (this.simulation.phase === 'PAUSED') {
+      cancelAnimationFrame(this.frame);
+      audioEngine.stop();
+    } else if (this.simulation.phase === 'PLAYING') {
       this.last = 0;
       this.frame = requestAnimationFrame(this.tick);
+      void audioEngine.play();
     }
   }
   jump() {
@@ -100,5 +104,6 @@ export class GameEngine {
   destroy() {
     cancelAnimationFrame(this.frame);
     this.observer.disconnect();
+    audioEngine.stop();
   }
 }

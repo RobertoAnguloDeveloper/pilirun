@@ -32,8 +32,11 @@ import {
   Volume2,
   VolumeX,
   X,
+  Maximize2,
+  Minimize2,
 } from 'lucide-react';
 import { Avatar, Landscape } from './art';
+import { BackgroundRunner } from './background-runner';
 import { CHARACTERS, TRACKS, WORLDS } from '@/lib/worlds';
 import {
   DEFAULT_PREFERENCES,
@@ -126,6 +129,15 @@ export default function PiliRun() {
     return () => clearTimeout(timer);
   }, [toast]);
   useEffect(() => {
+    const handleGlobalKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && page !== 'home' && !playing) {
+        setPage('home');
+      }
+    };
+    window.addEventListener('keydown', handleGlobalKey);
+    return () => window.removeEventListener('keydown', handleGlobalKey);
+  }, [page, playing]);
+  useEffect(() => {
     const flush = () => {
       if (prefTimer.current) {
         clearTimeout(prefTimer.current);
@@ -170,12 +182,56 @@ export default function PiliRun() {
         .catch((e) => setToast(e.message));
     }, 150);
   };
-  const start = (track: Track = selectedTrack) => {
+  const [isFullscreen, setIsFullscreen] = useState(false);
+
+  const toggleFullscreen = async () => {
+    if (document.activeElement instanceof HTMLElement) {
+      document.activeElement.blur();
+    }
+    try {
+      if (!document.fullscreenElement) {
+        if (document.documentElement.requestFullscreen) {
+          await document.documentElement.requestFullscreen();
+        }
+        setIsFullscreen(true);
+      } else {
+        if (document.exitFullscreen) {
+          await document.exitFullscreen();
+        }
+        setIsFullscreen(false);
+      }
+    } catch {
+      setIsFullscreen((p) => !p);
+    }
+  };
+
+  useEffect(() => {
+    const handleFs = () => setIsFullscreen(!!document.fullscreenElement);
+    document.addEventListener('fullscreenchange', handleFs);
+    return () => document.removeEventListener('fullscreenchange', handleFs);
+  }, []);
+
+  const start = async (track: Track = selectedTrack) => {
     if (!ready) return;
+    if (document.activeElement instanceof HTMLElement) {
+      document.activeElement.blur();
+    }
     void audioEngine
       .unlock()
       .catch(() => setToast('El audio no pudo activarse. Puedes seguir jugando.'));
+    
+    // Automatically enter fullscreen on game launch
+    try {
+      if (!document.fullscreenElement && document.documentElement.requestFullscreen) {
+        await document.documentElement.requestFullscreen();
+        setIsFullscreen(true);
+      }
+    } catch {
+      // Ignored if user browser policy requires specific user gesture
+    }
+
     setPlaying(track);
+    setPage('home');
     window.scrollTo({ top: 0 });
   };
   const saveCharacter = async (c: Character) => {
@@ -207,338 +263,257 @@ export default function PiliRun() {
     totalDistance = data.runs.reduce((n, r) => n + r.distance, 0),
     best = Math.max(0, ...data.runs.map((r) => r.score));
   return (
-    <div className={`app-shell ${data.preferences.reducedMotion ? 'reduced-motion' : ''}`}>
-      <aside className="sidebar">
-        <button
-          className="brand"
-          onClick={() => navigate('home')}
-          aria-label="PiliRun, ir al campamento"
-        >
-          <span className="brand-mark">
-            <Footprints size={25} />
+    <div className={`game-studio-root ${data.preferences.reducedMotion ? 'reduced-motion' : ''} ${isFullscreen ? 'studio-fullscreen' : ''}`}>
+      {/* 1. Live Ambient 3D Running Canvas Background (always active on main menu) */}
+      {!playing && (
+        <BackgroundRunner
+          track={selectedTrack}
+          character={character}
+          reduced={data.preferences.reducedMotion}
+        />
+      )}
+
+      {/* 2. Top In-Game Arcade Header */}
+      <header className="arcade-header">
+        <div className="arcade-brand" onClick={() => navigate('home')} role="button" tabIndex={0}>
+          <span className="arcade-logo-mark">
+            <Footprints size={22} />
           </span>
-          <span>
-            pili<span>run</span>
-            <i />
+          <span className="arcade-logo-text">
+            PILI<span>RUN</span>
           </span>
-        </button>
-        <div className="sidebar-caption">UN MUNDO POR CORRER</div>
-        <nav aria-label="Navegación principal">
-          {NAV.map(({ id, name, icon: Icon }, i) => (
+        </div>
+
+        <nav className="arcade-nav-pills" aria-label="Menú del juego">
+          {NAV.map(({ id, name, icon: Icon }) => (
             <button
               key={id}
-              className={`${page === id && !playing ? 'active' : ''} ${i === 2 ? 'nav-gap' : ''}`}
+              className={`arcade-pill-btn ${page === id && !playing ? 'active' : ''}`}
               onClick={() => navigate(id)}
             >
-              <Icon size={19} strokeWidth={1.8} />
+              <Icon size={16} />
               <span>{name}</span>
-              {id === 'builder' && <span className="tiny-new">CREA</span>}
             </button>
           ))}
         </nav>
-        <div className="sidebar-bottom">
-          <div className="offline-card">
-            <span className="offline-icon">
-              <Sprout size={23} />
-            </span>
-            <strong>
-              Un pequeño mundo.
-              <br />
-              Todo tuyo.
-            </strong>
-            <p>
-              Sin cuentas. Sin prisas.
-              <br />
-              Aventuras que se quedan contigo.
-            </p>
-            <div>
-              <span className={`status-dot ${ready ? '' : 'waiting'}`} />
-              {ready ? 'Guardado en tu dispositivo' : 'Preparando tu campamento'}
-            </div>
-          </div>
+
+        <div className="arcade-header-stats">
+          <span className="arcade-stat-badge" title="Monedas recolectadas">
+            <Coins size={16} />
+            <strong>{totalCoins.toLocaleString('es')}</strong>
+          </span>
+
           <button
-            className={page === 'settings' ? 'settings-link active' : 'settings-link'}
-            onClick={() => navigate('settings')}
+            className="arcade-icon-btn"
+            aria-label={data.preferences.muted ? 'Activar sonido' : 'Silenciar sonido'}
+            onClick={() => preferences({ ...data.preferences, muted: !data.preferences.muted })}
+            title={data.preferences.muted ? 'Activar sonido' : 'Silenciar'}
           >
-            <Settings2 size={19} /> Ajustes <span>v1.0</span>
+            {data.preferences.muted ? <VolumeX size={18} /> : <Volume2 size={18} />}
           </button>
-          <div className="sidebar-footer">
-            HECHO PARA DISFRUTAR EL CAMINO <Heart size={10} />
-          </div>
+
+          <button
+            className="arcade-icon-btn"
+            tabIndex={-1}
+            onPointerDown={(e) => e.currentTarget.blur()}
+            aria-label={isFullscreen ? 'Salir de pantalla completa' : 'Pantalla completa'}
+            onClick={(e) => {
+              e.currentTarget.blur();
+              void toggleFullscreen();
+            }}
+            title="Pantalla Completa [F]"
+          >
+            {isFullscreen ? <Minimize2 size={18} /> : <Maximize2 size={18} />}
+          </button>
+
+          <button
+            className="arcade-icon-btn"
+            aria-label="Ajustes de juego"
+            onClick={() => navigate('settings')}
+            title="Ajustes de Juego"
+          >
+            <Settings2 size={18} />
+          </button>
+
+          <button
+            className="arcade-avatar-chip"
+            aria-label="Elegir personaje"
+            onClick={() => navigate('characters')}
+            title="Elegir personaje"
+          >
+            <Avatar character={character} size={34} />
+          </button>
         </div>
-      </aside>
-      <div className="main-shell">
-        <header className="topbar">
-          <div className="breadcrumb">
-            <span>Tu pequeño universo</span>
-            <ChevronRight size={14} />
-            <strong>
-              {playing ? 'En la pista' : (NAV.find((n) => n.id === page)?.name ?? 'Ajustes')}
-            </strong>
-          </div>
-          <div className="topbar-right">
-            <span className="connection">
-              <i className="status-dot" />
-              {online ? 'A tu ritmo' : 'Sin conexión'}
-            </span>
-            <span className="coin-wallet">
-              <Coins size={17} />
-              {totalCoins.toLocaleString('es')}
-            </span>
-            <button
-              className="icon-button"
-              aria-label={data.preferences.muted ? 'Activar sonido' : 'Silenciar sonido'}
-              onClick={() => preferences({ ...data.preferences, muted: !data.preferences.muted })}
-            >
-              {data.preferences.muted ? <VolumeX size={19} /> : <Volume2 size={19} />}
-            </button>
-            <button
-              className="profile-avatar"
-              aria-label="Elegir personaje"
-              onClick={() => navigate('characters')}
-            >
-              <Avatar character={character} size={36} />
-            </button>
-            <button
-              className="mobile-settings icon-button"
-              aria-label="Ajustes del juego"
-              onClick={() => navigate('settings')}
-            >
-              <Settings2 size={18} />
-            </button>
-          </div>
-        </header>
-        <main id="main-content" className="main-content">
-          {error && (
-            <div className="error-banner" role="alert">
-              <ShieldCheck />
-              <div>
-                <strong>No pudimos abrir tu guardado.</strong>
-                <p>{error}</p>
-              </div>
-              <button className="secondary" onClick={() => location.reload()}>
-                Reintentar
-              </button>
+      </header>
+
+      {/* 3. Main Viewport / Game Canvas */}
+      <main id="main-content" className="game-studio-viewport">
+        {error && (
+          <div className="error-banner in-game-alert" role="alert">
+            <ShieldCheck />
+            <div>
+              <strong>No pudimos abrir tu guardado.</strong>
+              <p>{error}</p>
             </div>
-          )}
-          {playing ? (
-            <GameView
-              track={playing}
-              character={character}
-              reduced={data.preferences.reducedMotion}
-              initialCameraView={data.preferences.cameraView || 'side'}
-              onClose={() => setPlaying(null)}
-              onResult={saveRun}
-            />
-          ) : (
-            <>
-              {page === 'home' && (
-                <>
-                  <div className="greeting">
-                    <div>
-                      <p className="eyebrow">
-                        <span /> QUE EMPIECE LO BUENO
-                      </p>
-                      <h1>
-                        Un salto fuera de la rutina<span>.</span>
-                      </h1>
-                      <p>Explora, crea y corre a tu manera. El camino es tuyo.</p>
-                    </div>
-                    <button className="text-button help-button" onClick={() => setHelp(true)}>
-                      <Gamepad2 size={18} /> Cómo jugar <ArrowRight size={15} />
+            <button className="secondary" onClick={() => location.reload()}>
+              Reintentar
+            </button>
+          </div>
+        )}
+
+        {playing ? (
+          <GameView
+            track={playing}
+            character={character}
+            reduced={data.preferences.reducedMotion}
+            initialCameraView={data.preferences.cameraView || 'side'}
+            onClose={() => setPlaying(null)}
+            onResult={saveRun}
+          />
+        ) : (
+          <>
+            {page === 'home' && (
+              <div className="arcade-hero-centerpiece">
+                <div className="arcade-title-box">
+                  <div className="arcade-eyebrow">
+                    <Sparkles size={16} /> MODO ARCADE 3D · TEMPLE RUNNER
+                  </div>
+                  <h1 className="arcade-game-title">
+                    PILI<span>RUN</span>
+                  </h1>
+                  <p className="arcade-game-subtitle">
+                    Mundo actual: <strong>{selectedTrack.name}</strong> ({WORLDS[selectedTrack.world].difficulty})
+                  </p>
+                </div>
+
+                <div className="arcade-center-actions">
+                  <button
+                    className="arcade-big-play-btn"
+                    tabIndex={-1}
+                    disabled={!ready}
+                    onPointerDown={(e) => e.currentTarget.blur()}
+                    onClick={(e) => {
+                      e.currentTarget.blur();
+                      void start();
+                    }}
+                  >
+                    {ready ? (
+                      <Play size={28} fill="currentColor" />
+                    ) : (
+                      <LoaderCircle size={28} className="spin" />
+                    )}
+                    <span>{ready ? 'JUGAR AHORA' : 'PREPARANDO…'}</span>
+                  </button>
+
+                  <div className="arcade-quick-dock">
+                    <button
+                      className="arcade-dock-item"
+                      onClick={() => navigate('worlds')}
+                      title="Explorar todos los mundos"
+                    >
+                      <Map size={20} />
+                      <span>Mundos</span>
+                    </button>
+                    <button
+                      className="arcade-dock-item"
+                      onClick={() => navigate('characters')}
+                      title="Personalizar corredores"
+                    >
+                      <Palette size={20} />
+                      <span>Personajes</span>
+                    </button>
+                    <button
+                      className="arcade-dock-item"
+                      onClick={() => navigate('builder')}
+                      title="Crear pistas de carrera"
+                    >
+                      <Route size={20} />
+                      <span>Taller</span>
+                    </button>
+                    <button
+                      className="arcade-dock-item"
+                      onClick={() => navigate('music')}
+                      title="Música de carrera"
+                    >
+                      <Music2 size={20} />
+                      <span>Música</span>
+                    </button>
+                    <button
+                      className="arcade-dock-item"
+                      onClick={() => navigate('stats')}
+                      title="Récords y estadísticas"
+                    >
+                      <Trophy size={20} />
+                      <span>Récords</span>
                     </button>
                   </div>
-                  <section className="home-grid">
-                    <article className="hero-adventure">
-                      <Landscape world={selectedTrack.world} fox />
-                      <div className="hero-shade" />
-                      <div className="hero-content">
-                        <div className="hero-tags">
-                          <span className="pill">
-                            <Leaf size={12} /> TU PRÓXIMA AVENTURA
-                          </span>
-                          <span className="hero-difficulty">
-                            <i />
-                            {WORLDS[selectedTrack.world].difficulty}
-                          </span>
-                        </div>
-                        <h2>
-                          {selectedTrack.name.split(' ').slice(0, -1).join(' ') ||
-                            selectedTrack.name}
-                          <br />
-                          {selectedTrack.name.includes(' ')
-                            ? selectedTrack.name.split(' ').at(-1)
-                            : ''}
-                          <span>.</span>
-                        </h2>
-                        <p>{WORLDS[selectedTrack.world].subtitle}</p>
-                        <button
-                          className="primary play-button"
-                          disabled={!ready}
-                          onClick={() => start()}
-                        >
-                          {ready ? (
-                            <Play size={18} fill="currentColor" />
-                          ) : (
-                            <LoaderCircle size={18} className="spin" />
-                          )}
-                          {ready ? 'Vamos a correr' : 'Preparando…'}
-                          <ArrowRight size={18} />
-                        </button>
-                        <div className="hero-meta">
-                          <span>
-                            <Route size={14} />
-                            {selectedTrack.length / 10} m de aventura
-                          </span>
-                          <span>
-                            <Flag size={14} />
-                            {Math.ceil(selectedTrack.length / 3000)} etapas
-                          </span>
-                        </div>
-                      </div>
-                      <div className="hero-bottom">
-                        <span>
-                          <kbd>↑</kbd> Salta. <kbd>↓</kbd> Deslízate. <Heart size={12} /> Disfruta.
-                        </span>
-                        <span>01 / 03</span>
-                      </div>
-                    </article>
-                    <aside className="companion-card">
-                      <div className="section-heading compact">
-                        <p className="eyebrow">TU COMPAÑERO DE VIAJE</p>
-                        <span className="green-dot" />
-                      </div>
-                      <div className="companion-scene">
-                        <div className="orbit orbit-one" />
-                        <div className="orbit orbit-two" />
-                        <Sparkles className="sparkle-one" size={19} />
-                        <Avatar character={character} size={174} />
-                        <span className="little-leaf">
-                          <Leaf size={18} />
-                        </span>
-                      </div>
-                      <div className="companion-name">
-                        <h2>{character.name}</h2>
-                        <span className="pill small">EXPLORADOR</span>
-                      </div>
-                      <p>
-                        Grandes aventuras.
-                        <br />
-                        Pequeñas patas.
-                      </p>
-                      <div className="companion-divider" />
-                      <button className="secondary" onClick={() => navigate('characters')}>
-                        <Palette size={16} /> Personalizar <ArrowRight size={16} />
-                      </button>
-                      <span className="card-footnote">Un personaje tan único como tú.</span>
-                    </aside>
-                  </section>
-                  <section className="journey-strip" aria-label="Tu progreso">
-                    <div className="journey-intro">
-                      <span className="round-icon">
-                        <Footprints size={21} />
-                      </span>
-                      <div>
-                        <strong>Cada paso cuenta.</strong>
-                        <span>Tu historia hasta ahora</span>
-                      </div>
-                    </div>
-                    <div>
-                      <strong>
-                        {totalDistance.toLocaleString('es')} <small>m</small>
-                      </strong>
-                      <span>camino recorrido</span>
-                    </div>
-                    <div>
-                      <strong>{data.runs.length.toString().padStart(2, '0')}</strong>
-                      <span>aventuras vividas</span>
-                    </div>
-                    <div>
-                      <strong>{best.toLocaleString('es')}</strong>
-                      <span>tu mejor puntuación</span>
+                </div>
+
+                <div className="arcade-footer-bar">
+                  <div className="arcade-footer-hints">
+                    <span><kbd>Espacio</kbd> / <kbd>↑</kbd> Saltar</span>
+                    <span><kbd>↓</kbd> Deslizar</span>
+                    <span><kbd>C</kbd> Cambiar Cámara 3D</span>
+                    <span><kbd>F</kbd> Pantalla Completa</span>
+                    <span><kbd>P</kbd> Pausa</span>
+                  </div>
+                  <button className="arcade-help-link" onClick={() => setHelp(true)}>
+                    <Gamepad2 size={16} /> Instrucciones
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* In-Game Modal Overlay for Sub-Pages */}
+            {page !== 'home' && (
+              <div className="in-game-drawer-backdrop" onClick={() => navigate('home')}>
+                <div
+                  className="in-game-drawer-panel"
+                  onClick={(e) => e.stopPropagation()}
+                  role="dialog"
+                  aria-modal="true"
+                >
+                  <div className="in-game-drawer-header">
+                    <div className="drawer-title-group">
+                      <h2>{NAV.find((n) => n.id === page)?.name ?? 'Ajustes del Juego'}</h2>
+                      <span className="drawer-subtitle">Menú integrado en el juego</span>
                     </div>
                     <button
-                      className="icon-button"
-                      aria-label="Ver mis aventuras"
-                      onClick={() => navigate('stats')}
+                      className="arcade-close-btn"
+                      onClick={() => navigate('home')}
+                      aria-label="Cerrar y volver al juego"
                     >
-                      <ArrowRight size={19} />
-                    </button>
-                  </section>
-                  <div className="section-heading world-heading">
-                    <div>
-                      <p className="eyebrow">SIEMPRE HAY ALGO POR DESCUBRIR</p>
-                      <h2>Elige tu próximo horizonte.</h2>
-                    </div>
-                    <button className="text-button" onClick={() => navigate('worlds')}>
-                      Todos los mundos <ArrowRight size={16} />
+                      <span>CERRAR [ESC]</span>
+                      <X size={18} />
                     </button>
                   </div>
-                  <div className="world-grid">
-                    {TRACKS.map((track, i) => (
-                      <WorldCard
-                        key={track.id}
-                        track={track}
-                        index={i}
-                        selected={track.id === selectedTrack.id}
-                        onClick={() => {
-                          preferences({ ...data.preferences, trackId: track.id });
-                          setToast(`${track.name} está listo para tu próxima carrera.`);
-                        }}
-                      />
-                    ))}
-                  </div>
-                  <div className="create-banner">
-                    <div className="create-banner-icon">
-                      <Route size={29} />
-                      <span>
-                        <Plus size={11} />
-                      </span>
-                    </div>
-                    <div>
-                      <p className="eyebrow">UN POCO DE IMAGINACIÓN, UN MUNDO NUEVO</p>
-                      <h3>¿Y si el próximo camino lo creas tú?</h3>
-                      <p>Diseña una pista, añade tu música y hazla tuya.</p>
-                    </div>
-                    <button className="secondary" onClick={() => navigate('builder')}>
-                      Abrir mi taller <ArrowRight size={16} />
-                    </button>
-                  </div>
-                </>
-              )}
-              {page === 'worlds' && (
-                <>
-                  <div className="section-heading">
-                    <div>
-                      <p className="eyebrow">SAL A DESCUBRIR</p>
-                      <h1>Hay un mundo ahí fuera.</h1>
-                      <p>Seis horizontes únicos. Todas las ganas de explorar a máxima velocidad.</p>
-                    </div>
-                  </div>
-                  <div className="world-grid worlds-full">
-                    {tracks.map((track, index) => (
-                      <WorldCard
-                        key={track.id}
-                        track={track}
-                        index={index}
-                        selected={selectedTrack.id === track.id}
-                        onClick={() => {
-                          preferences({ ...data.preferences, trackId: track.id });
-                          start(track);
-                        }}
-                      />
-                    ))}
-                  </div>
-                  <div className="hint-card">
-                    <Compass size={23} />
-                    <p>
-                      <strong>Cada mundo, un ritmo y desafío.</strong> Explora el bosque, las dunas,
-                      el valle estelar, la metrópolis cyberpunk neón, las cumbres celestes o el cráter ígneo.
-                      Pulsa cualquier mundo para correr.
-                    </p>
-                  </div>
-                </>
-              )}
+
+                  <div className="in-game-drawer-body">
+                    {page === 'worlds' && (
+                      <>
+                        <div className="section-heading">
+                          <div>
+                            <p className="eyebrow">SELECCIÓN DE MUNDO</p>
+                            <h1>Elige tu próximo escenario</h1>
+                            <p>6 mundos con físicas, saltos y atmósfera 3D única.</p>
+                          </div>
+                        </div>
+                        <div className="world-grid worlds-full">
+                          {tracks.map((track, index) => (
+                            <WorldCard
+                              key={track.id}
+                              track={track}
+                              index={index}
+                              selected={selectedTrack.id === track.id}
+                              onClick={() => {
+                                preferences({ ...data.preferences, trackId: track.id });
+                                void start(track);
+                              }}
+                            />
+                          ))}
+                        </div>
+                      </>
+                    )}
               {page === 'characters' && ready && (
                 <CharacterEditor
                   characters={characters}
@@ -728,16 +703,16 @@ export default function PiliRun() {
                   </div>
                 </>
               )}
-            </>
-          )}
-          <footer className="main-footer">
-            <span>
-              <Sprout size={15} /> Menos prisa. Más aventura.
-            </span>
-            <span>PiliRun · Tu mundo, tu ritmo.</span>
-          </footer>
-        </main>
-      </div>
+            </div>
+          </div>
+        </div>
+      )}
+    </>
+  )}
+        <footer className="arcade-bottom-credit">
+          <span>PILIRUN 3D GAME STUDIO · MUNDO LOCAL INDEPENDIENTE</span>
+        </footer>
+      </main>
       {toast && (
         <div className="toast" role="status">
           <Check size={18} />

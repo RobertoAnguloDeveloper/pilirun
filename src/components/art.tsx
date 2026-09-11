@@ -36,30 +36,42 @@ export function Avatar({ character, size = 80 }: { character: Character; size?: 
   useEffect(() => {
     const canvas = ref.current!;
     const ctx = canvas.getContext('2d')!;
-    let frameId = 0;
-    let start = performance.now();
+    const start = performance.now();
+    let imgElement: HTMLImageElement | null = null;
+    const runFrames: HTMLImageElement[] = [];
+    let frameId: number;
+    if (character.frames?.run && character.frames.run.length > 0) {
+      character.frames.run.forEach((src) => {
+        const img = new Image();
+        img.src = src;
+        runFrames.push(img);
+      });
+    } else if (character.image) {
+      imgElement = new Image();
+      imgElement.src = character.image;
+    }
 
     const renderFrame = (now: number) => {
       const elapsed = (now - start) / 1000;
       const breathe = Math.sin(elapsed * 3) * 2;
       ctx.clearRect(0, 0, 160, 160);
 
-      if (character.image) {
-        const image = new Image();
-        image.onload = () => {
-          ctx.clearRect(0, 0, 160, 160);
+      // Determine active sprite frame (multi-frame animation or single image)
+      let activeImg = imgElement;
+      if (runFrames.length > 0) {
+        const idx = Math.floor(elapsed * 8) % runFrames.length;
+        if (runFrames[idx]?.complete && runFrames[idx].naturalWidth) {
+          activeImg = runFrames[idx];
+        }
+      }
+
+      if (activeImg) {
+        if (activeImg.complete && activeImg.naturalWidth) {
           ctx.save();
           ctx.translate(80, 80);
           ctx.scale(1 + Math.sin(elapsed * 2) * 0.02, 1 - Math.sin(elapsed * 2) * 0.02);
-          ctx.drawImage(image, -65, -65 + breathe * 0.5, 130, 130);
-          ctx.restore();
-        };
-        image.src = character.image;
-        if (image.complete && image.naturalWidth) {
-          ctx.save();
-          ctx.translate(80, 80);
-          ctx.scale(1 + Math.sin(elapsed * 2) * 0.02, 1 - Math.sin(elapsed * 2) * 0.02);
-          ctx.drawImage(image, -65, -65 + breathe * 0.5, 130, 130);
+          ctx.imageSmoothingEnabled = false;
+          ctx.drawImage(activeImg, -65, -65 + breathe * 0.5, 130, 130);
           ctx.restore();
         }
       } else if (character.pixels) {

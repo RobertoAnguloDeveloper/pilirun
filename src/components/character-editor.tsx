@@ -28,8 +28,48 @@ const COLORS = [
   '#f18c73',
   '#f3d67d',
   '#759bbd',
+  '#4a7298',
   '#ffffff',
+  '#e2e8f0',
+  '#94a3b8',
+  '#475569',
   '#1c2524',
+];
+
+// Presets from the project's assets folder (/assets/1.png and /assets/2.png)
+const ASSET_PRESETS = [
+  {
+    name: 'Pili Animado (Assets)',
+    src: '/assets/character-sprite-1.png',
+    fallbackSrc: '/assets/2.png',
+    icon: '🦊',
+    frames: {
+      run: [
+        '/assets/pili-run-0.png',
+        '/assets/pili-run-1.png',
+        '/assets/pili-run-2.png',
+        '/assets/pili-run-3.png',
+        '/assets/pili-run-4.png',
+        '/assets/pili-run-5.png',
+      ],
+      jump: [
+        '/assets/pili-jump-0.png',
+        '/assets/pili-jump-1.png',
+      ],
+      slide: [
+        '/assets/pili-slide-0.png',
+      ],
+      idle: [
+        '/assets/pili-idle-0.png',
+      ],
+    },
+  },
+  {
+    name: 'Paladín Sprite 2',
+    src: '/assets/character-sprite-2.png',
+    fallbackSrc: '/assets/2.png',
+    icon: '🛡️',
+  },
 ];
 
 // Curated starter sprite archetypes
@@ -140,34 +180,189 @@ function findClosestPaletteColor(r: number, g: number, b: number): string {
 }
 
 /**
- * Automatically sample an image element into 16x16 sprite pixels
+ * Automatically analyze an image or sprite sheet, extract a single character frame,
+ * eliminate background noise / checkerboards if present, and produce:
+ * 1. A clean 16x16 pixel art array
+ * 2. A crisp transparent PNG Data URL for high-res rendering
  */
-function sampleImageToPixels(img: HTMLImageElement): string[] {
-  const canvas = document.createElement('canvas');
-  canvas.width = 16;
-  canvas.height = 16;
-  const ctx = canvas.getContext('2d', { willReadFrequently: true });
-  if (!ctx) return defaultPixels();
+function processImageToSprite(img: HTMLImageElement): { pixels: string[]; croppedDataUrl: string } {
+  const srcW = img.naturalWidth || img.width;
+  const srcH = img.naturalHeight || img.height;
 
-  ctx.drawImage(img, 0, 0, 16, 16);
-  const data = ctx.getImageData(0, 0, 16, 16).data;
-  const sampled: string[] = [];
+  // Work with a source canvas to read pixels
+  const fullCanvas = document.createElement('canvas');
+  fullCanvas.width = srcW;
+  fullCanvas.height = srcH;
+  const fullCtx = fullCanvas.getContext('2d', { willReadFrequently: true });
+  if (!fullCtx) {
+    return { pixels: defaultPixels(), croppedDataUrl: '' };
+  }
+  fullCtx.drawImage(img, 0, 0);
+  const imgData = fullCtx.getImageData(0, 0, srcW, srcH);
+  const d = imgData.data;
 
-  for (let i = 0; i < 256; i++) {
-    const idx = i * 4;
-    const r = data[idx];
-    const g = data[idx + 1];
-    const b = data[idx + 2];
-    const a = data[idx + 3];
+  // Check corner color to detect neutral or checkerboard backgrounds
+  const cornerR = (d[0] + d[(srcW - 1) * 4]) / 2;
+  const cornerG = (d[1] + d[(srcW - 1) * 4 + 1]) / 2;
+  const cornerB = (d[2] + d[(srcW - 1) * 4 + 2]) / 2;
 
-    // Alpha thresholding for clean transparent pixel art
-    if (a < 65) {
-      sampled.push('transparent');
-    } else {
-      sampled.push(findClosestPaletteColor(r, g, b));
+  // Function to classify if a pixel is foreground character vs background
+  const isForeground = (x: number, y: number): boolean => {
+    const idx = (y * srcW + x) * 4;
+    const a = d[idx + 3];
+    if (a < 35) return false;
+
+    // Check RGB distance against corner background
+    const r = d[idx], g = d[idx + 1], b = d[idx + 2];
+    const diffCorner = Math.hypot(r - cornerR, g - cornerG, b - cornerB);
+    const lum = (r + g + b) / 3;
+    const chroma = Math.max(r, g, b) - Math.min(r, g, b);
+
+    // If opaque sheet without alpha (like assets/1.png), remove flat neutral/gray borders
+    if (diffCorner < 28 && chroma < 16 && lum > 120 && lum < 225) {
+      return false;
+    }
+    return true;
+  };
+
+  // 1. Detect if this is a sprite sheet (multiple column clusters)
+  let cropX = 0;
+  let cropY = 0;
+  let cropW = srcW;
+  let cropH = srcH;
+
+  if (srcW > 250 || srcH > 250) {
+    // Column projection
+    const colCounts = new Array(srcW).fill(0);
+    const stepY = Math.max(1, Math.floor(srcH / 200));
+    for (let x = 0; x < srcW; x++) {
+      for (let y = 0; y < srcH; y += stepY) {
+        if (isForeground(x, y)) colCounts[x]++;
+      }
+    }
+
+    const colClusters: { x: number; w: number }[] = [];
+    let inCol = false;
+    let startCol = 0;
+    for (let x = 0; x < srcW; x++) {
+      if (colCounts[x] > 15 && !inCol) {
+        inCol = true;
+        startCol = x;
+      } else if (colCounts[x] <= 15 && inCol) {
+        inCol = false;
+        if (x - startCol > 40) colClusters.push({ x: startCol, w: x - startCol });
+      }
+    }
+    if (inCol && srcW - startCol > 40) {
+      colClusters.push({ x: startCol, w: srcW - startCol });
+    }
+
+    // If multiple clusters found, choose cluster 1 (often main idle pose) or 0
+    if (colClusters.length > 0) {
+      const chosenCol = colClusters.length > 1 ? colClusters[1] : colClusters[0];
+      cropX = chosenCol.x;
+      cropW = chosenCol.w;
+
+      // Now row projection within that column cluster
+      const rowCounts = new Array(srcH).fill(0);
+      for (let y = 0; y < srcH; y++) {
+        for (let x = cropX; x < cropX + cropW; x++) {
+          if (isForeground(x, y)) rowCounts[y]++;
+        }
+      }
+
+      const rowClusters: { y: number; h: number }[] = [];
+      let inRow = false;
+      let startRow = 0;
+      for (let y = 0; y < srcH; y++) {
+        if (rowCounts[y] > 15 && !inRow) {
+          inRow = true;
+          startRow = y;
+        } else if (rowCounts[y] <= 15 && inRow) {
+          inRow = false;
+          if (y - startRow > 40) rowClusters.push({ y: startRow, h: y - startRow });
+        }
+      }
+      if (inRow && srcH - startRow > 40) {
+        rowClusters.push({ y: startRow, h: srcH - startRow });
+      }
+
+      if (rowClusters.length > 0) {
+        cropY = rowClusters[0].y;
+        cropH = rowClusters[0].h;
+      }
     }
   }
-  return sampled;
+
+  // 2. Render isolated sprite into cropped canvas with transparent background
+  const croppedCanvas = document.createElement('canvas');
+  const maxDim = Math.max(cropW, cropH);
+  croppedCanvas.width = maxDim;
+  croppedCanvas.height = maxDim;
+  const croppedCtx = croppedCanvas.getContext('2d', { willReadFrequently: true });
+
+  if (croppedCtx) {
+    const offsetX = Math.floor((maxDim - cropW) / 2);
+    const offsetY = Math.floor((maxDim - cropH) / 2);
+    croppedCtx.drawImage(
+      fullCanvas,
+      cropX,
+      cropY,
+      cropW,
+      cropH,
+      offsetX,
+      offsetY,
+      cropW,
+      cropH,
+    );
+
+    // Clean background pixels in cropped area
+    const croppedImgData = croppedCtx.getImageData(0, 0, maxDim, maxDim);
+    const cd = croppedImgData.data;
+    for (let y = 0; y < maxDim; y++) {
+      for (let x = 0; x < maxDim; x++) {
+        const origX = cropX + (x - offsetX);
+        const origY = cropY + (y - offsetY);
+        const idx = (y * maxDim + x) * 4;
+        if (origX < cropX || origX >= cropX + cropW || origY < cropY || origY >= cropY + cropH) {
+          cd[idx + 3] = 0;
+        } else if (!isForeground(origX, origY)) {
+          cd[idx + 3] = 0;
+        }
+      }
+    }
+    croppedCtx.putImageData(croppedImgData, 0, 0);
+  }
+
+  // 3. Generate 16x16 pixel art representation
+  const pixelCanvas = document.createElement('canvas');
+  pixelCanvas.width = 16;
+  pixelCanvas.height = 16;
+  const pCtx = pixelCanvas.getContext('2d', { willReadFrequently: true });
+  const sampled: string[] = [];
+
+  if (pCtx) {
+    pCtx.drawImage(croppedCanvas, 0, 0, 16, 16);
+    const pData = pCtx.getImageData(0, 0, 16, 16).data;
+    for (let i = 0; i < 256; i++) {
+      const idx = i * 4;
+      const r = pData[idx];
+      const g = pData[idx + 1];
+      const b = pData[idx + 2];
+      const a = pData[idx + 3];
+
+      if (a < 65) {
+        sampled.push('transparent');
+      } else {
+        sampled.push(findClosestPaletteColor(r, g, b));
+      }
+    }
+  }
+
+  return {
+    pixels: sampled.length === 256 ? sampled : defaultPixels(),
+    croppedDataUrl: croppedCanvas.toDataURL('image/png'),
+  };
 }
 
 export function CharacterEditor({
@@ -271,28 +466,37 @@ export function CharacterEditor({
 
   // SVG / PNG Sprite Auto-Generation Handler
   const handleAutoSpriteUpload = (file: File) => {
-    if (!['image/svg+xml', 'image/png', 'image/webp'].includes(file.type)) {
-      setMessage('Sube un archivo de imagen en formato SVG o PNG.');
+    if (!['image/svg+xml', 'image/png', 'image/webp', 'image/jpeg'].includes(file.type)) {
+      setMessage('Sube un archivo de imagen en formato PNG, SVG o JPG.');
       return;
     }
 
     setProcessing(true);
-    setMessage('Analizando vector/sprite y generando personaje…');
+    setMessage('Analizando vector/sprite y recortando personaje…');
 
     const reader = new FileReader();
     reader.onload = () => {
       const dataUrl = String(reader.result);
       const img = new Image();
       img.onload = () => {
-        const generatedPixels = sampleImageToPixels(img);
-        setEditing((prev) => ({
-          ...prev,
-          image: dataUrl,
-          pixels: generatedPixels,
-        }));
-        pixels.current = generatedPixels;
-        setProcessing(false);
-        setMessage('¡Personaje y sprite 16x16 generados con éxito! Puedes retocarlo en pixel art.');
+        try {
+          const { pixels: generatedPixels, croppedDataUrl } = processImageToSprite(img);
+          setEditing((prev) => ({
+            ...prev,
+            image: croppedDataUrl || dataUrl,
+            pixels: generatedPixels,
+          }));
+          pixels.current = generatedPixels;
+          setProcessing(false);
+          setMessage('¡Sprite aislado y avatar generados con éxito! Puedes retocarlo en pixel art.');
+        } catch {
+          setEditing((prev) => ({
+            ...prev,
+            image: dataUrl,
+          }));
+          setProcessing(false);
+          setMessage('Imagen cargada.');
+        }
       };
       img.onerror = () => {
         setMessage('Error al leer el archivo de imagen.');
@@ -424,11 +628,59 @@ export function CharacterEditor({
         <div className="guide-header">
           <Sparkles size={20} className="guide-sparkle" />
           <div>
-            <strong>Guía de creación de sprites</strong>
-            <p>Elige una plantilla lista para usar o sube tu logo/diseño en SVG o PNG para vectorizarlo automáticamente.</p>
+            <strong>Guía de creación y sprites de /assets</strong>
+            <p>Elige una plantilla lista para usar, prueba los sprites oficiales de <code>/assets</code> o sube tu PNG/SVG para vectorizarlo y extraerlo automáticamente.</p>
           </div>
         </div>
         <div className="guide-templates">
+          {ASSET_PRESETS.map((preset) => (
+            <button
+              key={preset.name}
+              className="template-pill-btn asset-preset-btn"
+              onClick={() => {
+                setProcessing(true);
+                setMessage(`Cargando sprite de ${preset.name}…`);
+                const img = new Image();
+                img.onload = () => {
+                  try {
+                    const { pixels: generatedPixels, croppedDataUrl } = processImageToSprite(img);
+                    setEditing((prev) => ({
+                      ...prev,
+                      name: preset.name,
+                      image: croppedDataUrl || preset.src,
+                      pixels: generatedPixels,
+                      frames: (preset as { frames?: Character['frames'] }).frames,
+                    }));
+                    pixels.current = generatedPixels;
+                    setMessage(`¡${preset.name} cargado con éxito! Sprite aislado y avatar listos.`);
+                  } catch {
+                    setEditing((prev) => ({
+                      ...prev,
+                      name: preset.name,
+                      image: preset.src,
+                      frames: (preset as { frames?: Character['frames'] }).frames,
+                    }));
+                    setMessage(`Cargado ${preset.name}.`);
+                  } finally {
+                    setProcessing(false);
+                  }
+                };
+                img.onerror = () => {
+                  setEditing((prev) => ({
+                    ...prev,
+                    name: preset.name,
+                    image: preset.fallbackSrc,
+                  }));
+                  setProcessing(false);
+                  setMessage(`Cargado ${preset.name}.`);
+                };
+                img.src = preset.src;
+              }}
+            >
+              <span>{preset.icon}</span>
+              <span>{preset.name} (Assets)</span>
+            </button>
+          ))}
           {SPRITE_TEMPLATES.map((tmpl) => (
             <button
               key={tmpl.name}
@@ -538,7 +790,7 @@ export function CharacterEditor({
                 <span>Arrastra o selecciona un archivo .svg o .png</span>
                 <input
                   type="file"
-                  accept="image/svg+xml,image/png,image/webp"
+                  accept="image/png,image/svg+xml,image/webp,image/jpeg"
                   onChange={(e) => {
                     const file = e.target.files?.[0];
                     if (file) handleAutoSpriteUpload(file);

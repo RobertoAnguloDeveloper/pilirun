@@ -30,6 +30,12 @@ export interface Character {
   color: string;
   pixels?: string[];
   image?: string;
+  frames?: {
+    run?: string[];
+    jump?: string[];
+    slide?: string[];
+    idle?: string[];
+  };
 }
 export interface RunResult {
   id: string;
