@@ -1,0 +1,8 @@
+node_modules
+.next
+public/sqlite
+public/workers
+public/sw.js
+test-results
+playwright-report
+package-lock.json

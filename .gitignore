@@ -1,0 +1,9 @@
+node_modules/
+.next/
+out/
+public/sqlite/
+public/workers/
+test-results/
+playwright-report/
+*.tsbuildinfo
+.env*
