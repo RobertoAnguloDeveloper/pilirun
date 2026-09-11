@@ -1,6 +1,16 @@
-export type WorldId = 'forest' | 'sunset' | 'night';
+export type WorldId = 'forest' | 'sunset' | 'night' | 'neon' | 'alpine' | 'volcano';
 export type GamePhase = 'MENU' | 'PLAYING' | 'PAUSED' | 'EDITING' | 'GAME_OVER';
-export type ItemKind = 'log' | 'rock' | 'branch' | 'coin' | 'shield' | 'boost' | 'time';
+export type ItemKind =
+  | 'log'
+  | 'rock'
+  | 'branch'
+  | 'coin'
+  | 'shield'
+  | 'boost'
+  | 'time'
+  | 'spring'
+  | 'ring';
+export type CameraView = 'side' | 'first_person';
 export interface TrackItem {
   id: string;
   x: number;
@@ -40,6 +50,7 @@ export interface Preferences {
   reducedMotion: boolean;
   characterId: string;
   trackId: string;
+  cameraView?: CameraView;
 }
 export interface AudioTrack {
   id: string;
@@ -65,6 +76,14 @@ export interface Hud {
   shield: number;
   boost: number;
   lives: number;
+  energy: number;
+  maxEnergy: number;
+  height: number;
+  velocity: number;
+  speed: number;
+  hurt: number;
+  shake: number;
+  cameraView: CameraView;
   phase: GamePhase;
 }
 export type Backend = 'OPFS' | 'IndexedDB';

@@ -13,6 +13,8 @@ import {
   Zap,
   Play,
   Pencil,
+  Sparkles,
+  CircleDot,
 } from 'lucide-react';
 import type { ItemKind, Track, WorldId } from '@/lib/types';
 import { validateTrack, WORLDS } from '@/lib/worlds';
@@ -21,6 +23,8 @@ const TOOLS = [
   { kind: 'log', label: 'Tronco', icon: TreePine },
   { kind: 'rock', label: 'Roca', icon: Mountain },
   { kind: 'branch', label: 'Rama alta', icon: Flag },
+  { kind: 'spring', label: 'Resorte Vertical', icon: Sparkles },
+  { kind: 'ring', label: 'Aro Aéreo', icon: CircleDot },
   { kind: 'coin', label: 'Moneda', icon: Coins },
   { kind: 'shield', label: 'Escudo', icon: Shield },
   { kind: 'boost', label: 'Impulso', icon: Zap },

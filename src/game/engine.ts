@@ -20,8 +20,10 @@ export class GameEngine {
     private reduced: boolean,
     private onHud: (hud: Hud) => void,
     private onEnd: (result: RunResult) => void,
+    initialCameraView?: import('../lib/types').CameraView,
   ) {
     this.simulation = new Simulation(track);
+    if (initialCameraView) this.simulation.setCameraView(initialCameraView);
     const ctx = canvas.getContext('2d', { alpha: false });
     if (!ctx) throw new Error('Tu navegador no permite Canvas 2D.');
     this.renderer = new Renderer(ctx, character);
@@ -42,6 +44,16 @@ export class GameEngine {
     this.last = 0;
     this.frame = requestAnimationFrame(this.tick);
     this.onHud(this.simulation.hud());
+  }
+  toggleCameraView() {
+    this.simulation.toggleCameraView();
+    this.onHud(this.simulation.hud());
+    this.draw();
+  }
+  setCameraView(view: import('../lib/types').CameraView) {
+    this.simulation.setCameraView(view);
+    this.onHud(this.simulation.hud());
+    this.draw();
   }
   pause() {
     this.simulation.togglePause();

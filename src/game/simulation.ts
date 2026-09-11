@@ -1,8 +1,8 @@
-import type { GamePhase, Hud, RunResult, Track, TrackItem } from '../lib/types';
+import type { CameraView, GamePhase, Hud, RunResult, Track, TrackItem } from '../lib/types';
 export const STEP = 1 / 120;
 export const GRAVITY = 1900;
-export const JUMP = 700;
-export const SPEED = 280;
+export const JUMP = 720;
+export const SPEED = 290;
 export const CHECKPOINT = 3000;
 export type GameEvent = 'jump' | 'coin' | 'hit' | 'power' | 'win';
 export class Simulation {
@@ -13,6 +13,8 @@ export class Simulation {
   jumps = 0;
   coins = 0;
   lives = 3;
+  energy = 100;
+  maxEnergy = 100;
   time = 0;
   shield = 0;
   boost = 0;
@@ -21,7 +23,10 @@ export class Simulation {
   perfects = 0;
   checkpoint = 0;
   streak = 0;
+  shake = 0;
+  cameraView: CameraView = 'side';
   consumed = new Set<string>();
+  cleared = new Set<string>();
   events: GameEvent[] = [];
   constructor(public track: Track) {
     this.time = track.length / SPEED + 12;
@@ -29,15 +34,28 @@ export class Simulation {
   start() {
     this.phase = 'PLAYING';
   }
+  setCameraView(view: CameraView) {
+    this.cameraView = view;
+  }
+  toggleCameraView() {
+    this.cameraView = this.cameraView === 'side' ? 'first_person' : 'side';
+  }
   jump() {
     if (this.phase !== 'PLAYING' || this.jumps >= 2) return;
-    this.velocity = JUMP * (this.jumps === 1 ? 0.86 : 1);
+    this.velocity = JUMP * (this.jumps === 1 ? 0.9 : 1.05);
     this.jumps++;
     this.slide = 0;
     this.events.push('jump');
   }
   duck() {
-    if (this.phase === 'PLAYING' && this.height < 5) this.slide = 0.8;
+    if (this.phase === 'PLAYING') {
+      if (this.height < 5) {
+        this.slide = 0.8;
+      } else {
+        // Fast vertical drop / dive when in the air for quick vertical speedrun recovery
+        this.velocity = Math.min(this.velocity, -600);
+      }
+    }
   }
   togglePause() {
     if (this.phase === 'PLAYING') this.phase = 'PAUSED';
@@ -45,15 +63,19 @@ export class Simulation {
   }
   update(dt: number) {
     if (this.phase !== 'PLAYING') return;
-    this.distance = Math.min(
-      this.track.length,
-      this.distance + SPEED * (this.boost > 0 ? 1.4 : 1) * dt,
-    );
+    const currentSpeed =
+      (SPEED + (this.boost > 0 ? 120 : 0) - (this.hurt > 1.0 ? 90 : 0)) * (this.boost > 0 ? 1.3 : 1);
+    this.distance = Math.min(this.track.length, this.distance + currentSpeed * dt);
     this.time = Math.max(0, this.time - dt);
     this.shield = Math.max(0, this.shield - dt);
     this.boost = Math.max(0, this.boost - dt);
     this.hurt = Math.max(0, this.hurt - dt);
     this.slide = Math.max(0, this.slide - dt);
+    this.shake = Math.max(0, this.shake - dt * 2.8);
+    // Regenerate energy gradually when not hurt
+    if (this.hurt <= 0) {
+      this.energy = Math.min(this.maxEnergy, this.energy + 8 * dt);
+    }
     this.velocity -= GRAVITY * dt;
     this.height += this.velocity * dt;
     if (this.height <= 0) {
@@ -65,24 +87,31 @@ export class Simulation {
     if (reached > this.checkpoint) {
       this.checkpoint = reached;
       this.time += 5;
+      this.energy = Math.min(this.maxEnergy, this.energy + 30);
       this.events.push('power');
     }
     for (const item of this.track.items) {
-      if (item.x > this.distance + 55 || this.consumed.has(item.id)) continue;
+      // Items that are destroyed or consumed
+      if (this.consumed.has(item.id)) continue;
+      // If obstacle has passed far behind the player, mark cleared once for score/streak,
+      // but DO NOT add obstacles to consumed so they stay visible in the 3D world as you look or pass!
       const dx = item.x - this.distance;
       if (dx < -55) {
-        this.consumed.add(item.id);
-        if (['log', 'rock', 'branch'].includes(item.kind)) {
-          this.perfects++;
-          this.streak++;
-          if (this.streak % 3 === 0) {
-            this.shield = 4;
-            this.events.push('power');
+        if (!this.cleared.has(item.id)) {
+          this.cleared.add(item.id);
+          if (['log', 'rock', 'branch'].includes(item.kind)) {
+            this.perfects++;
+            this.streak++;
+            if (this.streak % 3 === 0) {
+              this.shield = 4;
+              this.events.push('power');
+            }
           }
         }
         continue;
       }
-      if (Math.abs(dx) < 30) this.collide(item);
+      if (item.x > this.distance + 60) continue;
+      if (Math.abs(dx) < 32) this.collide(item);
     }
     if (this.distance >= this.track.length || this.time <= 0 || this.lives <= 0) {
       this.phase = 'GAME_OVER';
@@ -91,15 +120,37 @@ export class Simulation {
   }
   private collide(item: TrackItem) {
     if (item.kind === 'coin') {
-      if (Math.abs(this.height - 48) < 68) {
+      if (Math.abs(this.height - 50) < 70) {
         this.coins++;
+        this.energy = Math.min(this.maxEnergy, this.energy + 5);
         this.consumed.add(item.id);
         this.events.push('coin');
       }
       return;
     }
+    if (item.kind === 'spring') {
+      // Vertical launcher: propels player high into the sky for vertical speedrun
+      if (this.height < 55) {
+        this.velocity = 1100;
+        this.jumps = 1;
+        this.consumed.add(item.id);
+        this.events.push('jump');
+      }
+      return;
+    }
+    if (item.kind === 'ring') {
+      // Aerial speed boost ring in high altitude
+      if (this.height > 60 && this.height < 210) {
+        this.boost = 4;
+        this.velocity = Math.max(this.velocity, 400);
+        this.energy = Math.min(this.maxEnergy, this.energy + 25);
+        this.consumed.add(item.id);
+        this.events.push('power');
+      }
+      return;
+    }
     if (['shield', 'boost', 'time'].includes(item.kind)) {
-      if (this.height < 110) {
+      if (this.height < 120) {
         this.consumed.add(item.id);
         this.events.push('power');
         if (item.kind === 'shield') this.shield = 6;
@@ -116,8 +167,10 @@ export class Simulation {
       this.consumed.add(item.id);
       if (this.shield > 0 || this.hurt > 0) return;
       this.lives--;
+      this.energy = Math.max(0, this.energy - 35);
       this.streak = 0;
       this.hurt = 1.6;
+      this.shake = 1.0;
       this.events.push('hit');
     }
   }
@@ -130,6 +183,14 @@ export class Simulation {
       shield: this.shield,
       boost: this.boost,
       lives: this.lives,
+      energy: Math.round(this.energy),
+      maxEnergy: this.maxEnergy,
+      height: Math.round(this.height),
+      velocity: Math.round(this.velocity),
+      speed: Math.round(SPEED * (this.boost > 0 ? 1.3 : 1)),
+      hurt: this.hurt,
+      shake: this.shake,
+      cameraView: this.cameraView,
       phase: this.phase,
     };
   }

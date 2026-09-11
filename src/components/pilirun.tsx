@@ -326,6 +326,7 @@ export default function PiliRun() {
               track={playing}
               character={character}
               reduced={data.preferences.reducedMotion}
+              initialCameraView={data.preferences.cameraView || 'side'}
               onClose={() => setPlaying(null)}
               onResult={saveRun}
             />
@@ -511,7 +512,7 @@ export default function PiliRun() {
                     <div>
                       <p className="eyebrow">SAL A DESCUBRIR</p>
                       <h1>Hay un mundo ahí fuera.</h1>
-                      <p>Tres horizontes. Todas las ganas de explorar.</p>
+                      <p>Seis horizontes únicos. Todas las ganas de explorar a máxima velocidad.</p>
                     </div>
                   </div>
                   <div className="world-grid worlds-full">
@@ -531,8 +532,9 @@ export default function PiliRun() {
                   <div className="hint-card">
                     <Compass size={23} />
                     <p>
-                      <strong>Cada mundo, un ritmo.</strong> Empieza por el bosque, descubre las
-                      dunas y atrévete con el valle. Pulsa una tarjeta para correr.
+                      <strong>Cada mundo, un ritmo y desafío.</strong> Explora el bosque, las dunas,
+                      el valle estelar, la metrópolis cyberpunk neón, las cumbres celestes o el cráter ígneo.
+                      Pulsa cualquier mundo para correr.
                     </p>
                   </div>
                 </>

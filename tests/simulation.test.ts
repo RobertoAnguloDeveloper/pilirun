@@ -122,10 +122,54 @@ describe('runner physics and progression', () => {
     expect(game.perfects).toBe(2);
     expect(game.shield).toBe(0);
   });
+  it('keeps cleared obstacles in the world without consuming them when safely avoided', () => {
+    const track = { ...empty(), items: [{ id: 'passed-rock', x: 500, kind: 'rock' as const }] };
+    const game = new Simulation(track);
+    game.start();
+    advance(game, 1.5);
+    game.jump();
+    advance(game, 1.5);
+    // Character jumped over rock and is far past it
+    expect(game.distance).toBeGreaterThan(600);
+    // Obstacle must NOT be consumed, staying permanently in the 3D world
+    expect(game.consumed.has('passed-rock')).toBe(false);
+    expect(game.cleared.has('passed-rock')).toBe(true);
+    expect(game.lives).toBe(3);
+  });
+  it('decreases health and energy and triggers hit recoil when colliding with an obstacle', () => {
+    const track = { ...empty(), items: [{ id: 'log-hit', x: 500, kind: 'log' as const }] };
+    const game = new Simulation(track);
+    game.start();
+    const initialEnergy = game.energy;
+    advance(game, 1.8); // Hits log around 1.7s
+    expect(game.lives).toBe(2);
+    expect(game.energy).toBeLessThan(initialEnergy);
+    expect(game.consumed.has('log-hit')).toBe(true);
+    expect(game.hurt).toBeGreaterThan(0);
+    expect(game.shake).toBeGreaterThan(0);
+  });
+  it('propels player vertically when hitting a vertical spring pad', () => {
+    const track = { ...empty(), items: [{ id: 'spring-1', x: 450, kind: 'spring' as const }] };
+    const game = new Simulation(track);
+    game.start();
+    advance(game, 1.58);
+    expect(game.consumed.has('spring-1')).toBe(true);
+    expect(game.height).toBeGreaterThan(0);
+  });
+  it('toggles camera mode between side and first-person view', () => {
+    const game = new Simulation(empty());
+    expect(game.cameraView).toBe('side');
+    game.toggleCameraView();
+    expect(game.cameraView).toBe('first_person');
+    game.toggleCameraView();
+    expect(game.cameraView).toBe('side');
+  });
 });
 describe('playable track validation', () => {
-  it('accepts all built-in worlds', () =>
-    TRACKS.forEach((track) => expect(validateTrack(track)).toBeNull()));
+  it('accepts all 6 built-in worlds', () => {
+    expect(TRACKS.length).toBe(6);
+    TRACKS.forEach((track) => expect(validateTrack(track)).toBeNull());
+  });
   it('rejects impossible obstacle spacing and invalid positions', () => {
     expect(
       validateTrack({
