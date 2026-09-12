@@ -42,6 +42,9 @@ import {
   AlertTriangle,
   RefreshCw,
   Layers,
+  Download,
+  TabletSmartphone,
+  CheckCircle2,
 } from 'lucide-react';
 import { Avatar, Landscape } from './art';
 import { BackgroundRunner } from './background-runner';
@@ -135,9 +138,29 @@ export default function PiliRun() {
     [activeMusic, setActiveMusic] = useState<string | null>(null),
     [help, setHelp] = useState(false),
     [online, setOnline] = useState(true);
+  const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
+  const [isStandalone, setIsStandalone] = useState(false);
+  const [installedToastShown, setInstalledToastShown] = useState(false);
   const initialized = useRef(false),
     prefTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const currentPrefs = useRef(data.preferences);
+
+  const installApp = async () => {
+    if (deferredPrompt) {
+      try {
+        await deferredPrompt.prompt();
+        const choice = await deferredPrompt.userChoice;
+        if (choice?.outcome === 'accepted') {
+          setToast('¡Instalando PiliRun en tu dispositivo!');
+        }
+        setDeferredPrompt(null);
+      } catch {
+        setToast('No se pudo abrir el instalador del navegador.');
+      }
+    } else {
+      setToast('Abre el menú de Chrome (⋮) y selecciona "Instalar aplicación" o "Añadir a pantalla de inicio".');
+    }
+  };
 
   const loadStorageDetails = async () => {
     try {
@@ -186,6 +209,41 @@ export default function PiliRun() {
     return () => {
       window.removeEventListener('online', update);
       window.removeEventListener('offline', update);
+    };
+  }, []);
+  useEffect(() => {
+    // Detect standalone mode (already installed or running as PWA)
+    const checkStandalone = () => {
+      const isStandaloneMode =
+        window.matchMedia('(display-mode: standalone)').matches ||
+        (window.navigator as any).standalone === true ||
+        document.referrer.includes('android-app://');
+      setIsStandalone(Boolean(isStandaloneMode));
+    };
+    checkStandalone();
+    const mediaMatcher = window.matchMedia('(display-mode: standalone)');
+    const handleModeChange = () => checkStandalone();
+    mediaMatcher.addEventListener?.('change', handleModeChange);
+
+    const handleBeforeInstallPrompt = (e: Event) => {
+      // Prevent the mini-infobar from appearing on mobile/tablet so we can use our rich arcade UI
+      e.preventDefault();
+      setDeferredPrompt(e);
+    };
+
+    const handleAppInstalled = () => {
+      setIsStandalone(true);
+      setDeferredPrompt(null);
+      setToast('¡PiliRun instalado con éxito! Ya puedes jugar a pantalla completa y sin conexión.');
+    };
+
+    window.addEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
+    window.addEventListener('appinstalled', handleAppInstalled);
+
+    return () => {
+      mediaMatcher.removeEventListener?.('change', handleModeChange);
+      window.removeEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
+      window.removeEventListener('appinstalled', handleAppInstalled);
     };
   }, []);
   useEffect(() => {
@@ -470,6 +528,17 @@ export default function PiliRun() {
             <strong>{totalCoins.toLocaleString('es')}</strong>
           </span>
 
+          {!isStandalone && (
+            <button
+              className={`arcade-icon-btn pwa-install-header-btn ${deferredPrompt ? 'can-install-pulse' : ''}`}
+              aria-label="Instalar PiliRun en tu tableta o dispositivo"
+              onClick={() => void installApp()}
+              title="Instalar PiliRun como aplicación"
+            >
+              <Download size={18} />
+            </button>
+          )}
+
           <button
             className="arcade-icon-btn"
             aria-label={data.preferences.muted ? 'Activar sonido' : 'Silenciar sonido'}
@@ -594,6 +663,16 @@ export default function PiliRun() {
                     Mundo actual: <strong>{selectedTrack.name}</strong> (
                     {WORLDS[selectedTrack.world].difficulty})
                   </p>
+                  {!isStandalone && (
+                    <button
+                      className="pwa-home-banner-chip"
+                      onClick={() => void installApp()}
+                      title="Instalar PWA para pantalla completa y experiencia tableta"
+                    >
+                      <TabletSmartphone size={16} />
+                      <span>Instalar como App en esta Tableta</span>
+                    </button>
+                  )}
                 </div>
 
                 <div className="arcade-center-actions">
@@ -1161,6 +1240,73 @@ export default function PiliRun() {
                                 Si la base de datos se borra o corrompe, el sistema creará una base SQLite nueva automáticamente.
                               </p>
                             </div>
+                          </div>
+
+                          <div className="panel pwa-install-panel">
+                            <div className="section-heading-inline">
+                              <TabletSmartphone className="section-icon" />
+                              <div>
+                                <h2>Instalación y Modo Tableta</h2>
+                                <p className="subtle">
+                                  Disfruta de PiliRun como una aplicación nativa en tu tableta o pantalla táctil, con renderizado a pantalla completa y soporte sin conexión.
+                                </p>
+                              </div>
+                            </div>
+
+                            <div className="storage-info">
+                              <span>Estado de la aplicación</span>
+                              <strong>
+                                {isStandalone ? (
+                                  <span style={{ color: '#d8f36a', display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+                                    <CheckCircle2 size={16} /> Instalada como App (Modo Autónomo)
+                                  </span>
+                                ) : (
+                                  <span style={{ color: '#fcd34d' }}>
+                                    Ejecutándose en Navegador
+                                  </span>
+                                )}
+                              </strong>
+                            </div>
+
+                            <div className="storage-info">
+                              <span>Compatibilidad táctil</span>
+                              <strong>Optimizado para Tabletas Chrome y Android</strong>
+                            </div>
+
+                            {!isStandalone ? (
+                              <div style={{ marginTop: '14px' }}>
+                                <button
+                                  className="primary"
+                                  style={{ width: '100%', justifyContent: 'center', gap: '8px' }}
+                                  onClick={() => void installApp()}
+                                >
+                                  <Download size={18} /> Instalar PiliRun en este Dispositivo
+                                </button>
+                                <p className="subtle small-print" style={{ marginTop: '8px', textAlign: 'center' }}>
+                                  Al instalarse, se añadirá un icono a la pantalla de inicio de tu tableta y se abrirá sin bordes de navegador.
+                                </p>
+                              </div>
+                            ) : (
+                              <div
+                                style={{
+                                  marginTop: '14px',
+                                  padding: '12px 14px',
+                                  background: 'rgba(216, 243, 106, 0.08)',
+                                  border: '1px solid rgba(216, 243, 106, 0.25)',
+                                  borderRadius: '10px',
+                                  fontSize: '12px',
+                                  color: '#e2ece6',
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  gap: '10px',
+                                }}
+                              >
+                                <CheckCircle2 size={20} style={{ color: 'var(--lime)', flexShrink: 0 }} />
+                                <span>
+                                  ¡Aplicación ya instalada! Estás corriendo en modo tableta dedicado con almacenamiento local SQLite y sin barras de navegación.
+                                </span>
+                              </div>
+                            )}
                           </div>
 
                           <div className="panel about-panel">

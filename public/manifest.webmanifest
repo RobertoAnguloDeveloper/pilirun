@@ -1,1 +1,72 @@
-{"name":"PiliRun — Tu mundo, tu ritmo","short_name":"PiliRun","description":"Tu pequeña aventura, también sin conexión.","lang":"es","start_url":"/","scope":"/","display":"standalone","background_color":"#f6f7f2","theme_color":"#183f35","icons":[{"src":"/icon-192.png","sizes":"192x192","type":"image/png","purpose":"any"},{"src":"/icon-512.png","sizes":"512x512","type":"image/png","purpose":"any"},{"src":"/icon.svg","sizes":"any","type":"image/svg+xml","purpose":"any"}]}
+{
+  "id": "/",
+  "name": "PiliRun — Tu mundo, tu ritmo",
+  "short_name": "PiliRun",
+  "description": "Tu pequeña aventura, también sin conexión. Corre, crea personajes y explora mundos.",
+  "lang": "es",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#08100c",
+  "theme_color": "#183f35",
+  "categories": ["games", "arcade", "adventure"],
+  "icons": [
+    {
+      "src": "/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icon-maskable-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    },
+    {
+      "src": "/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    }
+  ],
+  "screenshots": [
+    {
+      "src": "/screenshot-wide.png",
+      "sizes": "1280x800",
+      "type": "image/png",
+      "form_factor": "wide",
+      "label": "PiliRun Arcade para Tablets y Pantallas Grandes"
+    },
+    {
+      "src": "/screenshot-narrow.png",
+      "sizes": "750x1334",
+      "type": "image/png",
+      "form_factor": "narrow",
+      "label": "PiliRun en Modo Portátil"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "Jugar Ahora",
+      "short_name": "Jugar",
+      "description": "Inicia la carrera de inmediato",
+      "url": "/?action=play",
+      "icons": [{ "src": "/icon-192.png", "sizes": "192x192" }]
+    },
+    {
+      "name": "Mis personajes",
+      "short_name": "Personajes",
+      "description": "Personaliza tus corredores y apariencias",
+      "url": "/?action=characters",
+      "icons": [{ "src": "/icon-192.png", "sizes": "192x192" }]
+    }
+  ]
+}

@@ -315,3 +315,104 @@ test('mobile scenario editor exposes touch panels and saves', async ({ page }) =
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   await page.screenshot({ path: 'test-results/scenario-editor-mobile.png' });
 });
+
+test.describe('PWA Tablet Installation & Manifest Suite', () => {
+  test('manifest meets Chromium and tablet installability criteria', async ({ request }) => {
+    const response = await request.get('/manifest.webmanifest');
+    expect(response.ok()).toBeTruthy();
+    const manifest = await response.json();
+
+    expect(manifest.name).toBe('PiliRun — Tu mundo, tu ritmo');
+    expect(manifest.short_name).toBe('PiliRun');
+    expect(manifest.start_url).toBe('/');
+    expect(manifest.display).toBe('standalone');
+    expect(manifest.orientation).toBe('any');
+
+    // Verify icons
+    const icons = manifest.icons || [];
+    const has192 = icons.some((i: any) => i.sizes === '192x192');
+    const has512 = icons.some((i: any) => i.sizes === '512x512');
+    const hasMaskable = icons.some((i: any) => i.purpose === 'maskable');
+
+    expect(has192).toBeTruthy();
+    expect(has512).toBeTruthy();
+    expect(hasMaskable).toBeTruthy();
+
+    // Verify tablet & mobile screenshots
+    const screenshots = manifest.screenshots || [];
+    const hasWide = screenshots.some((s: any) => s.form_factor === 'wide');
+    const hasNarrow = screenshots.some((s: any) => s.form_factor === 'narrow');
+    expect(hasWide).toBeTruthy();
+    expect(hasNarrow).toBeTruthy();
+  });
+
+  test('tablet viewport renders install button and settings panel', async ({ page }) => {
+    // Emulate tablet viewport (1024x768 landscape)
+    await page.setViewportSize({ width: 1024, height: 768 });
+    await page.goto('/');
+
+    await expect(page.getByRole('button', { name: playButton })).toBeEnabled({
+      timeout: 30000,
+    });
+
+    // Check header install button exists and is accessible
+    const installHeaderBtn = page.getByRole('button', {
+      name: 'Instalar PiliRun en tu tableta o dispositivo',
+    });
+    await expect(installHeaderBtn).toBeVisible();
+
+    // Check home banner chip exists
+    const homeBannerChip = page.locator('.pwa-home-banner-chip');
+    await expect(homeBannerChip).toBeVisible();
+    await expect(homeBannerChip).toContainText('Instalar como App en esta Tableta');
+
+    // Navigate to settings and verify Tablet Installation panel
+    await page.getByRole('button', { name: 'Ajustes de juego' }).click();
+    await expect(page.getByRole('heading', { name: 'Instalación y Modo Tableta' })).toBeVisible();
+    await expect(
+      page.getByRole('button', { name: 'Instalar PiliRun en este Dispositivo' }),
+    ).toBeVisible();
+  });
+
+  test('beforeinstallprompt event triggers install flow', async ({ page }) => {
+    await page.goto('/');
+    await expect(page.getByRole('button', { name: playButton })).toBeEnabled({
+      timeout: 30000,
+    });
+
+    // Dispatch simulated beforeinstallprompt
+    await page.evaluate(() => {
+      let promptCalled = false;
+      const event = new Event('beforeinstallprompt', { bubbles: true, cancelable: true });
+      Object.assign(event, {
+        prompt: () => {
+          promptCalled = true;
+          return Promise.resolve();
+        },
+        userChoice: Promise.resolve({ outcome: 'accepted' }),
+      });
+      (window as any).__pwaPromptCalled = () => promptCalled;
+      window.dispatchEvent(event);
+    });
+
+    // Header install button should now pulse
+    const installHeaderBtn = page.getByRole('button', {
+      name: 'Instalar PiliRun en tu tableta o dispositivo',
+    });
+    await expect(installHeaderBtn).toHaveClass(/can-install-pulse/);
+
+    // Clicking it triggers the native prompt
+    await installHeaderBtn.click();
+    const wasCalled = await page.evaluate(() => (window as any).__pwaPromptCalled?.());
+    expect(wasCalled).toBe(true);
+
+    // Simulating appinstalled updates UI to standalone
+    await page.evaluate(() => {
+      window.dispatchEvent(new Event('appinstalled'));
+    });
+
+    // In standalone mode, install button is hidden from header
+    await expect(installHeaderBtn).not.toBeVisible();
+  });
+});
+

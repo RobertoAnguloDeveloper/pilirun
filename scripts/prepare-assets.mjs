@@ -3,6 +3,40 @@ import { build } from 'esbuild';
 import sharp from 'sharp';
 for (const size of [192, 512])
   await sharp('public/icon.svg').resize(size, size).png().toFile(`public/icon-${size}.png`);
+const maskInner = await sharp('public/icon.svg').resize(410, 410).png().toBuffer();
+await sharp({
+  create: {
+    width: 512,
+    height: 512,
+    channels: 4,
+    background: { r: 24, g: 63, b: 53, alpha: 1 },
+  },
+})
+  .composite([{ input: maskInner, top: 51, left: 51 }])
+  .png()
+  .toFile('public/icon-maskable-512.png');
+await sharp({
+  create: {
+    width: 1280,
+    height: 800,
+    channels: 4,
+    background: { r: 24, g: 63, b: 53, alpha: 1 },
+  },
+})
+  .composite([{ input: 'public/icon-512.png', top: 144, left: 384 }])
+  .png()
+  .toFile('public/screenshot-wide.png');
+await sharp({
+  create: {
+    width: 750,
+    height: 1334,
+    channels: 4,
+    background: { r: 24, g: 63, b: 53, alpha: 1 },
+  },
+})
+  .composite([{ input: 'public/icon-512.png', top: 411, left: 119 }])
+  .png()
+  .toFile('public/screenshot-narrow.png');
 await mkdir('public/sqlite', { recursive: true });
 await cp('node_modules/@sqlite.org/sqlite-wasm/dist', 'public/sqlite', { recursive: true });
 await mkdir('public/assets', { recursive: true });
