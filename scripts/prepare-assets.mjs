@@ -7,9 +7,19 @@ await mkdir('public/sqlite', { recursive: true });
 await cp('node_modules/@sqlite.org/sqlite-wasm/dist', 'public/sqlite', { recursive: true });
 await mkdir('public/assets', { recursive: true });
 await cp('assets', 'public/assets', { recursive: true });
+await mkdir('public/assets/rocatech', { recursive: true });
+await cp('assets/rocatech/VECTOR LOGO FINAL.svg', 'public/assets/rocatech/roca-tech-logo.svg');
+await sharp('assets/rocatech/LOGO-Transparente.png')
+  .resize(320, 320, { fit: 'inside', withoutEnlargement: true })
+  .png({ compressionLevel: 9, palette: true })
+  .toFile('public/assets/rocatech/roca-tech-logo.png');
 try {
-  await sharp('assets/2.png').extract({ left: 530, top: 13, width: 242, height: 230 }).toFile('public/assets/character-sprite-1.png');
-  await sharp('assets/2.png').extract({ left: 802, top: 10, width: 218, height: 235 }).toFile('public/assets/character-sprite-2.png');
+  await sharp('assets/2.png')
+    .extract({ left: 530, top: 13, width: 242, height: 230 })
+    .toFile('public/assets/character-sprite-1.png');
+  await sharp('assets/2.png')
+    .extract({ left: 802, top: 10, width: 218, height: 235 })
+    .toFile('public/assets/character-sprite-2.png');
 
   // Dynamic run cycle frames from row 1 of assets/2.png
   const runCoords = [
@@ -33,11 +43,18 @@ try {
     await sharp('assets/2.png').extract(jumpCoords[i]).toFile(`public/assets/pili-jump-${i}.png`);
   }
 
-  // Slide frame
-  await sharp('assets/2.png').extract({ left: 237, top: 778, width: 201, height: 233 }).toFile('public/assets/pili-slide-0.png');
+  // Crouching / Slide frames from row 3
+  await sharp('assets/2.png')
+    .extract({ left: 810, top: 760, width: 230, height: 260 })
+    .toFile('public/assets/pili-slide-0.png');
+  await sharp('assets/2.png')
+    .extract({ left: 1060, top: 760, width: 230, height: 260 })
+    .toFile('public/assets/pili-slide-1.png');
 
   // Idle frame
-  await sharp('assets/2.png').extract({ left: 300, top: 10, width: 180, height: 234 }).toFile('public/assets/pili-idle-0.png');
+  await sharp('assets/2.png')
+    .extract({ left: 300, top: 10, width: 180, height: 234 })
+    .toFile('public/assets/pili-idle-0.png');
 } catch (err) {
   console.error('Error extracting character frames:', err);
 }

@@ -10,6 +10,18 @@ export default defineConfig({
       name: 'chromium',
       use: { ...devices['Desktop Chrome'], viewport: { width: 1440, height: 1000 } },
     },
+    { name: 'firefox', use: { ...devices['Desktop Firefox'] } },
+    { name: 'webkit', use: { ...devices['Desktop Safari'] } },
+    {
+      name: 'android',
+      grep: /mobile|portrait/,
+      use: { ...devices['Pixel 7'] },
+    },
+    {
+      name: 'iphone',
+      grep: /mobile|portrait/,
+      use: { ...devices['iPhone 15'] },
+    },
   ],
   webServer: {
     command: 'npm start',

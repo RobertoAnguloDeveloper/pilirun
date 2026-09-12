@@ -9,22 +9,24 @@ Node.js 22.13 o posterior. `npm install`, `npm run dev`. Abrir http://localhost:
 ## Arquitectura
 
 - `src/app`: shell estático y estilos responsivos.
-- `src/components`: menú, biblioteca de mundos, editor de sprites/fotos, constructor de pistas, audio y estadísticas.
+- `src/components`: menú, biblioteca de mundos, editor de sprites/fotos, constructor rápido, editor avanzado de escenarios, audio y estadísticas.
 - `src/game`: simulación determinista a 120 Hz y render Canvas; sin estado React por frame.
-- `src/lib`: interfaces compartidas, datos de mundos, cliente del worker y motor de audio persistente.
-- `src/workers`: SQLite en OPFS, fallback SQLite en memoria con snapshots transaccionales en IndexedDB; procesamiento de fotos mediante OffscreenCanvas.
+- `src/lib`: interfaces compartidas, contratos y ZIP de escenarios, datos de mundos, cliente del worker y motor de audio persistente.
+- `src/workers`: SQLite en OPFS, fallback SQLite en memoria con snapshots transaccionales en IndexedDB; normalización de fotos y assets de escenarios mediante OffscreenCanvas.
 - `public/sw.js`: caché de aplicación de producción para uso offline después de la primera visita.
 - `tests`: reglas de física, validación de pistas y flujos reales de navegador.
 
 El worker serializa operaciones y confirma guardados sólo tras persistirlos. Un bloqueo exclusivo por pestaña evita snapshots en conflicto. Los archivos nunca salen del dispositivo. No se almacenan datos del usuario en localStorage.
 
-## Alcance de la primera versión
+## Experiencia y creación
 
-Tres mundos, salto/doble salto/deslizamiento, monedas, checkpoints, escudo por obstáculos perfectos, potenciadores, pausa y resultados; pixel art de 16×16 y recorte de fotos; pistas personalizadas; biblioteca de audio con bucles; preferencias y estadísticas persistidas. Teclado, ratón y controles táctiles.
+Seis mundos, dos cámaras Canvas 2.5D, salto/doble salto/deslizamiento, monedas, checkpoints, potenciadores, pausa y resultados. La carrera ocupa el viewport completo también en portrait y conserva un botón explícito de fullscreen.
+
+“Crear una pista” continúa como modo rápido. El Editor de escenarios añade capas, parallax, objetos incorporados o imágenes personalizadas, selección y transformación con Pointer Events, zoom/pan, cuadrícula, snap, undo/redo, inspector numérico y controles accesibles. Los borradores y assets permanecen localmente; los escenarios se importan y exportan como ZIP v1 sin imágenes base64 dentro del JSON.
 
 ## Verificación
 
-`npm run typecheck`, `npm test`, `npm run test:e2e`. Antes de la primera prueba de navegador, ejecutar `npx playwright install chromium`. Las pruebas de navegador necesitan una compilación de producción (`npm run build`) y levantan el servidor automáticamente si no está activo.
+`npm run typecheck`, `npm test`, `npm run build`, `npm run test:e2e`. Antes de la primera prueba de navegador, ejecutar `npx playwright install chromium firefox webkit`. Las pruebas de navegador necesitan una compilación de producción y levantan el servidor automáticamente si no está activo.
 
 Consultar `docs/ARCHITECTURE.md` para decisiones y límites operativos, `docs/SCHEMA.sql` para tablas y `docs/GUIA_DE_ESTILO.md` para la experiencia visual.
 

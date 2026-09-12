@@ -1,4 +1,4 @@
-import type { Character, Hud, RunResult, Track } from '../lib/types';
+import type { Character, Hud, RunResult, Scenario, ScenarioAsset, Track } from '../lib/types';
 import { audioEngine } from '../lib/audio';
 import { Simulation, STEP } from './simulation';
 import { Renderer } from './renderer';
@@ -21,12 +21,14 @@ export class GameEngine {
     private onHud: (hud: Hud) => void,
     private onEnd: (result: RunResult) => void,
     initialCameraView?: import('../lib/types').CameraView,
+    scenario?: Scenario,
+    scenarioAssets: ScenarioAsset[] = [],
   ) {
     this.simulation = new Simulation(track);
     if (initialCameraView) this.simulation.setCameraView(initialCameraView);
     const ctx = canvas.getContext('2d', { alpha: false });
     if (!ctx) throw new Error('Tu navegador no permite Canvas 2D.');
-    this.renderer = new Renderer(ctx, character);
+    this.renderer = new Renderer(ctx, character, scenario, scenarioAssets);
     this.observer = new ResizeObserver(() => {
       const rect = canvas.getBoundingClientRect(),
         dpr = Math.min(window.devicePixelRatio || 1, 2);
@@ -104,6 +106,7 @@ export class GameEngine {
   destroy() {
     cancelAnimationFrame(this.frame);
     this.observer.disconnect();
+    this.renderer.destroy();
     audioEngine.stop();
   }
 }

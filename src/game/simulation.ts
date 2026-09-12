@@ -4,7 +4,7 @@ export const GRAVITY = 1900;
 export const JUMP = 720;
 export const SPEED = 290;
 export const CHECKPOINT = 3000;
-export type GameEvent = 'jump' | 'coin' | 'hit' | 'power' | 'win';
+export type GameEvent = 'jump' | 'coin' | 'hit' | 'power' | 'win' | 'destroy-shield';
 export class Simulation {
   phase: GamePhase = 'MENU';
   distance = 0;
@@ -24,9 +24,11 @@ export class Simulation {
   checkpoint = 0;
   streak = 0;
   shake = 0;
+  elapsed = 0;
   cameraView: CameraView = 'side';
   consumed = new Set<string>();
   cleared = new Set<string>();
+  destroyedObstacles: Array<{ id: string; x: number; kind: string }> = [];
   events: GameEvent[] = [];
   constructor(public track: Track) {
     this.time = track.length / SPEED + 12;
@@ -50,10 +52,11 @@ export class Simulation {
   duck() {
     if (this.phase === 'PLAYING') {
       if (this.height < 5) {
-        this.slide = 0.8;
+        // Snappy, realistic crouch/slide duration with swift stand recovery
+        this.slide = 0.45;
       } else {
-        // Fast vertical drop / dive when in the air for quick vertical speedrun recovery
-        this.velocity = Math.min(this.velocity, -600);
+        // Fast vertical drop / dive when in the air for responsive vertical control
+        this.velocity = Math.min(this.velocity, -650);
       }
     }
   }
@@ -64,8 +67,10 @@ export class Simulation {
   update(dt: number) {
     if (this.phase !== 'PLAYING') return;
     const currentSpeed =
-      (SPEED + (this.boost > 0 ? 120 : 0) - (this.hurt > 1.0 ? 90 : 0)) * (this.boost > 0 ? 1.3 : 1);
+      (SPEED + (this.boost > 0 ? 120 : 0) - (this.hurt > 1.0 ? 90 : 0)) *
+      (this.boost > 0 ? 1.3 : 1);
     this.distance = Math.min(this.track.length, this.distance + currentSpeed * dt);
+    this.elapsed += dt;
     this.time = Math.max(0, this.time - dt);
     this.shield = Math.max(0, this.shield - dt);
     this.boost = Math.max(0, this.boost - dt);
@@ -119,8 +124,24 @@ export class Simulation {
     }
   }
   private collide(item: TrackItem) {
+    const itemY =
+      item.y ??
+      (item.kind === 'ring'
+        ? 101
+        : item.kind === 'coin'
+          ? 50
+          : item.kind === 'branch'
+            ? 47
+            : ['shield', 'boost', 'time'].includes(item.kind)
+              ? 55
+              : 0);
+    const itemHeight =
+      item.height ?? (item.kind === 'branch' ? 38 : item.kind === 'ring' ? 48 : 40);
+    const playerBottom = this.height;
+    const playerTop = this.height + (this.slide > 0 ? 34 : 74);
+    const overlapsVertically = playerTop >= itemY && playerBottom <= itemY + itemHeight;
     if (item.kind === 'coin') {
-      if (Math.abs(this.height - 50) < 70) {
+      if (overlapsVertically || Math.abs(this.height - itemY) < 70) {
         this.coins++;
         this.energy = Math.min(this.maxEnergy, this.energy + 5);
         this.consumed.add(item.id);
@@ -130,7 +151,7 @@ export class Simulation {
     }
     if (item.kind === 'spring') {
       // Vertical launcher: propels player high into the sky for vertical speedrun
-      if (this.height < 55) {
+      if (Math.abs(this.height - itemY) < 55) {
         this.velocity = 1100;
         this.jumps = 1;
         this.consumed.add(item.id);
@@ -140,7 +161,7 @@ export class Simulation {
     }
     if (item.kind === 'ring') {
       // Aerial speed boost ring in high altitude
-      if (this.height > 60 && this.height < 210) {
+      if (overlapsVertically || Math.abs(this.height - itemY) < 80) {
         this.boost = 4;
         this.velocity = Math.max(this.velocity, 400);
         this.energy = Math.min(this.maxEnergy, this.energy + 25);
@@ -150,7 +171,7 @@ export class Simulation {
       return;
     }
     if (['shield', 'boost', 'time'].includes(item.kind)) {
-      if (this.height < 120) {
+      if (overlapsVertically || Math.abs(this.height - itemY) < 80) {
         this.consumed.add(item.id);
         this.events.push('power');
         if (item.kind === 'shield') this.shield = 6;
@@ -159,13 +180,17 @@ export class Simulation {
       }
       return;
     }
-    const hit =
-      item.kind === 'branch'
-        ? this.slide <= 0 && this.height < 125
-        : this.height < (item.kind === 'rock' ? 48 : 35);
+    const hit = item.kind === 'branch' ? this.slide <= 0 && overlapsVertically : overlapsVertically;
     if (hit) {
       this.consumed.add(item.id);
-      if (this.shield > 0 || this.hurt > 0) return;
+      if (this.shield > 0) {
+        // Shield smashes through the obstacle: trigger destruction event, micro-impact, and record for VFX
+        this.shake = Math.max(this.shake, 0.4);
+        this.events.push('destroy-shield');
+        this.destroyedObstacles.push({ id: item.id, x: item.x, kind: item.kind });
+        return;
+      }
+      if (this.hurt > 0) return;
       this.lives--;
       this.energy = Math.max(0, this.energy - 35);
       this.streak = 0;

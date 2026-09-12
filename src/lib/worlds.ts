@@ -94,6 +94,7 @@ export const CHARACTERS: Character[] = [
       ],
       slide: [
         '/assets/pili-slide-0.png',
+        '/assets/pili-slide-1.png',
       ],
       idle: [
         '/assets/pili-idle-0.png',

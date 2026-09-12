@@ -34,6 +34,8 @@ import {
   X,
   Maximize2,
   Minimize2,
+  Layers3,
+  ExternalLink,
 } from 'lucide-react';
 import { Avatar, Landscape } from './art';
 import { BackgroundRunner } from './background-runner';
@@ -47,9 +49,13 @@ import {
   type SavedData,
   type Track,
   type AudioTrack,
+  type Scenario,
+  type ScenarioAsset,
 } from '@/lib/types';
 import { localStore } from '@/lib/storage';
 import { audioEngine } from '@/lib/audio';
+import { scenarioToTrack } from '@/lib/scenario';
+const APP_VERSION = process.env.NEXT_PUBLIC_APP_VERSION ?? '1.0.0';
 const loading = () => (
   <div className="loading-state">
     <LoaderCircle className="spin" /> Preparando tu aventura…
@@ -61,6 +67,10 @@ const CharacterEditor = dynamic(() => import('./character-editor').then((m) => m
 const TrackBuilder = dynamic(() => import('./track-builder').then((m) => m.TrackBuilder), {
   loading,
 });
+const ScenarioEditor = dynamic(() => import('./scenario-editor').then((m) => m.ScenarioEditor), {
+  loading,
+  ssr: false,
+});
 const MusicLibrary = dynamic(() => import('./music-library').then((m) => m.MusicLibrary), {
   loading,
 });
@@ -68,12 +78,14 @@ const GameView = dynamic(() => import('./game-view').then((m) => m.GameView), {
   loading,
   ssr: false,
 });
-type Page = 'home' | 'worlds' | 'characters' | 'builder' | 'music' | 'stats' | 'settings';
+type Page =
+  'home' | 'worlds' | 'characters' | 'builder' | 'editor' | 'music' | 'stats' | 'settings';
 const NAV = [
   { id: 'home', name: 'Campamento', icon: Compass },
   { id: 'worlds', name: 'Explorar mundos', icon: Map },
   { id: 'characters', name: 'Mis personajes', icon: Palette },
   { id: 'builder', name: 'Crear una pista', icon: Route },
+  { id: 'editor', name: 'Editor de escenarios', icon: Layers3 },
   { id: 'music', name: 'Mi música', icon: Music2 },
   { id: 'stats', name: 'Mis aventuras', icon: Trophy },
 ] as const;
@@ -82,6 +94,7 @@ export default function PiliRun() {
     [data, setData] = useState<SavedData>({
       characters: [],
       tracks: [],
+      scenarios: [],
       runs: [],
       music: [],
       preferences: DEFAULT_PREFERENCES,
@@ -90,7 +103,12 @@ export default function PiliRun() {
     [ready, setReady] = useState(false),
     [error, setError] = useState(''),
     [toast, setToast] = useState('');
-  const [playing, setPlaying] = useState<Track | null>(null),
+  const [playing, setPlaying] = useState<{
+      track: Track;
+      scenario?: Scenario;
+      assets: ScenarioAsset[];
+      returnPage: Page;
+    } | null>(null),
     [activeMusic, setActiveMusic] = useState<string | null>(null),
     [help, setHelp] = useState(false),
     [online, setOnline] = useState(true);
@@ -161,7 +179,7 @@ export default function PiliRun() {
     };
   }, []);
   const characters = [...CHARACTERS, ...data.characters],
-    tracks = [...TRACKS, ...data.tracks];
+    tracks = [...TRACKS, ...data.tracks, ...data.scenarios.map(scenarioToTrack)];
   const character = characters.find((c) => c.id === data.preferences.characterId) ?? CHARACTERS[0],
     selectedTrack = tracks.find((t) => t.id === data.preferences.trackId) ?? TRACKS[0];
   const navigate = (next: Page) => {
@@ -211,7 +229,12 @@ export default function PiliRun() {
     return () => document.removeEventListener('fullscreenchange', handleFs);
   }, []);
 
-  const start = async (track: Track = selectedTrack) => {
+  const start = async (
+    track: Track = selectedTrack,
+    scenarioOverride?: Scenario,
+    assetOverride?: ScenarioAsset[],
+    returnPage: Page = 'home',
+  ) => {
     if (!ready) return;
     if (document.activeElement instanceof HTMLElement) {
       document.activeElement.blur();
@@ -219,18 +242,17 @@ export default function PiliRun() {
     void audioEngine
       .unlock()
       .catch(() => setToast('El audio no pudo activarse. Puedes seguir jugando.'));
-    
-    // Automatically enter fullscreen on game launch
-    try {
-      if (!document.fullscreenElement && document.documentElement.requestFullscreen) {
-        await document.documentElement.requestFullscreen();
-        setIsFullscreen(true);
-      }
-    } catch {
-      // Ignored if user browser policy requires specific user gesture
-    }
-
-    setPlaying(track);
+    const scenario =
+      scenarioOverride ??
+      (track.scenarioId ? data.scenarios.find((item) => item.id === track.scenarioId) : undefined);
+    const assets =
+      assetOverride ??
+      (scenario
+        ? await localStore
+            .request<ScenarioAsset[]>({ action: 'scenario-assets-get', scenarioId: scenario.id })
+            .catch(() => [])
+        : []);
+    setPlaying({ track, scenario, assets, returnPage });
     setPage('home');
     window.scrollTo({ top: 0 });
   };
@@ -241,6 +263,33 @@ export default function PiliRun() {
   const saveTrack = async (t: Track) => {
     await localStore.request({ action: 'save', collection: 'tracks', id: t.id, value: t });
     setData((d) => ({ ...d, tracks: [...d.tracks.filter((item) => item.id !== t.id), t] }));
+  };
+  const saveScenario = async (scenario: Scenario, assets: ScenarioAsset[]) => {
+    await localStore.request({ action: 'scenario-save', scenario, assets });
+    setData((current) => ({
+      ...current,
+      scenarios: [...current.scenarios.filter((item) => item.id !== scenario.id), scenario],
+      draftScenario: undefined,
+    }));
+  };
+  const saveScenarioDraft = async (scenario: Scenario) => {
+    await localStore.request({ action: 'scenario-draft-save', scenario });
+    setData((current) => ({ ...current, draftScenario: scenario }));
+  };
+  const discardScenarioDraft = async (scenarioId?: string) => {
+    await localStore.request({ action: 'scenario-draft-clear', scenarioId });
+    setData((current) => ({ ...current, draftScenario: undefined }));
+  };
+  const deleteScenario = async (id: string) => {
+    await localStore.request({ action: 'scenario-delete', id });
+    setData((current) => ({
+      ...current,
+      scenarios: current.scenarios.filter((item) => item.id !== id),
+      draftScenario: current.draftScenario?.id === id ? undefined : current.draftScenario,
+    }));
+    if (data.preferences.trackId === `scenario:${id}`)
+      preferences({ ...data.preferences, trackId: 'forest-path' });
+    setToast('Escenario eliminado.');
   };
   const remove = async (collection: 'characters' | 'tracks' | 'music', id: string) => {
     await localStore.request({ action: 'delete', collection, id });
@@ -263,9 +312,11 @@ export default function PiliRun() {
     totalDistance = data.runs.reduce((n, r) => n + r.distance, 0),
     best = Math.max(0, ...data.runs.map((r) => r.score));
   return (
-    <div className={`game-studio-root ${data.preferences.reducedMotion ? 'reduced-motion' : ''} ${isFullscreen ? 'studio-fullscreen' : ''}`}>
+    <div
+      className={`game-studio-root ${playing ? 'is-playing' : ''} ${page === 'editor' && !playing ? 'is-scenario-editor' : ''} ${data.preferences.reducedMotion ? 'reduced-motion' : ''} ${isFullscreen ? 'studio-fullscreen' : ''}`}
+    >
       {/* 1. Live Ambient 3D Running Canvas Background (always active on main menu) */}
-      {!playing && (
+      {!playing && page !== 'editor' && (
         <BackgroundRunner
           track={selectedTrack}
           character={character}
@@ -275,7 +326,19 @@ export default function PiliRun() {
 
       {/* 2. Top In-Game Arcade Header */}
       <header className="arcade-header">
-        <div className="arcade-brand" onClick={() => navigate('home')} role="button" tabIndex={0}>
+        <div
+          className="arcade-brand"
+          onClick={() => navigate('home')}
+          onKeyDown={(event) => {
+            if (event.key === 'Enter' || event.key === ' ') {
+              event.preventDefault();
+              navigate('home');
+            }
+          }}
+          role="button"
+          tabIndex={0}
+          aria-label="PiliRun, ir al campamento"
+        >
           <span className="arcade-logo-mark">
             <Footprints size={22} />
           </span>
@@ -363,12 +426,31 @@ export default function PiliRun() {
 
         {playing ? (
           <GameView
-            track={playing}
+            track={playing.track}
+            scenario={playing.scenario}
+            scenarioAssets={playing.assets}
             character={character}
             reduced={data.preferences.reducedMotion}
             initialCameraView={data.preferences.cameraView || 'side'}
-            onClose={() => setPlaying(null)}
+            onClose={() => {
+              const returnPage = playing.returnPage;
+              setPlaying(null);
+              setPage(returnPage);
+            }}
             onResult={saveRun}
+          />
+        ) : page === 'editor' && ready ? (
+          <ScenarioEditor
+            scenarios={data.scenarios}
+            recoveredDraft={data.draftScenario}
+            onSave={saveScenario}
+            onDelete={deleteScenario}
+            onPlay={(scenario, assets) =>
+              void start(scenarioToTrack(scenario), scenario, assets, 'editor')
+            }
+            onDraft={saveScenarioDraft}
+            onDiscardDraft={discardScenarioDraft}
+            onClose={() => navigate('home')}
           />
         ) : (
           <>
@@ -376,13 +458,14 @@ export default function PiliRun() {
               <div className="arcade-hero-centerpiece">
                 <div className="arcade-title-box">
                   <div className="arcade-eyebrow">
-                    <Sparkles size={16} /> MODO ARCADE 3D · TEMPLE RUNNER
+                    <Sparkles size={16} /> MODO ARCADE 3D · PILIRUN
                   </div>
                   <h1 className="arcade-game-title">
                     PILI<span>RUN</span>
                   </h1>
                   <p className="arcade-game-subtitle">
-                    Mundo actual: <strong>{selectedTrack.name}</strong> ({WORLDS[selectedTrack.world].difficulty})
+                    Mundo actual: <strong>{selectedTrack.name}</strong> (
+                    {WORLDS[selectedTrack.world].difficulty})
                   </p>
                 </div>
 
@@ -432,6 +515,14 @@ export default function PiliRun() {
                     </button>
                     <button
                       className="arcade-dock-item"
+                      onClick={() => navigate('editor')}
+                      title="Diseñar escenarios completos"
+                    >
+                      <Layers3 size={20} />
+                      <span>Escenarios</span>
+                    </button>
+                    <button
+                      className="arcade-dock-item"
                       onClick={() => navigate('music')}
                       title="Música de carrera"
                     >
@@ -451,11 +542,21 @@ export default function PiliRun() {
 
                 <div className="arcade-footer-bar">
                   <div className="arcade-footer-hints">
-                    <span><kbd>Espacio</kbd> / <kbd>↑</kbd> Saltar</span>
-                    <span><kbd>↓</kbd> Deslizar</span>
-                    <span><kbd>C</kbd> Cambiar Cámara 3D</span>
-                    <span><kbd>F</kbd> Pantalla Completa</span>
-                    <span><kbd>P</kbd> Pausa</span>
+                    <span>
+                      <kbd>Espacio</kbd> / <kbd>↑</kbd> Saltar
+                    </span>
+                    <span>
+                      <kbd>↓</kbd> Deslizar
+                    </span>
+                    <span>
+                      <kbd>C</kbd> Cambiar Cámara 3D
+                    </span>
+                    <span>
+                      <kbd>F</kbd> Pantalla Completa
+                    </span>
+                    <span>
+                      <kbd>P</kbd> Pausa
+                    </span>
                   </div>
                   <button className="arcade-help-link" onClick={() => setHelp(true)}>
                     <Gamepad2 size={16} /> Instrucciones
@@ -465,7 +566,7 @@ export default function PiliRun() {
             )}
 
             {/* In-Game Modal Overlay for Sub-Pages */}
-            {page !== 'home' && (
+            {page !== 'home' && page !== 'editor' && (
               <div className="in-game-drawer-backdrop" onClick={() => navigate('home')}>
                 <div
                   className="in-game-drawer-panel"
@@ -514,203 +615,249 @@ export default function PiliRun() {
                         </div>
                       </>
                     )}
-              {page === 'characters' && ready && (
-                <CharacterEditor
-                  characters={characters}
-                  selected={character.id}
-                  onSelect={(id) => preferences({ ...data.preferences, characterId: id })}
-                  onSave={saveCharacter}
-                  onDelete={(id) => remove('characters', id)}
-                />
-              )}
-              {page === 'builder' && ready && (
-                <TrackBuilder
-                  tracks={data.tracks}
-                  onSave={saveTrack}
-                  onDelete={(id) => remove('tracks', id)}
-                  onPlay={start}
-                />
-              )}
-              {page === 'music' && ready && (
-                <MusicLibrary
-                  music={data.music}
-                  preferences={data.preferences}
-                  active={activeMusic}
-                  setActive={setActiveMusic}
-                  onAdd={saveMusic}
-                  onDelete={(id) => remove('music', id)}
-                  onPreferences={preferences}
-                />
-              )}
-              {['characters', 'builder', 'music'].includes(page) && !ready && !error && loading()}
-              {page === 'stats' && (
-                <>
-                  <div className="section-heading">
-                    <div>
-                      <p className="eyebrow">TU HISTORIA EN EL CAMINO</p>
-                      <h1>Pequeños pasos. Grandes recuerdos.</h1>
-                      <p>Cada carrera escribe algo nuevo.</p>
-                    </div>
-                    <Trophy className="section-icon" />
-                  </div>
-                  <div className="stat-grid">
-                    <Stat
-                      icon={<Route />}
-                      value={`${totalDistance.toLocaleString('es')} m`}
-                      label="Distancia total"
-                    />
-                    <Stat icon={<Coins />} value={String(totalCoins)} label="Monedas recogidas" />
-                    <Stat
-                      icon={<Flag />}
-                      value={String(data.runs.filter((r) => r.won).length)}
-                      label="Metas alcanzadas"
-                    />
-                    <Stat icon={<Trophy />} value={String(best)} label="Mejor puntuación" />
-                  </div>
-                  <div className="panel">
-                    <h2>Diario de aventuras</h2>
-                    {data.runs.length ? (
-                      <div className="run-list">
-                        {[...data.runs].reverse().map((run) => (
-                          <article key={run.id}>
-                            <span className="round-icon">
-                              {run.won ? <Flag size={20} /> : <Footprints size={20} />}
-                            </span>
-                            <div>
-                              <strong>{run.trackName}</strong>
-                              <span>
-                                {new Date(run.date).toLocaleDateString('es-CO')} ·{' '}
-                                {run.won ? 'Meta alcanzada' : 'Un paso más'} · {run.distance} m
-                              </span>
+                    {page === 'characters' && ready && (
+                      <CharacterEditor
+                        characters={characters}
+                        selected={character.id}
+                        onSelect={(id) => preferences({ ...data.preferences, characterId: id })}
+                        onSave={saveCharacter}
+                        onDelete={(id) => remove('characters', id)}
+                      />
+                    )}
+                    {page === 'builder' && ready && (
+                      <TrackBuilder
+                        tracks={data.tracks}
+                        onSave={saveTrack}
+                        onDelete={(id) => remove('tracks', id)}
+                        onPlay={(track) => void start(track, undefined, undefined, 'builder')}
+                      />
+                    )}
+                    {page === 'music' && ready && (
+                      <MusicLibrary
+                        music={data.music}
+                        preferences={data.preferences}
+                        active={activeMusic}
+                        setActive={setActiveMusic}
+                        onAdd={saveMusic}
+                        onDelete={(id) => remove('music', id)}
+                        onPreferences={preferences}
+                      />
+                    )}
+                    {['characters', 'builder', 'music'].includes(page) &&
+                      !ready &&
+                      !error &&
+                      loading()}
+                    {page === 'stats' && (
+                      <>
+                        <div className="section-heading">
+                          <div>
+                            <p className="eyebrow">TU HISTORIA EN EL CAMINO</p>
+                            <h1>Pequeños pasos. Grandes recuerdos.</h1>
+                            <p>Cada carrera escribe algo nuevo.</p>
+                          </div>
+                          <Trophy className="section-icon" />
+                        </div>
+                        <div className="stat-grid">
+                          <Stat
+                            icon={<Route />}
+                            value={`${totalDistance.toLocaleString('es')} m`}
+                            label="Distancia total"
+                          />
+                          <Stat
+                            icon={<Coins />}
+                            value={String(totalCoins)}
+                            label="Monedas recogidas"
+                          />
+                          <Stat
+                            icon={<Flag />}
+                            value={String(data.runs.filter((r) => r.won).length)}
+                            label="Metas alcanzadas"
+                          />
+                          <Stat icon={<Trophy />} value={String(best)} label="Mejor puntuación" />
+                        </div>
+                        <div className="panel">
+                          <h2>Diario de aventuras</h2>
+                          {data.runs.length ? (
+                            <div className="run-list">
+                              {[...data.runs].reverse().map((run) => (
+                                <article key={run.id}>
+                                  <span className="round-icon">
+                                    {run.won ? <Flag size={20} /> : <Footprints size={20} />}
+                                  </span>
+                                  <div>
+                                    <strong>{run.trackName}</strong>
+                                    <span>
+                                      {new Date(run.date).toLocaleDateString('es-CO')} ·{' '}
+                                      {run.won ? 'Meta alcanzada' : 'Un paso más'} · {run.distance}{' '}
+                                      m
+                                    </span>
+                                  </div>
+                                  <div>
+                                    <strong>{run.score.toLocaleString('es')} pts</strong>
+                                    <span>
+                                      {run.coins} monedas · {run.perfects} perfectos
+                                    </span>
+                                  </div>
+                                </article>
+                              ))}
                             </div>
-                            <div>
-                              <strong>{run.score.toLocaleString('es')} pts</strong>
-                              <span>
-                                {run.coins} monedas · {run.perfects} perfectos
-                              </span>
+                          ) : (
+                            <div className="empty-state">
+                              <Footprints />
+                              <h3>Tu historia está por empezar.</h3>
+                              <p>Completa tu primera carrera para verla aquí.</p>
+                              <button className="primary" disabled={!ready} onClick={() => start()}>
+                                <Play size={17} /> Mi primera aventura
+                              </button>
                             </div>
-                          </article>
-                        ))}
-                      </div>
-                    ) : (
-                      <div className="empty-state">
-                        <Footprints />
-                        <h3>Tu historia está por empezar.</h3>
-                        <p>Completa tu primera carrera para verla aquí.</p>
-                        <button className="primary" disabled={!ready} onClick={() => start()}>
-                          <Play size={17} /> Mi primera aventura
-                        </button>
-                      </div>
+                          )}
+                        </div>
+                      </>
+                    )}
+                    {page === 'settings' && (
+                      <>
+                        <div className="section-heading">
+                          <div>
+                            <p className="eyebrow">SIÉNTETE EN CASA</p>
+                            <h1>A tu manera.</h1>
+                            <p>Pequeños ajustes para disfrutar más del camino.</p>
+                          </div>
+                          <SlidersHorizontal />
+                        </div>
+                        <div className="settings-grid">
+                          <div className="panel">
+                            <h2>Sonido y movimiento</h2>
+                            <label className="toggle-row">
+                              <span>Silenciar audio</span>
+                              <input
+                                type="checkbox"
+                                checked={data.preferences.muted}
+                                onChange={(e) =>
+                                  preferences({ ...data.preferences, muted: e.target.checked })
+                                }
+                              />
+                            </label>
+                            <label>
+                              Volumen · {Math.round(data.preferences.volume * 100)}%
+                              <input
+                                type="range"
+                                min="0"
+                                max="1"
+                                step="0.05"
+                                value={data.preferences.volume}
+                                onChange={(e) =>
+                                  preferences({
+                                    ...data.preferences,
+                                    volume: Number(e.target.value),
+                                  })
+                                }
+                              />
+                            </label>
+                            <label className="toggle-row">
+                              <span>Reducir movimiento de fondo</span>
+                              <input
+                                type="checkbox"
+                                checked={data.preferences.reducedMotion}
+                                onChange={(e) =>
+                                  preferences({
+                                    ...data.preferences,
+                                    reducedMotion: e.target.checked,
+                                  })
+                                }
+                              />
+                            </label>
+                            <p className="subtle">
+                              Detiene el paralaje y las transiciones decorativas. Los elementos de
+                              la carrera mantienen su movimiento.
+                            </p>
+                          </div>
+                          <div className="panel">
+                            <ShieldCheck className="section-icon" />
+                            <h2>Tu mundo se queda contigo.</h2>
+                            <p className="subtle">
+                              Personajes, pistas, música y carreras se guardan en este navegador. No
+                              necesitas registrarte.
+                            </p>
+                            <div className="storage-info">
+                              <span>Almacenamiento</span>
+                              <strong>{backend ? `SQLite · ${backend}` : 'Conectando…'}</strong>
+                            </div>
+                            <div className="storage-info">
+                              <span>Estado</span>
+                              <strong>{ready ? 'Listo para guardar' : 'No disponible'}</strong>
+                            </div>
+                            <button
+                              className="secondary"
+                              onClick={() => {
+                                if (navigator.storage?.persist)
+                                  void navigator.storage
+                                    .persist()
+                                    .then((granted) =>
+                                      setToast(
+                                        granted
+                                          ? 'El navegador protegió tu guardado contra limpieza automática.'
+                                          : 'El navegador administra el espacio disponible. Tus datos siguen guardados.',
+                                      ),
+                                    )
+                                    .catch(() =>
+                                      setToast('No se pudo solicitar almacenamiento persistente.'),
+                                    );
+                                else
+                                  setToast(
+                                    'Este navegador administra el almacenamiento automáticamente.',
+                                  );
+                              }}
+                            >
+                              Proteger mis guardados <ShieldCheck size={16} />
+                            </button>
+                            <p className="subtle small-print">
+                              Borrar los datos del navegador también elimina tus creaciones. El modo
+                              sin conexión queda disponible tras cargar la versión de producción.
+                            </p>
+                          </div>
+                          <div className="panel about-panel">
+                            <picture className="rocatech-logo">
+                              <source
+                                srcSet="/assets/rocatech/roca-tech-logo.svg"
+                                type="image/svg+xml"
+                              />
+                              <img
+                                src="/assets/rocatech/roca-tech-logo.png"
+                                alt="Roca Tech Solutions"
+                              />
+                            </picture>
+                            <p className="eyebrow">ACERCA DEL JUEGO</p>
+                            <h2>Acerca de PiliRun</h2>
+                            <div className="storage-info">
+                              <span>Versión</span>
+                              <strong>{APP_VERSION}</strong>
+                            </div>
+                            <div className="storage-info">
+                              <span>Desarrollador</span>
+                              <strong>Roca Tech Solutions S.A.S.</strong>
+                            </div>
+                            <a
+                              className="secondary about-link"
+                              href="https://www.rocatechsolutions.com/"
+                              target="_blank"
+                              rel="noopener noreferrer"
+                            >
+                              Visitar sitio web <ExternalLink size={16} />
+                            </a>
+                          </div>
+                        </div>
+                      </>
                     )}
                   </div>
-                </>
-              )}
-              {page === 'settings' && (
-                <>
-                  <div className="section-heading">
-                    <div>
-                      <p className="eyebrow">SIÉNTETE EN CASA</p>
-                      <h1>A tu manera.</h1>
-                      <p>Pequeños ajustes para disfrutar más del camino.</p>
-                    </div>
-                    <SlidersHorizontal />
-                  </div>
-                  <div className="settings-grid">
-                    <div className="panel">
-                      <h2>Sonido y movimiento</h2>
-                      <label className="toggle-row">
-                        <span>Silenciar audio</span>
-                        <input
-                          type="checkbox"
-                          checked={data.preferences.muted}
-                          onChange={(e) =>
-                            preferences({ ...data.preferences, muted: e.target.checked })
-                          }
-                        />
-                      </label>
-                      <label>
-                        Volumen · {Math.round(data.preferences.volume * 100)}%
-                        <input
-                          type="range"
-                          min="0"
-                          max="1"
-                          step="0.05"
-                          value={data.preferences.volume}
-                          onChange={(e) =>
-                            preferences({ ...data.preferences, volume: Number(e.target.value) })
-                          }
-                        />
-                      </label>
-                      <label className="toggle-row">
-                        <span>Reducir movimiento de fondo</span>
-                        <input
-                          type="checkbox"
-                          checked={data.preferences.reducedMotion}
-                          onChange={(e) =>
-                            preferences({ ...data.preferences, reducedMotion: e.target.checked })
-                          }
-                        />
-                      </label>
-                      <p className="subtle">
-                        Detiene el paralaje y las transiciones decorativas. Los elementos de la
-                        carrera mantienen su movimiento.
-                      </p>
-                    </div>
-                    <div className="panel">
-                      <ShieldCheck className="section-icon" />
-                      <h2>Tu mundo se queda contigo.</h2>
-                      <p className="subtle">
-                        Personajes, pistas, música y carreras se guardan en este navegador. No
-                        necesitas registrarte.
-                      </p>
-                      <div className="storage-info">
-                        <span>Almacenamiento</span>
-                        <strong>{backend ? `SQLite · ${backend}` : 'Conectando…'}</strong>
-                      </div>
-                      <div className="storage-info">
-                        <span>Estado</span>
-                        <strong>{ready ? 'Listo para guardar' : 'No disponible'}</strong>
-                      </div>
-                      <button
-                        className="secondary"
-                        onClick={() => {
-                          if (navigator.storage?.persist)
-                            void navigator.storage
-                              .persist()
-                              .then((granted) =>
-                                setToast(
-                                  granted
-                                    ? 'El navegador protegió tu guardado contra limpieza automática.'
-                                    : 'El navegador administra el espacio disponible. Tus datos siguen guardados.',
-                                ),
-                              )
-                              .catch(() =>
-                                setToast('No se pudo solicitar almacenamiento persistente.'),
-                              );
-                          else
-                            setToast(
-                              'Este navegador administra el almacenamiento automáticamente.',
-                            );
-                        }}
-                      >
-                        Proteger mis guardados <ShieldCheck size={16} />
-                      </button>
-                      <p className="subtle small-print">
-                        Borrar los datos del navegador también elimina tus creaciones. El modo sin
-                        conexión queda disponible tras cargar la versión de producción.
-                      </p>
-                    </div>
-                  </div>
-                </>
-              )}
-            </div>
-          </div>
-        </div>
-      )}
-    </>
-  )}
+                </div>
+              </div>
+            )}
+          </>
+        )}
         <footer className="arcade-bottom-credit">
-          <span>PILIRUN 3D GAME STUDIO · MUNDO LOCAL INDEPENDIENTE</span>
+          <a href="https://www.rocatechsolutions.com/" target="_blank" rel="noopener noreferrer">
+            Developed by Roca Tech Solutions
+          </a>
         </footer>
       </main>
       {toast && (

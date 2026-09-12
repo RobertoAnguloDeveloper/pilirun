@@ -1,5 +1,13 @@
 import { WORLDS } from '../lib/worlds';
-import type { Character, WorldId } from '../lib/types';
+import type {
+  Character,
+  Scenario,
+  ScenarioAsset,
+  ScenarioLayer,
+  ScenarioObject,
+  TrackItem,
+  WorldId,
+} from '../lib/types';
 import type { Simulation } from './simulation';
 
 export function drawFox(
@@ -13,6 +21,7 @@ export function drawFox(
   isJumping = false,
   jumpVelocity = 0,
   isSliding = false,
+  slideProgress = 1,
 ) {
   ctx.save();
   ctx.translate(x, y);
@@ -25,9 +34,11 @@ export function drawFox(
     const stretchX = jumpVelocity > 0 ? 0.9 : 1.05;
     ctx.scale((size / 64) * stretchX, (size / 64) * stretchY);
   } else if (isSliding) {
-    // Aerodynamic slide compression
-    ctx.rotate(-0.08);
-    ctx.scale((size / 64) * 1.25, (size / 64) * 0.65);
+    // Dynamic slide compression with responsive standing recovery
+    const squishY = 0.6 + (1 - slideProgress) * 0.35;
+    const stretchX = 1.3 - (1 - slideProgress) * 0.25;
+    ctx.rotate(-0.08 * slideProgress);
+    ctx.scale((size / 64) * stretchX, (size / 64) * squishY);
   } else {
     // Running bob and stride tilt
     const runBob = Math.abs(Math.sin(stride * 2)) * 3;
@@ -38,9 +49,7 @@ export function drawFox(
   }
 
   // Animated tail wagging / trailing in wind
-  const tailAngle = isJumping
-    ? Math.sin(stride * 1.5) * 0.2 - 0.2
-    : Math.sin(stride) * 0.25;
+  const tailAngle = isJumping ? Math.sin(stride * 1.5) * 0.2 - 0.2 : Math.sin(stride) * 0.25;
 
   ctx.save();
   ctx.translate(-20, 21);
@@ -352,16 +361,36 @@ export function drawLandscape(
   }
 }
 
+interface ShatterParticle {
+  worldX: number;
+  worldY: number;
+  vx: number;
+  vy: number;
+  color: string;
+  size: number;
+  life: number;
+  maxLife: number;
+  rot: number;
+  vrot: number;
+}
+
 export class Renderer {
   private image?: HTMLImageElement;
   private runFrames: HTMLImageElement[] = [];
   private jumpFrames: HTMLImageElement[] = [];
   private slideFrames: HTMLImageElement[] = [];
   private idleFrames: HTMLImageElement[] = [];
+  private particles: ShatterParticle[] = [];
+  private processedDestroyedIds = new Set<string>();
+  private customImages = new Map<string, HTMLImageElement>();
+  private customImageUrls: string[] = [];
+  private visibleItems: TrackItem[] = [];
 
   constructor(
     private ctx: CanvasRenderingContext2D,
     private character: Character,
+    private scenario?: Scenario,
+    scenarioAssets: ScenarioAsset[] = [],
   ) {
     if (character.image) {
       this.image = new Image();
@@ -397,13 +426,40 @@ export class Renderer {
         });
       }
     }
+    for (const asset of scenarioAssets) {
+      const url = URL.createObjectURL(new Blob([asset.bytes], { type: asset.mime }));
+      const image = new Image();
+      image.src = url;
+      this.customImageUrls.push(url);
+      this.customImages.set(asset.id, image);
+    }
+  }
+
+  destroy() {
+    for (const url of this.customImageUrls) URL.revokeObjectURL(url);
+    this.customImageUrls.length = 0;
+    this.customImages.clear();
   }
 
   render(game: Simulation, width: number, height: number, reduced: boolean) {
     const ctx = this.ctx;
+
+    // Check for newly destroyed obstacles to spawn shatter particles
+    if (game.destroyedObstacles.length > 0) {
+      for (const item of game.destroyedObstacles) {
+        if (!this.processedDestroyedIds.has(item.id)) {
+          this.processedDestroyedIds.add(item.id);
+          this.spawnShatterParticles(item.x, item.kind);
+        }
+      }
+    }
+
+    // Update particles
+    this.updateParticles();
+
     ctx.save();
 
-    // Screen Shake effect when hit
+    // Screen Shake effect when hit or shield smash
     if (game.shake > 0 && !reduced) {
       const s = game.shake * 14;
       const shakeX = (Math.random() - 0.5) * s;
@@ -416,6 +472,9 @@ export class Renderer {
     } else {
       this.renderSideView(game, width, height, reduced);
     }
+
+    // Render active shatter particles on top of world
+    this.renderParticles(ctx, game, width, height);
 
     // Impact / Damage vignette flash
     if (game.hurt > 0) {
@@ -437,6 +496,128 @@ export class Renderer {
     ctx.restore();
   }
 
+  private spawnShatterParticles(worldX: number, kind: string) {
+    // Determine debris colors based on obstacle material
+    let palette: string[];
+    if (kind === 'rock') {
+      palette = ['#95a49b', '#c3ccc0', '#5a6860', '#748076', '#bfe8fa'];
+    } else if (kind === 'branch') {
+      palette = ['#70533e', '#76a565', '#8a654c', '#537d45', '#bfe8fa'];
+    } else {
+      // Log or default
+      palette = ['#866248', '#c39a6a', '#533e34', '#a07855', '#bfe8fa'];
+    }
+
+    const count = 26; // High energy shatter burst
+    for (let i = 0; i < count; i++) {
+      const angle = Math.random() * Math.PI * 2;
+      const speed = 120 + Math.random() * 320;
+      this.particles.push({
+        worldX: worldX + (Math.random() - 0.5) * 24,
+        worldY: -15 - Math.random() * 45, // Elevation off ground
+        vx: Math.cos(angle) * speed + 80, // Slight forward momentum from shield impact
+        vy: Math.sin(angle) * speed - 100, // Upward explosion blast
+        color: palette[Math.floor(Math.random() * palette.length)],
+        size: 3 + Math.random() * 7,
+        life: 0.65 + Math.random() * 0.35,
+        maxLife: 1.0,
+        rot: Math.random() * Math.PI * 2,
+        vrot: (Math.random() - 0.5) * 16,
+      });
+    }
+
+    // Add bright shield energy plasma sparks
+    for (let i = 0; i < 14; i++) {
+      const angle = Math.random() * Math.PI * 2;
+      const speed = 200 + Math.random() * 260;
+      this.particles.push({
+        worldX: worldX,
+        worldY: -30,
+        vx: Math.cos(angle) * speed,
+        vy: Math.sin(angle) * speed - 60,
+        color: '#bfe8fa',
+        size: 2 + Math.random() * 4,
+        life: 0.4 + Math.random() * 0.25,
+        maxLife: 0.65,
+        rot: 0,
+        vrot: 0,
+      });
+    }
+  }
+
+  private updateParticles() {
+    const dt = 1 / 60;
+    const gravity = 880;
+    for (let i = this.particles.length - 1; i >= 0; i--) {
+      const p = this.particles[i];
+      p.life -= dt;
+      if (p.life <= 0) {
+        this.particles.splice(i, 1);
+        continue;
+      }
+      p.worldX += p.vx * dt;
+      p.worldY += p.vy * dt;
+      p.vy += gravity * dt; // Particles fall with realistic gravity
+      p.rot += p.vrot * dt;
+    }
+  }
+
+  private renderParticles(
+    ctx: CanvasRenderingContext2D,
+    game: Simulation,
+    width: number,
+    height: number,
+  ) {
+    if (this.particles.length === 0) return;
+
+    if (game.cameraView === 'first_person') {
+      const horizon = height * 0.48;
+      const centerX = width / 2;
+      for (const p of this.particles) {
+        const dist = p.worldX - game.distance;
+        if (dist < -50 || dist > 2000) continue;
+        const depth = Math.max(1, dist);
+        const factor = Math.max(0, Math.min(1, 1 - depth / 2000));
+        const projScale = Math.pow(factor, 2.2);
+        const y = horizon + projScale * (height - horizon) + p.worldY * projScale;
+        const x = centerX + p.vx * 0.15 * projScale;
+        const alpha = Math.max(0, p.life / p.maxLife);
+
+        ctx.save();
+        ctx.globalAlpha = alpha;
+        ctx.fillStyle = p.color;
+        ctx.translate(x, y);
+        ctx.rotate(p.rot);
+        ctx.fillRect(
+          (-p.size * projScale) / 2,
+          (-p.size * projScale) / 2,
+          p.size * projScale,
+          p.size * projScale,
+        );
+        ctx.restore();
+      }
+    } else {
+      const ground = height * 0.79;
+      const scale = Math.min(1, height / 430);
+      const px = width * 0.23;
+
+      for (const p of this.particles) {
+        const x = px + (p.worldX - game.distance) * scale;
+        if (x < -100 || x > width + 100) continue;
+        const y = ground + p.worldY * scale;
+        const alpha = Math.max(0, p.life / p.maxLife);
+
+        ctx.save();
+        ctx.globalAlpha = alpha;
+        ctx.fillStyle = p.color;
+        ctx.translate(x, y);
+        ctx.rotate(p.rot);
+        ctx.fillRect((-p.size * scale) / 2, (-p.size * scale) / 2, p.size * scale, p.size * scale);
+        ctx.restore();
+      }
+    }
+  }
+
   /**
    * 3D First-Person Mode (FPS Runner)
    * Forward-projecting 3D track, horizon, and scaling billboard obstacles
@@ -444,105 +625,185 @@ export class Renderer {
   private renderFirstPerson(game: Simulation, width: number, height: number, reduced: boolean) {
     const ctx = this.ctx;
     const palette = WORLDS[game.track.world] || WORLDS.forest;
-    const horizon = height * 0.48;
-    const cameraBob = reduced ? 0 : Math.sin(game.distance * 0.035) * (game.height > 0 ? 0 : 7);
-    const playerZJump = game.height * 0.65;
+    const cameraBob = reduced || game.height > 5 ? 0 : Math.sin(game.distance * 0.035) * 3;
+    const horizon = height * 0.43 + cameraBob + Math.min(height * 0.12, game.height * 0.12);
+    const centerAt = (depth: number) =>
+      width / 2 + Math.sin((game.distance + depth) * 0.00082) * width * 0.11 * (1 - depth / 2800);
+    const project = (depth: number) => {
+      const ratio = Math.max(0, Math.min(1, 1 - depth / 2600));
+      const scale = Math.pow(ratio, 2.05);
+      return {
+        scale,
+        y: horizon + scale * (height - horizon),
+        center: centerAt(depth),
+        roadWidth: width * (0.045 + scale * 0.74),
+      };
+    };
 
-    // 1. Sky & Horizon
-    ctx.fillStyle = palette.sky;
-    ctx.fillRect(0, 0, width, horizon + cameraBob);
+    const sky = ctx.createLinearGradient(0, 0, 0, horizon);
+    sky.addColorStop(0, palette.sky);
+    sky.addColorStop(1, game.track.world === 'night' ? '#5c6f91' : '#f7e3bf');
+    ctx.fillStyle = sky;
+    ctx.fillRect(0, 0, width, horizon + 2);
+    ctx.globalAlpha = 0.8;
+    ctx.fillStyle = palette.accent;
+    ctx.beginPath();
+    ctx.arc(width * 0.78, height * 0.18, Math.max(24, height * 0.065), 0, Math.PI * 2);
+    ctx.fill();
+    ctx.globalAlpha = 1;
 
-    // Mountain silhouettes on horizon
     ctx.fillStyle = palette.mountain;
     ctx.beginPath();
-    ctx.moveTo(0, horizon + cameraBob);
-    for (let x = 0; x <= width; x += 60) {
-      const my = horizon + cameraBob - 35 - ((x * 17) % 25);
-      ctx.lineTo(x, my);
+    ctx.moveTo(0, horizon);
+    for (let x = -40; x <= width + 80; x += 78) {
+      const peak = horizon - height * (0.09 + (Math.abs(x * 17) % 48) / 500);
+      ctx.lineTo(x + 38, peak);
+      ctx.lineTo(x + 78, horizon);
     }
-    ctx.lineTo(width, horizon + cameraBob);
     ctx.closePath();
     ctx.fill();
 
-    // 2. 3D Forward Runway / Road
-    const trackNearWidth = width * 0.72;
-    const trackFarWidth = width * 0.04;
-    const centerX = width / 2;
+    const ground = ctx.createLinearGradient(0, horizon, 0, height);
+    ground.addColorStop(0, palette.trees);
+    ground.addColorStop(1, palette.ground);
+    ctx.fillStyle = ground;
+    ctx.fillRect(0, horizon, width, height - horizon);
 
-    const roadGrad = ctx.createLinearGradient(0, horizon, 0, height);
-    roadGrad.addColorStop(0, palette.trees);
-    roadGrad.addColorStop(1, palette.ground);
-    ctx.fillStyle = roadGrad;
-
-    // Ground surrounding track
-    ctx.fillRect(0, horizon + cameraBob, width, height);
-
-    // Perspective Runway Polygon (Grounded)
-    ctx.fillStyle = '#1c2826';
-    ctx.beginPath();
-    ctx.moveTo(centerX - trackFarWidth / 2, horizon + cameraBob);
-    ctx.lineTo(centerX + trackFarWidth / 2, horizon + cameraBob);
-    ctx.lineTo(centerX + trackNearWidth / 2, height);
-    ctx.lineTo(centerX - trackNearWidth / 2, height);
-    ctx.closePath();
-    ctx.fill();
-
-    // 3D Grid / Distance horizontal stripes moving toward camera
-    const strideOffset = (game.distance % 120) / 120;
-    ctx.strokeStyle = palette.accent;
-    ctx.lineWidth = 2;
-    for (let i = 1; i <= 14; i++) {
-      const p = Math.pow((i + strideOffset) / 15, 2.5); // Perspective scaling
-      const y = horizon + cameraBob + p * (height - (horizon + cameraBob));
-      const w = trackFarWidth + p * (trackNearWidth - trackFarWidth);
+    // Curved road slices share the same projection as objects, so depth remains coherent.
+    const slices = 28;
+    for (let index = 0; index < slices; index++) {
+      const nearRatio = (index + 1) / slices;
+      const farRatio = index / slices;
+      const nearDepth = 2600 * (1 - Math.pow(nearRatio, 0.62));
+      const farDepth = 2600 * (1 - Math.pow(farRatio, 0.62));
+      const near = project(nearDepth);
+      const far = project(farDepth);
+      ctx.fillStyle = index % 2 ? '#172521' : '#1d2e29';
       ctx.beginPath();
-      ctx.moveTo(centerX - w / 2, y);
-      ctx.lineTo(centerX + w / 2, y);
+      ctx.moveTo(far.center - far.roadWidth / 2, far.y);
+      ctx.lineTo(far.center + far.roadWidth / 2, far.y);
+      ctx.lineTo(near.center + near.roadWidth / 2, near.y);
+      ctx.lineTo(near.center - near.roadWidth / 2, near.y);
+      ctx.closePath();
+      ctx.fill();
+      if (index % 3 === 0) {
+        ctx.strokeStyle = `${palette.accent}88`;
+        ctx.lineWidth = Math.max(1, near.scale * 3);
+        ctx.beginPath();
+        ctx.moveTo(near.center - near.roadWidth / 2, near.y);
+        ctx.lineTo(near.center + near.roadWidth / 2, near.y);
+        ctx.stroke();
+      }
+    }
+
+    ctx.strokeStyle = palette.accent;
+    ctx.lineWidth = Math.max(2, width * 0.003);
+    for (const side of [-1, 1]) {
+      ctx.beginPath();
+      for (let depth = 2600; depth >= 0; depth -= 100) {
+        const point = project(depth);
+        const x = point.center + (side * point.roadWidth) / 2;
+        if (depth === 2600) ctx.moveTo(x, point.y);
+        else ctx.lineTo(x, point.y);
+      }
       ctx.stroke();
     }
 
-    // Runway borders
-    ctx.strokeStyle = palette.accent;
-    ctx.lineWidth = 4;
-    ctx.beginPath();
-    ctx.moveTo(centerX - trackFarWidth / 2, horizon + cameraBob);
-    ctx.lineTo(centerX - trackNearWidth / 2, height);
-    ctx.moveTo(centerX + trackFarWidth / 2, horizon + cameraBob);
-    ctx.lineTo(centerX + trackNearWidth / 2, height);
-    ctx.stroke();
+    // Deterministic roadside silhouettes give speed and scale without allocations.
+    const roadsideOffset = game.distance % 180;
+    for (let depth = 2600 - roadsideOffset; depth > 40; depth -= 180) {
+      const point = project(depth);
+      if (point.scale < 0.015) continue;
+      for (const side of [-1, 1]) {
+        const x = point.center + side * point.roadWidth * 0.72;
+        const propHeight = 110 * point.scale;
+        ctx.fillStyle = game.track.world === 'neon' ? '#19cfed' : palette.trees;
+        ctx.fillRect(x - 5 * point.scale, point.y - propHeight, 10 * point.scale, propHeight);
+        ctx.beginPath();
+        ctx.arc(x, point.y - propHeight, 34 * point.scale, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    }
 
-    // 3. Project 3D Track Items (Obstacles, coins, springs)
-    // Items are strictly grounded on the road - they do NOT move when player jumps!
-    const visibleItems = game.track.items
-      .filter((item) => {
-        const dist = item.x - game.distance;
-        return dist >= -40 && dist <= 2600 && !game.consumed.has(item.id);
-      })
-      .sort((a, b) => b.x - a.x);
+    this.renderScenarioFirstPerson(game, width, height, project);
 
-    for (const item of visibleItems) {
+    this.visibleItems.length = 0;
+    for (const item of game.track.items) {
+      const distance = item.x - game.distance;
+      if (distance >= -40 && distance <= 2600 && !game.consumed.has(item.id))
+        this.visibleItems.push(item);
+    }
+    this.visibleItems.sort((a, b) => b.x - a.x);
+
+    for (const item of this.visibleItems) {
       const dist = item.x - game.distance;
-      // In 3D: depth z goes from 0 (at player) to 2500 (horizon)
-      const depth = Math.max(1, dist);
-      // Perspective projection scale:
-      const p = Math.max(0, Math.min(1, 1 - depth / 2400));
-      const scale = Math.pow(p, 2.2);
-
-      const y = horizon + cameraBob + scale * (height - (horizon + cameraBob));
-      const x = centerX; // Center lane
-      const itemSize = 120 * scale;
-
-      if (scale < 0.05) continue;
+      const point = project(Math.max(1, dist));
+      if (point.scale < 0.035) continue;
 
       ctx.save();
-      ctx.translate(x, y);
-
-      this.drawItem3D(ctx, item.kind, itemSize);
+      ctx.translate(point.center, point.y - (item.y ?? 0) * point.scale);
+      ctx.shadowColor = 'rgba(0,0,0,.35)';
+      ctx.shadowBlur = 12 * point.scale;
+      if (item.visual?.source === 'custom') {
+        const image = this.customImages.get(item.visual.assetId);
+        if (image?.complete) {
+          const objectWidth = (item.width ?? 100) * point.scale;
+          const objectHeight = (item.height ?? 100) * point.scale;
+          ctx.drawImage(image, -objectWidth / 2, -objectHeight, objectWidth, objectHeight);
+        } else this.drawItem3D(ctx, item.kind, 120 * point.scale);
+      } else this.drawItem3D(ctx, item.kind, 120 * point.scale);
       ctx.restore();
     }
 
-    // 4. First-Person Cockpit / Speed Dash Overlay
+    const fog = ctx.createLinearGradient(0, horizon - 20, 0, horizon + height * 0.24);
+    fog.addColorStop(0, 'rgba(255,255,255,.28)');
+    fog.addColorStop(1, 'rgba(255,255,255,0)');
+    ctx.fillStyle = fog;
+    ctx.fillRect(0, horizon - 20, width, height * 0.3);
     this.drawFirstPersonCockpit(ctx, width, height, game);
+  }
+
+  private renderScenarioFirstPerson(
+    game: Simulation,
+    width: number,
+    height: number,
+    project: (depth: number) => { scale: number; y: number; center: number; roadWidth: number },
+  ) {
+    if (!this.scenario) return;
+    const ctx = this.ctx;
+    for (const layer of this.scenario.layers) {
+      if (!layer.visible) continue;
+      const animation = layer.animated ? game.elapsed * layer.animationSpeed : 0;
+      for (const object of layer.objects) {
+        if (object.behavior !== 'decoration') continue;
+        const directional =
+          layer.animationDirection === 'left'
+            ? -animation
+            : layer.animationDirection === 'right'
+              ? animation
+              : 0;
+        const depth = object.x - game.distance * layer.parallaxSpeed + directional;
+        if (depth < 10 || depth > 2600) continue;
+        const point = project(depth);
+        if (point.scale < 0.025) continue;
+        const verticalAnimation =
+          layer.animationDirection === 'up'
+            ? animation
+            : layer.animationDirection === 'down'
+              ? -animation
+              : 0;
+        const objectWidth = object.width * object.scale * point.scale;
+        const objectHeight = object.height * object.scale * point.scale;
+        const x = point.center + object.laneOffset * point.roadWidth * 0.85;
+        const y = point.y - (object.y + verticalAnimation) * point.scale;
+        ctx.save();
+        ctx.globalAlpha = Number(object.properties.opacity ?? 1);
+        ctx.translate(x, y - objectHeight / 2);
+        ctx.rotate((object.rotation * Math.PI) / 180);
+        this.drawScenarioVisual(ctx, object, objectWidth, objectHeight);
+        ctx.restore();
+      }
+    }
   }
 
   /**
@@ -569,27 +830,25 @@ export class Renderer {
       }
     }
 
-    // First Person Energy / Reticle in center
-    ctx.strokeStyle = game.shield > 0 ? '#bfe8fa' : '#d8f36a88';
-    ctx.lineWidth = 2;
-    ctx.beginPath();
-    ctx.arc(width / 2, height / 2, 24, 0, Math.PI * 2);
-    ctx.stroke();
-
-    // Crosshairs
-    ctx.beginPath();
-    ctx.moveTo(width / 2 - 12, height / 2);
-    ctx.lineTo(width / 2 + 12, height / 2);
-    ctx.moveTo(width / 2, height / 2 - 12);
-    ctx.lineTo(width / 2, height / 2 + 12);
-    ctx.stroke();
+    const vignette = ctx.createRadialGradient(
+      width / 2,
+      height / 2,
+      height * 0.2,
+      width / 2,
+      height / 2,
+      width * 0.7,
+    );
+    vignette.addColorStop(0, 'rgba(0,0,0,0)');
+    vignette.addColorStop(1, game.shield > 0 ? 'rgba(76,210,245,.18)' : 'rgba(0,0,0,.3)');
+    ctx.fillStyle = vignette;
+    ctx.fillRect(0, 0, width, height);
 
     // Altitude indicator when airborne in speedrun
     if (game.height > 10) {
       ctx.fillStyle = '#ffffffdd';
       ctx.font = 'bold 13px monospace';
       ctx.textAlign = 'center';
-      ctx.fillText(`ALT: +${Math.round(game.height)}m`, width / 2, height / 2 - 36);
+      ctx.fillText(`ALTURA +${(game.height / 10).toFixed(1)} m`, width / 2, height * 0.72);
     }
   }
 
@@ -655,6 +914,74 @@ export class Renderer {
     }
   }
 
+  private drawScenarioVisual(
+    ctx: CanvasRenderingContext2D,
+    object: ScenarioObject,
+    width: number,
+    height: number,
+  ) {
+    const visual = object.visual;
+    if (visual.source === 'custom') {
+      const image = this.customImages.get(visual.assetId);
+      if (image?.complete && image.naturalWidth) {
+        ctx.drawImage(image, -width / 2, -height / 2, width, height);
+        return;
+      }
+    }
+    ctx.fillStyle =
+      object.behavior === 'coin'
+        ? '#ffe08a'
+        : object.behavior === 'shield'
+          ? '#afdbef'
+          : object.behavior === 'boost'
+            ? '#e5bafa'
+            : object.behavior === 'decoration'
+              ? '#d8f36a'
+              : '#866248';
+    ctx.beginPath();
+    ctx.roundRect(-width / 2, -height / 2, width, height, Math.min(12, height / 3));
+    ctx.fill();
+  }
+
+  private renderScenarioSide(game: Simulation, width: number, height: number, foreground: boolean) {
+    if (!this.scenario) return;
+    const ctx = this.ctx;
+    const ground = height * 0.79;
+    const scale = Math.min(1, height / 430);
+    const playerX = width * 0.23;
+    for (const layer of this.scenario.layers) {
+      if (!layer.visible || (layer.type === 'foreground') !== foreground) continue;
+      const animation = layer.animated ? game.elapsed * layer.animationSpeed : 0;
+      for (const object of layer.objects) {
+        if (object.behavior !== 'decoration') continue;
+        const horizontalAnimation =
+          layer.animationDirection === 'left'
+            ? -animation
+            : layer.animationDirection === 'right'
+              ? animation
+              : 0;
+        const verticalAnimation =
+          layer.animationDirection === 'up'
+            ? animation
+            : layer.animationDirection === 'down'
+              ? -animation
+              : 0;
+        const x =
+          playerX + (object.x - game.distance * layer.parallaxSpeed + horizontalAnimation) * scale;
+        const objectWidth = object.width * object.scale * scale;
+        const objectHeight = object.height * object.scale * scale;
+        if (x + objectWidth < -100 || x - objectWidth > width + 100) continue;
+        const y = ground - (object.y + verticalAnimation) * scale - objectHeight / 2;
+        ctx.save();
+        ctx.globalAlpha = Number(object.properties.opacity ?? 1);
+        ctx.translate(x, y);
+        ctx.rotate((object.rotation * Math.PI) / 180);
+        this.drawScenarioVisual(ctx, object, objectWidth, objectHeight);
+        ctx.restore();
+      }
+    }
+  }
+
   /**
    * Enhanced 2.5D Side-Scroller with Verticality and Parallax
    */
@@ -665,6 +992,7 @@ export class Renderer {
       px = width * 0.23;
 
     drawLandscape(ctx, width, height, game.track.world, game.distance, reduced);
+    this.renderScenarioSide(game, width, height, false);
     ctx.save();
 
     // 1. Draw Track Items (Obstacles, Collectibles, Springs, Rings)
@@ -677,7 +1005,17 @@ export class Renderer {
       ctx.translate(x, ground);
       ctx.scale(scale, scale);
 
-      if (item.kind === 'coin') {
+      if (item.visual?.source === 'custom') {
+        const image = this.customImages.get(item.visual.assetId);
+        if (image?.complete && image.naturalWidth) {
+          const itemWidth = item.width ?? 80;
+          const itemHeight = item.height ?? 80;
+          ctx.drawImage(image, -itemWidth / 2, -(item.y ?? 0) - itemHeight, itemWidth, itemHeight);
+        } else {
+          ctx.fillStyle = '#d8f36a';
+          ctx.fillRect(-20, -40, 40, 40);
+        }
+      } else if (item.kind === 'coin') {
         ctx.fillStyle = '#ffe08a';
         ctx.beginPath();
         ctx.arc(0, -62, 10, 0, Math.PI * 2);
@@ -787,7 +1125,15 @@ export class Renderer {
       const shadowScale = Math.max(0.2, 1 - game.height / 350);
       ctx.fillStyle = 'rgba(0, 0, 0, 0.25)';
       ctx.beginPath();
-      ctx.ellipse(0, game.height * scale + (game.slide > 0 ? 16 : 31) * scale, 25 * shadowScale, 6 * shadowScale, 0, 0, Math.PI * 2);
+      ctx.ellipse(
+        0,
+        game.height * scale + (game.slide > 0 ? 16 : 31) * scale,
+        25 * shadowScale,
+        6 * shadowScale,
+        0,
+        0,
+        Math.PI * 2,
+      );
       ctx.fill();
       ctx.restore();
     }
@@ -814,8 +1160,12 @@ export class Renderer {
         activeFrameImg = this.jumpFrames[jumpIdx];
       }
     } else if (isSliding && this.slideFrames.length > 0) {
-      if (this.slideFrames[0]?.complete && this.slideFrames[0].naturalWidth) {
-        activeFrameImg = this.slideFrames[0];
+      // Dynamic multi-frame crouch:
+      // When slide > 0.16s: deep crouch pose (frame 0)
+      // When slide <= 0.16s: swift upright recovery pose (frame 1 if available)
+      const slideIdx = game.slide > 0.16 || this.slideFrames.length === 1 ? 0 : 1;
+      if (this.slideFrames[slideIdx]?.complete && this.slideFrames[slideIdx].naturalWidth) {
+        activeFrameImg = this.slideFrames[slideIdx];
       }
     } else if (this.runFrames.length > 0) {
       // 6-frame run cycle dynamically indexed by runner distance progress
@@ -830,7 +1180,12 @@ export class Renderer {
       // Organic platformer character dynamics
       if (isJumping) {
         ctx.rotate(Math.max(-0.18, Math.min(0.18, -game.velocity * 0.00025)));
-      } else if (!isSliding) {
+      } else if (isSliding) {
+        // Subtle forward aerodynamic tilt during slide
+        const slideProgress = Math.max(0, Math.min(1, game.slide / 0.45));
+        ctx.rotate(-0.06 * slideProgress);
+        ctx.translate(0, (1 - slideProgress) * 4);
+      } else {
         ctx.rotate(Math.sin(stride) * 0.035);
         ctx.translate(0, -Math.abs(Math.sin(stride * 2)) * 3);
       }
@@ -858,6 +1213,7 @@ export class Renderer {
       });
       ctx.restore();
     } else {
+      const slideProgress = Math.max(0, Math.min(1, game.slide / 0.45));
       drawFox(
         ctx,
         0,
@@ -869,9 +1225,11 @@ export class Renderer {
         isJumping,
         game.velocity,
         isSliding,
+        slideProgress,
       );
     }
 
     ctx.restore();
+    this.renderScenarioSide(game, width, height, true);
   }
 }

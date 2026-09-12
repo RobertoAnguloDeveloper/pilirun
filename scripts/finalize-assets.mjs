@@ -9,7 +9,7 @@ const template = await readFile('scripts/sw-template.js', 'utf8');
 await writeFile(
   'public/sw.js',
   template
-    .replace('pilirun-shell-v1', `pilirun-shell-${buildId}`)
+    .replace(/pilirun-shell-v\d+/, `pilirun-shell-${buildId}`)
     .replace(
       "self.addEventListener('install'",
       `CORE.push(...${JSON.stringify(assets)});\nself.addEventListener('install'`,

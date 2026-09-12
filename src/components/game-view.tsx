@@ -21,10 +21,21 @@ import {
 } from 'lucide-react';
 import { GameEngine } from '@/game/engine';
 import { audioEngine } from '@/lib/audio';
-import { DEFAULT_PREFERENCES, type CameraView, type Character, type Hud, type RunResult, type Track } from '@/lib/types';
+import {
+  DEFAULT_PREFERENCES,
+  type CameraView,
+  type Character,
+  type Hud,
+  type RunResult,
+  type Scenario,
+  type ScenarioAsset,
+  type Track,
+} from '@/lib/types';
 
 export function GameView({
   track,
+  scenario,
+  scenarioAssets = [],
   character,
   reduced,
   initialCameraView = 'side',
@@ -32,6 +43,8 @@ export function GameView({
   onResult,
 }: {
   track: Track;
+  scenario?: Scenario;
+  scenarioAssets?: ScenarioAsset[];
   character: Character;
   reduced: boolean;
   initialCameraView?: CameraView;
@@ -116,6 +129,8 @@ export function GameView({
           .catch(() => setSaved('No se pudo guardar la carrera.'));
       },
       initialCameraView,
+      scenario,
+      scenarioAssets,
     );
 
     engine.current = game;
@@ -134,7 +149,10 @@ export function GameView({
 
       // Always blur any button or activeElement if Space is pressed so it NEVER activates a button's onClick
       if (isSpace) {
-        if (document.activeElement instanceof HTMLElement && document.activeElement !== canvas.current) {
+        if (
+          document.activeElement instanceof HTMLElement &&
+          document.activeElement !== canvas.current
+        ) {
           document.activeElement.blur();
         }
         if (canvas.current && document.activeElement !== canvas.current) {
@@ -152,14 +170,22 @@ export function GameView({
         game.jump();
       }
       // Slide / Fast Air Drop (ArrowDown, S)
-      else if (['ArrowDown', 's', 'S'].includes(event.key) || event.code === 'ArrowDown' || event.code === 'KeyS') {
+      else if (
+        ['ArrowDown', 's', 'S'].includes(event.key) ||
+        event.code === 'ArrowDown' ||
+        event.code === 'KeyS'
+      ) {
         event.preventDefault();
         event.stopPropagation();
         if (event.stopImmediatePropagation) event.stopImmediatePropagation();
         game.slide();
       }
       // Camera perspective switch: First-person vs 3D side view
-      else if (['c', 'C', 'v', 'V'].includes(event.key) || event.code === 'KeyC' || event.code === 'KeyV') {
+      else if (
+        ['c', 'C', 'v', 'V'].includes(event.key) ||
+        event.code === 'KeyC' ||
+        event.code === 'KeyV'
+      ) {
         event.preventDefault();
         event.stopPropagation();
         game.toggleCameraView();
@@ -195,7 +221,7 @@ export function GameView({
       window.removeEventListener('keydown', key, true);
       document.removeEventListener('visibilitychange', hidden);
     };
-  }, [track, character, reduced, round, initialCameraView]);
+  }, [track, character, reduced, round, initialCameraView, scenario, scenarioAssets]);
 
   const retry = () => {
     setResult(null);
@@ -214,7 +240,10 @@ export function GameView({
         {/* Game Title Bar (hidden or integrated in fullscreen) */}
         <div className="section-heading game-title-heading">
           <div>
-            <p className="eyebrow">MODO SPEEDRUN · {hud.cameraView === 'first_person' ? '1ª PERSONA (3D)' : 'VISTA LATERAL 3D'}</p>
+            <p className="eyebrow">
+              MODO SPEEDRUN ·{' '}
+              {hud.cameraView === 'first_person' ? '1ª PERSONA (3D)' : 'VISTA LATERAL 3D'}
+            </p>
             <h1>{track.name}</h1>
           </div>
           <div className="game-top-controls">
@@ -242,7 +271,9 @@ export function GameView({
                 canvas.current?.focus();
                 void toggleFullscreen();
               }}
-              aria-label={isFullscreen ? 'Salir de pantalla completa' : 'Pantalla completa (Modo Videojuego)'}
+              aria-label={
+                isFullscreen ? 'Salir de pantalla completa' : 'Pantalla completa (Modo Videojuego)'
+              }
               title="Pantalla Completa (Tecla F)"
             >
               {isFullscreen ? <Minimize2 size={18} /> : <Maximize2 size={18} />}
@@ -401,7 +432,8 @@ export function GameView({
                       engine.current?.toggleCameraView();
                     }}
                   >
-                    <Camera size={18} /> Perspectiva: {hud.cameraView === 'first_person' ? '1ª Persona (3D)' : 'Lateral (3D)'} [C]
+                    <Camera size={18} /> Perspectiva:{' '}
+                    {hud.cameraView === 'first_person' ? '1ª Persona (3D)' : 'Lateral (3D)'} [C]
                   </button>
                   <button
                     className="secondary"
@@ -484,15 +516,47 @@ export function GameView({
               </div>
             </div>
           )}
+
+          <div className="game-floating-controls" aria-label="Controles de vista">
+            <button
+              aria-label="Alternar cámara 1ª persona / lateral"
+              onClick={() => engine.current?.toggleCameraView()}
+            >
+              <Camera size={18} />
+              <span>{hud.cameraView === 'first_person' ? 'Lateral' : '1ª persona'}</span>
+            </button>
+            <button
+              aria-label={isFullscreen ? 'Salir de pantalla completa' : 'Pantalla completa'}
+              onClick={() => void toggleFullscreen()}
+            >
+              {isFullscreen ? <Minimize2 size={18} /> : <Maximize2 size={18} />}
+            </button>
+            <button aria-label="Salir de la carrera" onClick={onClose}>
+              <X size={18} />
+            </button>
+          </div>
+
+          <div className="touch-controls">
+            <button onPointerDown={() => engine.current?.slide()}>
+              <ArrowDown /> Deslizar
+            </button>
+            <button
+              className="secondary-touch-btn"
+              onClick={() => engine.current?.toggleCameraView()}
+            >
+              <Camera size={18} /> Cámara
+            </button>
+            <button onPointerDown={() => engine.current?.jump()}>
+              <ArrowUp /> Saltar
+            </button>
+          </div>
         </div>
 
         {/* Video Game Controls & Hotkeys HUD */}
         <div className="game-instructions">
           <p>
-            <kbd>Espacio</kbd> Saltar / Doble salto ·{' '}
-            <kbd>↓</kbd> Deslizarse / Caída rápida en el aire ·{' '}
-            <kbd>C</kbd> / <kbd>V</kbd> Cámara 1ª Persona ·{' '}
-            <kbd>F</kbd> Pantalla Completa ·{' '}
+            <kbd>Espacio</kbd> Saltar / Doble salto · <kbd>↓</kbd> Deslizarse / Caída rápida en el
+            aire · <kbd>C</kbd> / <kbd>V</kbd> Cámara 1ª Persona · <kbd>F</kbd> Pantalla Completa ·{' '}
             <kbd>P</kbd> Pausa
           </p>
           <span>
@@ -500,29 +564,13 @@ export function GameView({
           </span>
         </div>
 
-        {/* Touch / Mobile Controls */}
-        <div className="touch-controls">
-          <button onPointerDown={() => engine.current?.slide()}>
-            <ArrowDown /> Deslizar
-          </button>
-          <button
-            className="secondary-touch-btn"
-            onClick={() => engine.current?.toggleCameraView()}
-          >
-            <Camera size={18} /> Cámara
-          </button>
-          <button onPointerDown={() => engine.current?.jump()}>
-            <ArrowUp /> Saltar
-          </button>
-        </div>
-
         {/* Speedrun Tip Card */}
         <div className="hint-card">
           <Shield size={20} />
           <p>
-            <strong>Físicas y verticalidad:</strong> Usa los resortes dorados en la pista para alcanzar
-            los aros celestes de velocidad en el aire. Si colisionas con un obstáculo perderás vida y energía,
-            pero los obstáculos superados seguirán existiendo en el mundo.
+            <strong>Físicas y verticalidad:</strong> Usa los resortes dorados en la pista para
+            alcanzar los aros celestes de velocidad en el aire. Si colisionas con un obstáculo
+            perderás vida y energía, pero los obstáculos superados seguirán existiendo en el mundo.
           </p>
         </div>
       </section>

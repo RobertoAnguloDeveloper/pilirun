@@ -191,24 +191,24 @@ class AudioEngine {
     return buffer;
   }
 
-  effect(kind: 'jump' | 'coin' | 'hit' | 'power' | 'win') {
+  effect(kind: 'jump' | 'coin' | 'hit' | 'power' | 'win' | 'destroy-shield') {
     if (!this.context || this.preferences.muted || this.preferences.sfxVolume <= 0) return;
     const ctx = this.context,
       oscillator = ctx.createOscillator(),
       gain = ctx.createGain();
-    const notes = { jump: 420, coin: 1000, hit: 110, power: 700, win: 880 };
-    oscillator.type = kind === 'hit' ? 'triangle' : 'sine';
+    const notes = { jump: 420, coin: 1000, hit: 110, power: 700, win: 880, 'destroy-shield': 520 };
+    oscillator.type = kind === 'destroy-shield' ? 'sawtooth' : kind === 'hit' ? 'triangle' : 'sine';
     oscillator.frequency.setValueAtTime(notes[kind] * this.preferences.sfxPitch, ctx.currentTime);
     oscillator.frequency.exponentialRampToValueAtTime(
-      notes[kind] * this.preferences.sfxPitch * (kind === 'hit' ? 0.5 : 1.5),
-      ctx.currentTime + 0.12,
+      notes[kind] * this.preferences.sfxPitch * (kind === 'hit' ? 0.5 : kind === 'destroy-shield' ? 0.35 : 1.5),
+      ctx.currentTime + (kind === 'destroy-shield' ? 0.18 : 0.12),
     );
-    gain.gain.setValueAtTime(Math.max(0.001, 0.12 * this.preferences.sfxVolume), ctx.currentTime);
-    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.2);
+    gain.gain.setValueAtTime(Math.max(0.001, (kind === 'destroy-shield' ? 0.18 : 0.12) * this.preferences.sfxVolume), ctx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + (kind === 'destroy-shield' ? 0.25 : 0.2));
     oscillator.connect(gain);
     gain.connect(this.master!);
     oscillator.start();
-    oscillator.stop(ctx.currentTime + 0.21);
+    oscillator.stop(ctx.currentTime + 0.26);
     oscillator.onended = () => {
       oscillator.disconnect();
       gain.disconnect();

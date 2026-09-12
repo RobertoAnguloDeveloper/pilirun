@@ -1,6 +1,12 @@
 import sqlite3InitModule from '@sqlite.org/sqlite-wasm';
 import type { Database, Sqlite3Static } from '@sqlite.org/sqlite-wasm';
-import { DEFAULT_PREFERENCES, type Backend, type StorageRequest } from '../lib/types';
+import {
+  DEFAULT_PREFERENCES,
+  type Backend,
+  type Scenario,
+  type StorageRequest,
+} from '../lib/types';
+import { MAX_SCENARIO_ASSETS, scenarioAssetIds, validateScenario } from '../lib/scenario';
 
 // All SQLite work, including BLOB copies and fallback snapshots, stays off the UI thread.
 let db: Database;
@@ -11,14 +17,59 @@ let initialized: Promise<void> | undefined;
 const schema = `
 PRAGMA foreign_keys=ON;
 CREATE TABLE IF NOT EXISTS records (
- collection TEXT NOT NULL CHECK(collection IN ('characters','tracks','runs','preferences')),
+ collection TEXT NOT NULL CHECK(collection IN ('characters','tracks','runs','preferences','scenarios','scenario-drafts')),
  id TEXT NOT NULL, json TEXT NOT NULL CHECK(json_valid(json)),
  updated_at INTEGER NOT NULL, PRIMARY KEY(collection,id)
 );
 CREATE TABLE IF NOT EXISTS music (
  id TEXT PRIMARY KEY, json TEXT NOT NULL CHECK(json_valid(json)), bytes BLOB NOT NULL
 );
-PRAGMA user_version=1;`;
+CREATE TABLE IF NOT EXISTS scenario_assets (
+ scenario_id TEXT NOT NULL,
+ asset_id TEXT NOT NULL,
+ json TEXT NOT NULL CHECK(json_valid(json)),
+ bytes BLOB NOT NULL,
+ updated_at INTEGER NOT NULL,
+ PRIMARY KEY(scenario_id,asset_id)
+);
+PRAGMA user_version=2;`;
+
+function migrateSchema() {
+  const version = Number(db.selectValue('PRAGMA user_version') ?? 0);
+  if (version >= 2) {
+    db.exec(schema);
+    return;
+  }
+  db.exec(`
+    BEGIN IMMEDIATE;
+    CREATE TABLE IF NOT EXISTS records (
+      collection TEXT NOT NULL CHECK(collection IN ('characters','tracks','runs','preferences')),
+      id TEXT NOT NULL, json TEXT NOT NULL CHECK(json_valid(json)),
+      updated_at INTEGER NOT NULL, PRIMARY KEY(collection,id)
+    );
+    CREATE TABLE records_v2 (
+      collection TEXT NOT NULL CHECK(collection IN ('characters','tracks','runs','preferences','scenarios','scenario-drafts')),
+      id TEXT NOT NULL, json TEXT NOT NULL CHECK(json_valid(json)),
+      updated_at INTEGER NOT NULL, PRIMARY KEY(collection,id)
+    );
+    INSERT INTO records_v2 SELECT collection,id,json,updated_at FROM records;
+    DROP TABLE records;
+    ALTER TABLE records_v2 RENAME TO records;
+    CREATE TABLE IF NOT EXISTS music (
+      id TEXT PRIMARY KEY, json TEXT NOT NULL CHECK(json_valid(json)), bytes BLOB NOT NULL
+    );
+    CREATE TABLE scenario_assets (
+      scenario_id TEXT NOT NULL,
+      asset_id TEXT NOT NULL,
+      json TEXT NOT NULL CHECK(json_valid(json)),
+      bytes BLOB NOT NULL,
+      updated_at INTEGER NOT NULL,
+      PRIMARY KEY(scenario_id,asset_id)
+    );
+    PRAGMA user_version=2;
+    COMMIT;
+  `);
+}
 
 async function openFallback(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
@@ -73,7 +124,7 @@ async function init(): Promise<void> {
       }
     }
   }
-  db.exec(schema);
+  migrateSchema();
 }
 function readAll() {
   const rows = db.selectObjects('SELECT collection, json FROM records');
@@ -86,6 +137,8 @@ function readAll() {
     data: {
       characters: collection('characters'),
       tracks: collection('tracks'),
+      scenarios: collection('scenarios'),
+      draftScenario: collection('scenario-drafts')[0],
       runs: collection('runs'),
       preferences: { ...DEFAULT_PREFERENCES, ...((collection('preferences')[0] as object) ?? {}) },
       music: db
@@ -101,6 +154,17 @@ async function handle(request: StorageRequest): Promise<unknown> {
     const row = db.selectObject('SELECT bytes FROM music WHERE id=?', [request.id]);
     if (!row) throw new Error('La pista de audio ya no existe.');
     return row.bytes;
+  }
+  if (request.action === 'scenario-assets-get') {
+    return db
+      .selectObjects(
+        'SELECT json,bytes FROM scenario_assets WHERE scenario_id=? ORDER BY asset_id',
+        [request.scenarioId],
+      )
+      .map((row) => ({
+        ...(JSON.parse(String(row.json)) as object),
+        bytes: (row.bytes as Uint8Array).slice().buffer,
+      }));
   }
   db.exec('BEGIN IMMEDIATE');
   try {
@@ -118,6 +182,89 @@ async function handle(request: StorageRequest): Promise<unknown> {
               bind: [request.collection, request.id],
             },
       );
+    } else if (request.action === 'scenario-asset-put') {
+      if (request.asset.bytes.byteLength > 1_250_000)
+        throw new Error('La imagen optimizada supera el límite permitido.');
+      const count = Number(
+        db.selectValue('SELECT COUNT(*) FROM scenario_assets WHERE scenario_id=? AND asset_id<>?', [
+          request.asset.scenarioId,
+          request.asset.id,
+        ]),
+      );
+      if (count >= MAX_SCENARIO_ASSETS)
+        throw new Error(`El escenario admite hasta ${MAX_SCENARIO_ASSETS} imágenes.`);
+      const { bytes, ...meta } = request.asset;
+      db.exec({
+        sql: 'INSERT INTO scenario_assets VALUES(?,?,?,?,?) ON CONFLICT(scenario_id,asset_id) DO UPDATE SET json=excluded.json,bytes=excluded.bytes,updated_at=excluded.updated_at',
+        bind: [meta.scenarioId, meta.id, JSON.stringify(meta), new Uint8Array(bytes), Date.now()],
+      });
+    } else if (request.action === 'scenario-draft-save') {
+      const error = validateScenario(request.scenario);
+      if (error) throw new Error(error);
+      db.exec({
+        sql: 'INSERT INTO records VALUES(?,?,?,?) ON CONFLICT(collection,id) DO UPDATE SET json=excluded.json,updated_at=excluded.updated_at',
+        bind: ['scenario-drafts', 'active', JSON.stringify(request.scenario), Date.now()],
+      });
+    } else if (request.action === 'scenario-draft-clear') {
+      db.exec("DELETE FROM records WHERE collection='scenario-drafts' AND id='active'");
+      if (request.scenarioId) {
+        const published = db.selectValue(
+          "SELECT 1 FROM records WHERE collection='scenarios' AND id=?",
+          [request.scenarioId],
+        );
+        if (!published)
+          db.exec({
+            sql: 'DELETE FROM scenario_assets WHERE scenario_id=?',
+            bind: [request.scenarioId],
+          });
+      }
+    } else if (request.action === 'scenario-save') {
+      const error = validateScenario(request.scenario, request.assets);
+      if (error) throw new Error(error);
+      for (const asset of request.assets ?? []) {
+        if (asset.bytes.byteLength > 1_250_000)
+          throw new Error('Una imagen optimizada supera el límite permitido.');
+        const { bytes, ...meta } = asset;
+        db.exec({
+          sql: 'INSERT INTO scenario_assets VALUES(?,?,?,?,?) ON CONFLICT(scenario_id,asset_id) DO UPDATE SET json=excluded.json,bytes=excluded.bytes,updated_at=excluded.updated_at',
+          bind: [
+            request.scenario.id,
+            meta.id,
+            JSON.stringify(meta),
+            new Uint8Array(bytes),
+            Date.now(),
+          ],
+        });
+      }
+      const keep = scenarioAssetIds(request.scenario);
+      if (keep.length) {
+        const placeholders = keep.map(() => '?').join(',');
+        db.exec({
+          sql: `DELETE FROM scenario_assets WHERE scenario_id=? AND asset_id NOT IN (${placeholders})`,
+          bind: [request.scenario.id, ...keep],
+        });
+      } else {
+        db.exec({
+          sql: 'DELETE FROM scenario_assets WHERE scenario_id=?',
+          bind: [request.scenario.id],
+        });
+      }
+      db.exec({
+        sql: 'INSERT INTO records VALUES(?,?,?,?) ON CONFLICT(collection,id) DO UPDATE SET json=excluded.json,updated_at=excluded.updated_at',
+        bind: ['scenarios', request.scenario.id, JSON.stringify(request.scenario), Date.now()],
+      });
+      db.exec("DELETE FROM records WHERE collection='scenario-drafts' AND id='active'");
+    } else if (request.action === 'scenario-delete') {
+      db.exec({
+        sql: "DELETE FROM records WHERE collection='scenarios' AND id=?",
+        bind: [request.id],
+      });
+      db.exec({ sql: 'DELETE FROM scenario_assets WHERE scenario_id=?', bind: [request.id] });
+      const draftJson = db.selectValue(
+        "SELECT json FROM records WHERE collection='scenario-drafts' AND id='active'",
+      );
+      if (draftJson && (JSON.parse(String(draftJson)) as Scenario).id === request.id)
+        db.exec("DELETE FROM records WHERE collection='scenario-drafts' AND id='active'");
     } else if (request.action === 'music-put') {
       if (request.bytes.byteLength > 20 * 1024 * 1024)
         throw new Error('El archivo supera el límite de 20 MB.');

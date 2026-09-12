@@ -14,6 +14,8 @@ import {
   Undo2,
   Upload,
   Wand2,
+  Copy,
+  X,
 } from 'lucide-react';
 import { Avatar } from './art';
 import type { Character } from '@/lib/types';
@@ -58,6 +60,7 @@ const ASSET_PRESETS = [
       ],
       slide: [
         '/assets/pili-slide-0.png',
+        '/assets/pili-slide-1.png',
       ],
       idle: [
         '/assets/pili-idle-0.png',
@@ -393,6 +396,8 @@ export function CharacterEditor({
     [cropX, setCropX] = useState(0.5),
     [cropY, setCropY] = useState(0.5),
     [processing, setProcessing] = useState(false);
+  const [showPrompt, setShowPrompt] = useState(false);
+  const [copiedPrompt, setCopiedPrompt] = useState(false);
 
   const ref = useRef<HTMLCanvasElement>(null),
     drawing = useRef(false),
@@ -627,10 +632,19 @@ export function CharacterEditor({
       <div className="sprite-guide-banner">
         <div className="guide-header">
           <Sparkles size={20} className="guide-sparkle" />
-          <div>
+          <div style={{ flex: 1 }}>
             <strong>Guía de creación y sprites de /assets</strong>
             <p>Elige una plantilla lista para usar, prueba los sprites oficiales de <code>/assets</code> o sube tu PNG/SVG para vectorizarlo y extraerlo automáticamente.</p>
           </div>
+          <button
+            type="button"
+            className="template-pill-btn"
+            style={{ borderColor: 'var(--lime)', color: 'var(--lime)', background: 'rgba(216, 243, 106, 0.15)', whiteSpace: 'nowrap' }}
+            onClick={() => setShowPrompt(true)}
+            title="Ver prompt del sistema para generar Sprite Sheets con IA"
+          >
+            <FileCode size={15} /> Prompt de Sprite Sheet IA
+          </button>
         </div>
         <div className="guide-templates">
           {ASSET_PRESETS.map((preset) => (
@@ -912,6 +926,156 @@ export function CharacterEditor({
           </p>
         </aside>
       </div>
+
+      {/* System Prompt Modal for LLM Sprite Sheet Generation */}
+      {showPrompt && (
+        <div className="modal-backdrop" onClick={() => setShowPrompt(false)}>
+          <section
+            className="help-modal"
+            style={{ maxWidth: 720, background: '#0e221a', color: '#f1f5f2', border: '1px solid rgba(216, 243, 106, 0.3)', boxShadow: '0 20px 60px rgba(0,0,0,0.8)' }}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="prompt-modal-title"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <button
+              className="icon-button modal-close"
+              aria-label="Cerrar prompt"
+              onClick={() => setShowPrompt(false)}
+            >
+              <X />
+            </button>
+            <span className="round-icon" style={{ background: 'rgba(216, 243, 106, 0.2)', color: 'var(--lime)' }}>
+              <FileCode />
+            </span>
+            <p className="eyebrow">SISTEMA DETERMINISTA DE SPRITES</p>
+            <h2 id="prompt-modal-title" style={{ color: '#fff', marginBottom: 12 }}>
+              Prompt del Sistema para Modelos de Imagen IA
+            </h2>
+            <p style={{ color: '#a7cab8', fontSize: 13, marginBottom: 16 }}>
+              Copia y pega este prompt estricto en Midjourney, Stable Diffusion, DALL-E 3, Flux o Imagen. La IA generará la hoja con la cuadrícula, poses y orden exactos (2 filas × 6 columnas) para que el motor del juego anime tu personaje automáticamente.
+            </p>
+
+            <div style={{ position: 'relative', marginBottom: 16 }}>
+              <textarea
+                readOnly
+                rows={12}
+                value={`[ROLE & PURPOSE]
+You are a precision 2D Game Asset Engine. Your sole function is to generate production-ready 2D platformer character sprite sheets formatted as a rigid, deterministic, machine-extractable grid. You output only the sprite sheet graphic. The visual identity of the character is specified by the user; you must strictly enforce the spatial, structural, sequential, and kinematic rules below.
+
+[SHEET SPECIFICATION & RESOLUTION]
+1. Canvas layout: Fixed grid of exactly 2 ROWS and 6 COLUMNS (total of exactly 12 cells).
+2. Canvas aspect ratio: 3:1 horizontal banner (e.g., 1536 x 512 px).
+3. Cell size: Every cell has the EXACT same uniform width and height (e.g., 256 x 256 px).
+4. Background: Pure transparent background (Alpha = 0). No background color, no gradients, no scenery, no shadow plane, and no checkerboard texture.
+5. Content isolation: Exactly ONE character pose per cell. Never draw multiple characters, duplicates, ghosting, or debris within any cell.
+6. Zero text / Zero UI: Do not include labels, frame numbers, titles, borders, divider lines, crop marks, watermark, or metadata inside the image.
+
+[STRICT 12-FRAME SEQUENTIAL ACTION MAPPING]
+Frames are numbered 0 to 11 in strict reading order (Row 1 from Left to Right, then Row 2 from Left to Right). You must output the poses in this EXACT order without skipping, reordering, or swapping:
+
+ROW 1:
+- Cell (Row 1, Col 1) -> Frame 0 [IDLE 1]: Neutral standing breathing pose, arms relaxed, feet grounded, facing right.
+- Cell (Row 1, Col 2) -> Frame 1 [IDLE 2]: Ready idle stance, subtle weight shift, facing right.
+- Cell (Row 1, Col 3) -> Frame 2 [RUN 1]: Right foot heel strike forward, left foot back, left arm forward.
+- Cell (Row 1, Col 4) -> Frame 3 [RUN 2]: Right foot flat supporting weight, left leg passing through center.
+- Cell (Row 1, Col 5) -> Frame 4 [RUN 3]: Right foot push-off with toes, airborne transition phase.
+- Cell (Row 1, Col 6) -> Frame 5 [RUN 4]: Left foot heel strike forward, right foot back, right arm forward.
+
+ROW 2:
+- Cell (Row 2, Col 1) -> Frame 6 [RUN 5]: Left foot flat supporting weight, right leg passing through center.
+- Cell (Row 2, Col 2) -> Frame 7 [RUN 6]: Left foot push-off with toes, full propulsion extension.
+- Cell (Row 2, Col 3) -> Frame 8 [JUMP ASCENT]: High leap upward, body stretched upwards, knees flexing, arms raised.
+- Cell (Row 2, Col 4) -> Frame 9 [JUMP APEX / FALL]: Apex tuck and descent, downward velocity anticipation, legs prepared for ground.
+- Cell (Row 2, Col 5) -> Frame 10 [CROUCH / SLIDE]: Low-profile obstacle crouch/slide, body lowered close to baseline, legs extended forward.
+- Cell (Row 2, Col 6) -> Frame 11 [CROUCH RECOVERY / STAND TRANSITION]: Low crouch preparing recovery to upright stance.
+
+[GLOBAL KINEMATIC & ANATOMICAL INVARIANTS]
+Across all 12 cells, the following parameters MUST remain 100% constant:
+- Scale & Proportions: Head-to-body ratio, limb lengths, volume, clothing, colors, and features must be identical across every frame.
+- Orientation: Strict lateral profile view facing RIGHT (+X direction). Do not rotate the camera to 3/4 view, front view, or perspective.
+- Baseline Alignment: The floor contact line (ground baseline) for grounded poses (Frames 0, 1, 2, 3, 4, 5, 6, 7, 10, 11) must align at the exact same Y-coordinate across all cells (approximately 80% down from the top of the cell).
+- Padding: Keep a minimum 16px safety margin between the character outline and cell boundaries so no limbs or accessories cross into neighboring cells.
+- Lighting & Shading: Consistent directional lighting across all frames.
+- Negative Constraints: DO NOT invent actions, DO NOT merge cells, DO NOT draw motion blur or speed lines, DO NOT rotate the character backwards.`}
+                style={{
+                  width: '100%',
+                  background: '#071510',
+                  color: '#d8f36a',
+                  fontFamily: 'monospace',
+                  fontSize: 12,
+                  padding: 14,
+                  borderRadius: 10,
+                  border: '1px solid rgba(255, 255, 255, 0.15)',
+                  resize: 'vertical',
+                  boxSizing: 'border-box',
+                }}
+              />
+            </div>
+
+            <div style={{ display: 'flex', gap: 12, justifyContent: 'flex-end', alignItems: 'center' }}>
+              <button
+                type="button"
+                className="secondary"
+                onClick={() => setShowPrompt(false)}
+              >
+                Cerrar
+              </button>
+              <button
+                type="button"
+                className="primary"
+                onClick={() => {
+                  const promptText = `[ROLE & PURPOSE]
+You are a precision 2D Game Asset Engine. Your sole function is to generate production-ready 2D platformer character sprite sheets formatted as a rigid, deterministic, machine-extractable grid. You output only the sprite sheet graphic. The visual identity of the character is specified by the user; you must strictly enforce the spatial, structural, sequential, and kinematic rules below.
+
+[SHEET SPECIFICATION & RESOLUTION]
+1. Canvas layout: Fixed grid of exactly 2 ROWS and 6 COLUMNS (total of exactly 12 cells).
+2. Canvas aspect ratio: 3:1 horizontal banner (e.g., 1536 x 512 px).
+3. Cell size: Every cell has the EXACT same uniform width and height (e.g., 256 x 256 px).
+4. Background: Pure transparent background (Alpha = 0). No background color, no gradients, no scenery, no shadow plane, and no checkerboard texture.
+5. Content isolation: Exactly ONE character pose per cell. Never draw multiple characters, duplicates, ghosting, or debris within any cell.
+6. Zero text / Zero UI: Do not include labels, frame numbers, titles, borders, divider lines, crop marks, watermark, or metadata inside the image.
+
+[STRICT 12-FRAME SEQUENTIAL ACTION MAPPING]
+Frames are numbered 0 to 11 in strict reading order (Row 1 from Left to Right, then Row 2 from Left to Right). You must output the poses in this EXACT order without skipping, reordering, or swapping:
+
+ROW 1:
+- Cell (Row 1, Col 1) -> Frame 0 [IDLE 1]: Neutral standing breathing pose, arms relaxed, feet grounded, facing right.
+- Cell (Row 1, Col 2) -> Frame 1 [IDLE 2]: Ready idle stance, subtle weight shift, facing right.
+- Cell (Row 1, Col 3) -> Frame 2 [RUN 1]: Right foot heel strike forward, left foot back, left arm forward.
+- Cell (Row 1, Col 4) -> Frame 3 [RUN 2]: Right foot flat supporting weight, left leg passing through center.
+- Cell (Row 1, Col 5) -> Frame 4 [RUN 3]: Right foot push-off with toes, airborne transition phase.
+- Cell (Row 1, Col 6) -> Frame 5 [RUN 4]: Left foot heel strike forward, right foot back, right arm forward.
+
+ROW 2:
+- Cell (Row 2, Col 1) -> Frame 6 [RUN 5]: Left foot flat supporting weight, right leg passing through center.
+- Cell (Row 2, Col 2) -> Frame 7 [RUN 6]: Left foot push-off with toes, full propulsion extension.
+- Cell (Row 2, Col 3) -> Frame 8 [JUMP ASCENT]: High leap upward, body stretched upwards, knees flexing, arms raised.
+- Cell (Row 2, Col 4) -> Frame 9 [JUMP APEX / FALL]: Apex tuck and descent, downward velocity anticipation, legs prepared for ground.
+- Cell (Row 2, Col 5) -> Frame 10 [CROUCH / SLIDE]: Low-profile obstacle crouch/slide, body lowered close to baseline, legs extended forward.
+- Cell (Row 2, Col 6) -> Frame 11 [CROUCH RECOVERY / STAND TRANSITION]: Low crouch preparing recovery to upright stance.
+
+[GLOBAL KINEMATIC & ANATOMICAL INVARIANTS]
+Across all 12 cells, the following parameters MUST remain 100% constant:
+- Scale & Proportions: Head-to-body ratio, limb lengths, volume, clothing, colors, and features must be identical across every frame.
+- Orientation: Strict lateral profile view facing RIGHT (+X direction). Do not rotate the camera to 3/4 view, front view, or perspective.
+- Baseline Alignment: The floor contact line (ground baseline) for grounded poses (Frames 0, 1, 2, 3, 4, 5, 6, 7, 10, 11) must align at the exact same Y-coordinate across all cells (approximately 80% down from the top of the cell).
+- Padding: Keep a minimum 16px safety margin between the character outline and cell boundaries so no limbs or accessories cross into neighboring cells.
+- Lighting & Shading: Consistent directional lighting across all frames.
+- Negative Constraints: DO NOT invent actions, DO NOT merge cells, DO NOT draw motion blur or speed lines, DO NOT rotate the character backwards.`;
+                  void navigator.clipboard.writeText(promptText).then(() => {
+                    setCopiedPrompt(true);
+                    setTimeout(() => setCopiedPrompt(false), 3000);
+                  });
+                }}
+              >
+                {copiedPrompt ? <Check size={16} /> : <Copy size={16} />}{' '}
+                {copiedPrompt ? '¡Copiado al portapapeles!' : 'Copiar Prompt del Sistema'}
+              </button>
+            </div>
+          </section>
+        </div>
+      )}
     </>
   );
 }
