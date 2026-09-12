@@ -414,5 +414,36 @@ test.describe('PWA Tablet Installation & Manifest Suite', () => {
     // In standalone mode, install button is hidden from header
     await expect(installHeaderBtn).not.toBeVisible();
   });
+
+  test('power selection modal is fully visible and clickable in tablet landscape', async ({ page }) => {
+    // Standard tablet landscape viewports (e.g. 1024x600, 960x540, 1280x800)
+    await page.setViewportSize({ width: 1024, height: 560 });
+    await page.goto('/');
+
+    const playBtn = page.getByRole('button', { name: playButton });
+    await expect(playBtn).toBeEnabled({ timeout: 30000 });
+    await playBtn.click();
+
+    // Power selector modal should be visible
+    const modalHeading = page.getByRole('heading', { name: '¡Elige tu Poder Mágico!' });
+    await expect(modalHeading).toBeVisible();
+
+    // The start race button must be visible in viewport without being cut off
+    const startBtn = page.getByRole('button', { name: '¡Comenzar Carrera!' });
+    await expect(startBtn).toBeVisible();
+
+    // Verify it is completely within the viewport bounds
+    const box = await startBtn.boundingBox();
+    expect(box).not.toBeNull();
+    if (box) {
+      expect(box.y + box.height).toBeLessThanOrEqual(560);
+      expect(box.y).toBeGreaterThanOrEqual(0);
+    }
+
+    // Clicking it starts the race
+    await startBtn.click();
+    await expect(modalHeading).not.toBeVisible();
+  });
 });
+
 

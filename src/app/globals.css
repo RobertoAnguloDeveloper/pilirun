@@ -5717,56 +5717,75 @@ input[type='checkbox'] {
   z-index: 100;
   background: rgba(7, 10, 19, 0.88);
   backdrop-filter: blur(8px);
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  padding: 12px;
 }
 
 .power-select-modal {
-  max-width: 660px;
-  width: 94%;
+  max-width: 720px;
+  width: min(94%, 720px);
+  max-height: calc(100dvh - 24px);
+  display: flex;
+  flex-direction: column;
   background: #0d1527;
   border: 1px solid rgba(56, 189, 248, 0.4);
-  padding: 24px;
+  padding: 20px;
   border-radius: 18px;
   box-shadow: 0 18px 48px rgba(0, 0, 0, 0.6);
+  margin: auto;
 }
 
 .power-modal-header {
   text-align: center;
-  margin-bottom: 20px;
+  margin-bottom: 12px;
+  flex-shrink: 0;
+}
+
+.power-modal-header .round-icon {
+  margin-bottom: 6px;
 }
 
 .power-modal-header h2 {
-  font-size: 24px;
+  font-size: clamp(18px, 3vh, 24px);
   font-weight: 800;
   color: #f8fafc;
-  margin-top: 8px;
+  margin-top: 4px;
+}
+
+.power-modal-header p {
+  font-size: 13px;
+  margin-top: 4px;
 }
 
 .boss-intel-badge {
-  display: block;
-  margin-top: 6px;
-  padding: 4px 10px;
+  display: inline-block;
+  margin-top: 4px;
+  padding: 3px 8px;
   background: rgba(239, 68, 68, 0.2);
   border: 1px solid rgba(239, 68, 68, 0.5);
   border-radius: 8px;
   color: #fca5a5;
-  font-size: 13px;
+  font-size: 12px;
 }
 
 .power-cards-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
-  gap: 12px;
-  max-height: 52vh;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 10px;
   overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  flex: 1 1 auto;
+  min-height: 0;
   padding: 4px;
 }
 
 .power-select-card {
   display: grid;
-  grid-template-columns: 48px 1fr auto;
+  grid-template-columns: 44px 1fr auto;
   align-items: center;
-  gap: 12px;
-  padding: 12px;
+  gap: 10px;
+  padding: 10px 12px;
   border-radius: 14px;
   background: rgba(255, 255, 255, 0.05);
   border: 2px solid rgba(255, 255, 255, 0.1);
@@ -5774,7 +5793,7 @@ input[type='checkbox'] {
   color: #fff;
   cursor: pointer;
   transition: all 0.2s ease;
-  min-height: 58px;
+  min-height: 52px;
 }
 
 .power-select-card:hover {
@@ -5789,30 +5808,31 @@ input[type='checkbox'] {
 }
 
 .power-icon-circle {
-  width: 44px;
-  height: 44px;
-  border-radius: 12px;
+  width: 40px;
+  height: 40px;
+  border-radius: 10px;
   display: grid;
   place-items: center;
-  font-size: 22px;
+  font-size: 20px;
+  flex-shrink: 0;
 }
 
 .power-card-info strong {
   display: block;
-  font-size: 15px;
+  font-size: 14px;
   color: #fff;
 }
 
 .power-card-info small {
   font-size: 11px;
   color: #94a3b8;
-  line-height: 1.2;
+  line-height: 1.25;
 }
 
 .power-eff-badge {
-  font-size: 11px;
+  font-size: 10px;
   font-weight: 800;
-  padding: 4px 8px;
+  padding: 3px 6px;
   border-radius: 6px;
   border: 1px solid;
   background: rgba(0, 0, 0, 0.4);
@@ -5820,13 +5840,14 @@ input[type='checkbox'] {
 }
 
 .power-modal-footer {
-  margin-top: 18px;
-  padding-top: 14px;
+  margin-top: 12px;
+  padding-top: 10px;
   border-top: 1px solid rgba(255, 255, 255, 0.1);
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
+  flex-shrink: 0;
 }
 
 .time-of-day-info {
@@ -5838,11 +5859,94 @@ input[type='checkbox'] {
 }
 
 .power-start-btn {
-  min-height: 48px;
-  padding: 0 24px;
-  font-size: 16px;
+  min-height: 44px;
+  padding: 0 20px;
+  font-size: 15px;
   font-weight: 800;
   border-radius: 12px;
+  flex-shrink: 0;
+}
+
+/* Tablet / Mobile Landscape Optimizations (height <= 600px) */
+@media (orientation: landscape) and (max-height: 600px), (max-height: 520px) {
+  .power-select-modal {
+    padding: 10px 16px;
+    border-radius: 14px;
+    max-width: 820px;
+  }
+
+  .power-modal-header {
+    margin-bottom: 6px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    text-align: left;
+  }
+
+  .power-modal-header .round-icon {
+    display: none;
+  }
+
+  .power-modal-header h2 {
+    font-size: 17px;
+    margin: 0;
+    white-space: nowrap;
+  }
+
+  .power-modal-header p {
+    font-size: 11px;
+    margin: 0;
+  }
+
+  .boss-intel-badge {
+    margin-top: 0;
+    margin-left: 8px;
+    padding: 2px 6px;
+    font-size: 10px;
+  }
+
+  .power-cards-grid {
+    grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+    gap: 6px;
+    padding: 2px;
+  }
+
+  .power-select-card {
+    min-height: 42px;
+    padding: 6px 10px;
+    gap: 8px;
+    grid-template-columns: 32px 1fr auto;
+  }
+
+  .power-icon-circle {
+    width: 32px;
+    height: 32px;
+    font-size: 16px;
+  }
+
+  .power-card-info strong {
+    font-size: 12px;
+  }
+
+  .power-card-info small {
+    font-size: 10px;
+  }
+
+  .power-modal-footer {
+    margin-top: 8px;
+    padding-top: 6px;
+  }
+
+  .time-of-day-info {
+    font-size: 11px;
+  }
+
+  .power-start-btn {
+    min-height: 38px;
+    padding: 0 16px;
+    font-size: 13px;
+  }
 }
 
 /* -------------------------------------------------------------
