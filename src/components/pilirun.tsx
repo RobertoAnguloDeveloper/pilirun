@@ -1605,16 +1605,20 @@ export default function PiliRun() {
               <div className="pwa-guide-step-card">
                 <span className="pwa-guide-step-num">2</span>
                 <div>
-                  <strong>Selecciona "Instalar aplicación" o "Añadir a pantalla de inicio":</strong>
-                  <p>Chrome creará un acceso directo con icono oficial en tu pantalla principal.</p>
+                  <strong>Opción A — Menú directo o submenú Compartir:</strong>
+                  <p>
+                    Toca en <strong>«Compartir...»</strong> y allí selecciona <strong>«Agregar a la pantalla principal»</strong> o <strong>«Instalar aplicación»</strong> (en tablets Chrome agrupa la instalación dentro de Compartir).
+                  </p>
                 </div>
               </div>
 
               <div className="pwa-guide-step-card">
                 <span className="pwa-guide-step-num">3</span>
                 <div>
-                  <strong>Abre PiliRun desde tu pantalla de inicio:</strong>
-                  <p>El juego arrancará como una aplicación nativa, ocupando toda la pantalla y con tus partidas SQLite guardadas en disco.</p>
+                  <strong>Opción B — Botón verde en pantalla:</strong>
+                  <p>
+                    Toca el botón <strong>«Instalar como App en esta Tableta»</strong> que aparece debajo del título en la pantalla principal para que Chrome active el instalador directamente.
+                  </p>
                 </div>
               </div>
             </div>

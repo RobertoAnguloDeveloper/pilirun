@@ -3,18 +3,22 @@ import { build } from 'esbuild';
 import sharp from 'sharp';
 for (const size of [192, 512])
   await sharp('public/icon.svg').resize(size, size).png().toFile(`public/icon-${size}.png`);
-const maskInner = await sharp('public/icon.svg').resize(410, 410).png().toBuffer();
-await sharp({
-  create: {
-    width: 512,
-    height: 512,
-    channels: 4,
-    background: { r: 24, g: 63, b: 53, alpha: 1 },
-  },
-})
-  .composite([{ input: maskInner, top: 51, left: 51 }])
-  .png()
-  .toFile('public/icon-maskable-512.png');
+for (const size of [192, 512]) {
+  const innerSize = Math.round(size * 0.8);
+  const padding = Math.round((size - innerSize) / 2);
+  const maskInner = await sharp('public/icon.svg').resize(innerSize, innerSize).png().toBuffer();
+  await sharp({
+    create: {
+      width: size,
+      height: size,
+      channels: 4,
+      background: { r: 24, g: 63, b: 53, alpha: 1 },
+    },
+  })
+    .composite([{ input: maskInner, top: padding, left: padding }])
+    .png()
+    .toFile(`public/icon-maskable-${size}.png`);
+}
 await sharp({
   create: {
     width: 1280,
