@@ -45,6 +45,8 @@ import {
   Download,
   TabletSmartphone,
   CheckCircle2,
+  Info,
+  Share2,
 } from 'lucide-react';
 import { Avatar, Landscape } from './art';
 import { BackgroundRunner } from './background-runner';
@@ -140,6 +142,7 @@ export default function PiliRun() {
     [online, setOnline] = useState(true);
   const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
   const [isStandalone, setIsStandalone] = useState(false);
+  const [installModalOpen, setInstallModalOpen] = useState(false);
   const [installedToastShown, setInstalledToastShown] = useState(false);
   const initialized = useRef(false),
     prefTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
@@ -152,14 +155,15 @@ export default function PiliRun() {
         const choice = await deferredPrompt.userChoice;
         if (choice?.outcome === 'accepted') {
           setToast('¡Instalando PiliRun en tu dispositivo!');
+          setDeferredPrompt(null);
+          setInstallModalOpen(false);
+          return;
         }
-        setDeferredPrompt(null);
       } catch {
-        setToast('No se pudo abrir el instalador del navegador.');
+        // Fallback to instruction modal
       }
-    } else {
-      setToast('Abre el menú de Chrome (⋮) y selecciona "Instalar aplicación" o "Añadir a pantalla de inicio".');
     }
+    setInstallModalOpen(true);
   };
 
   const loadStorageDetails = async () => {
@@ -185,20 +189,7 @@ export default function PiliRun() {
       })
       .catch((e) => setError(e.message));
     if ('serviceWorker' in navigator) {
-      if (process.env.NODE_ENV === 'production') {
-        void navigator.serviceWorker.register('/sw.js').catch(() => {});
-      } else {
-        // A previous production worker must not serve stale bundles to HMR.
-        void navigator.serviceWorker.getRegistrations().then(async (registrations) => {
-          for (const registration of registrations) {
-            const worker = registration.active ?? registration.waiting ?? registration.installing;
-            if (worker && new URL(worker.scriptURL).pathname === '/sw.js') await registration.unregister();
-          }
-          for (const key of await caches.keys()) {
-            if (key.startsWith('pilirun-shell-')) await caches.delete(key);
-          }
-        }).catch(() => {});
-      }
+      void navigator.serviceWorker.register('/sw.js').catch(() => {});
     }
   }, []);
   useEffect(() => {
@@ -1564,6 +1555,99 @@ export default function PiliRun() {
                 }}
               >
                 Guardar y Cerrar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal: PWA Tablet Installation Guidance */}
+      {installModalOpen && (
+        <div className="modal-backdrop" onClick={() => setInstallModalOpen(false)}>
+          <div
+            className="modal-card surface-dark pwa-guide-modal"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="pwa-guide-heading"
+            onClick={(e) => e.stopPropagation()}
+            style={{ maxWidth: '520px', background: '#12251d', color: '#fff', border: '1px solid rgba(216, 243, 106, 0.4)' }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '16px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                <TabletSmartphone size={24} style={{ color: 'var(--lime)' }} />
+                <h3 id="pwa-guide-heading" style={{ margin: 0, fontSize: '1.25rem', color: '#fff' }}>
+                  Instalar PiliRun en tu Tableta
+                </h3>
+              </div>
+              <button
+                className="icon-button"
+                aria-label="Cerrar guía de instalación"
+                onClick={() => setInstallModalOpen(false)}
+                style={{ color: '#a4c4b5' }}
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            <p style={{ fontSize: '13.5px', color: '#cfe2d6', lineHeight: 1.55, marginBottom: '18px' }}>
+              Instala el juego para disfrutarlo <strong>a pantalla completa</strong>, sin las barras de navegación de Chrome y con <strong>soporte 100% sin conexión</strong> en tu tableta.
+            </p>
+
+            <div className="pwa-guide-steps" style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+              <div className="pwa-guide-step-card">
+                <span className="pwa-guide-step-num">1</span>
+                <div>
+                  <strong>En Google Chrome para Android / Tablet:</strong>
+                  <p>Toca el menú de los <strong>tres puntos (⋮)</strong> en la esquina superior derecha del navegador.</p>
+                </div>
+              </div>
+
+              <div className="pwa-guide-step-card">
+                <span className="pwa-guide-step-num">2</span>
+                <div>
+                  <strong>Selecciona "Instalar aplicación" o "Añadir a pantalla de inicio":</strong>
+                  <p>Chrome creará un acceso directo con icono oficial en tu pantalla principal.</p>
+                </div>
+              </div>
+
+              <div className="pwa-guide-step-card">
+                <span className="pwa-guide-step-num">3</span>
+                <div>
+                  <strong>Abre PiliRun desde tu pantalla de inicio:</strong>
+                  <p>El juego arrancará como una aplicación nativa, ocupando toda la pantalla y con tus partidas SQLite guardadas en disco.</p>
+                </div>
+              </div>
+            </div>
+
+            {deferredPrompt && (
+              <div style={{ marginTop: '20px' }}>
+                <button
+                  className="primary"
+                  style={{ width: '100%', justifyContent: 'center', gap: '8px' }}
+                  onClick={() => {
+                    void (async () => {
+                      try {
+                        await deferredPrompt.prompt();
+                        const choice = await deferredPrompt.userChoice;
+                        if (choice?.outcome === 'accepted') {
+                          setToast('¡Instalando PiliRun en tu tableta!');
+                          setDeferredPrompt(null);
+                          setInstallModalOpen(false);
+                        }
+                      } catch {
+                        // ignore
+                      }
+                    })();
+                  }}
+                >
+                  <Download size={18} /> Abrir Diálogo de Instalación de Chrome
+                </button>
+              </div>
+            )}
+
+            <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: deferredPrompt ? '12px' : '22px' }}>
+              <button className="secondary" onClick={() => setInstallModalOpen(false)}>
+                Entendido
               </button>
             </div>
           </div>
