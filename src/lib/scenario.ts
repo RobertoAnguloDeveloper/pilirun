@@ -141,7 +141,9 @@ export function validateScenario(
       }
       const propertyKeys = Object.keys(object.properties);
       if (
-        propertyKeys.some((key) => key !== 'opacity') ||
+        propertyKeys.some((key) => !['opacity', 'material', 'health'].includes(key))
+        || (object.properties.material !== undefined && !['wood', 'stone', 'indestructible'].includes(String(object.properties.material)))
+        || (object.properties.health !== undefined && (typeof object.properties.health !== 'number' || !Number.isFinite(object.properties.health) || object.properties.health < 1 || object.properties.health > 10000)) ||
         (object.properties.opacity !== undefined &&
           (typeof object.properties.opacity !== 'number' ||
             object.properties.opacity < 0.1 ||
@@ -171,6 +173,9 @@ export function scenarioToTrack(scenario: Scenario): Track {
     world: scenario.world,
     length: scenario.length,
     custom: true,
+    boss: scenario.boss,
+    levelMusicId: scenario.levelMusicId,
+    bossMusicId: scenario.bossMusicId,
     items: scenario.layers
       .flatMap((layer) =>
         layer.visible
@@ -184,6 +189,8 @@ export function scenarioToTrack(scenario: Scenario): Track {
                 height: object.height * object.scale,
                 kind: object.behavior as ItemKind,
                 visual: object.visual,
+                material: object.properties.material as import('./obstacles').ObstacleMaterial | undefined,
+                health: object.properties.health as number | undefined,
               }))
           : [],
       )

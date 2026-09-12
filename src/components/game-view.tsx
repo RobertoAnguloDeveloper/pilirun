@@ -1,5 +1,5 @@
 'use client';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   ArrowDown,
   ArrowUp,
@@ -16,9 +16,16 @@ import {
   RotateCcw,
   Shield,
   Sparkles,
+  Sun,
+  Moon,
+  Swords,
   X,
   Zap,
+  ZoomIn,
+  ZoomOut,
+  ChevronRight,
 } from 'lucide-react';
+import { resolveLevelMusic } from '@/lib/music';
 import { GameEngine } from '@/game/engine';
 import { audioEngine } from '@/lib/audio';
 import {
@@ -30,17 +37,45 @@ import {
   type Scenario,
   type ScenarioAsset,
   type Track,
+  type MusicTrack,
 } from '@/lib/types';
+import {
+  POWERS,
+  EFFECTIVENESS_LABELS,
+  getPowerEffectiveness,
+  type PowerId,
+  type Power,
+} from '@/lib/combat';
+import {
+  TIME_PERIODS,
+  getCurrentDeviceTimeOfDay,
+  type TimeOfDay,
+} from '@/lib/environment';
+
+const EMPTY_SCENARIO_ASSETS: ScenarioAsset[] = [];
+const EMPTY_MUSIC: MusicTrack[] = [];
+const EMPTY_POWERS: PowerId[] = [];
 
 export function GameView({
   track,
   scenario,
-  scenarioAssets = [],
+  scenarioAssets = EMPTY_SCENARIO_ASSETS,
   character,
   reduced,
   initialCameraView = 'side',
+  initialPowerId = 'flame_burst',
+  timeOfDayPref = 'realtime',
+  musicLibrary = EMPTY_MUSIC,
+  cumulativePowers = EMPTY_POWERS,
+  preferences,
   onClose,
   onResult,
+  onNextLevel,
+  sessionId = track.id,
+  sequenceIndex = 0,
+  autoStart = false,
+  hasNextLevel = false,
+  campaign = false,
 }: {
   track: Track;
   scenario?: Scenario;
@@ -48,13 +83,74 @@ export function GameView({
   character: Character;
   reduced: boolean;
   initialCameraView?: CameraView;
+  initialPowerId?: PowerId;
+  timeOfDayPref?: 'realtime' | TimeOfDay;
+  musicLibrary?: MusicTrack[];
+  cumulativePowers?: PowerId[];
+  preferences?: import('@/lib/types').Preferences;
   onClose: () => void;
   onResult: (r: RunResult) => Promise<void>;
+  sessionId?: string;
+  sequenceIndex?: number;
+  autoStart?: boolean;
+  hasNextLevel?: boolean;
+  campaign?: boolean;
+  onNextLevel?: (selectedPower: PowerId, cumulative: PowerId[]) => void;
 }) {
   const canvas = useRef<HTMLCanvasElement>(null),
     engine = useRef<GameEngine | null>(null),
     containerRef = useRef<HTMLDivElement>(null),
-    touch = useRef({ x: 0, y: 0 });
+    touch = useRef({ x: 0, y: 0, time: 0 });
+
+  const movementInputs = useRef(new Map<string, -1 | 1>());
+  const moveInput = (id: string, direction?: -1 | 1) => {
+    if (direction === undefined) movementInputs.current.delete(id);
+    else movementInputs.current.set(id, direction);
+    const sum = [...movementInputs.current.values()].reduce<number>((total, value) => total + value, 0);
+    engine.current?.setMoveAxis(Math.sign(sum) as -1 | 0 | 1);
+  };
+  const clearMovement = () => { movementInputs.current.clear(); engine.current?.setMoveAxis(0); };
+
+  // Pre-World Power Selection state
+  const [selectedPower, setSelectedPower] = useState<PowerId>(initialPowerId);
+  const [hasConfirmedPower, setHasConfirmedPower] = useState(autoStart);
+  const [currentZoom, setCurrentZoom] = useState<number>(1.0);
+  const [currentScale, setCurrentScale] = useState<number>(character.scale ?? 1.0);
+  const [powerToast, setPowerToast] = useState<string>('');
+  const [audioMessage, setAudioMessage] = useState('');
+  const lastCollectedCount = useRef(0);
+  const powerToastTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+
+  // Auto-progression modal state (shown only on victory)
+  const [showAutoNextModal, setShowAutoNextModal] = useState<boolean>(false);
+  const [completedResult, setCompletedResult] = useState<RunResult | null>(null);
+  const [countdown, setCountdown] = useState(3);
+  const transitioned = useRef(false);
+  const continueLevel = () => {
+    if (transitioned.current || !hasNextLevel || !completedResult) return;
+    transitioned.current = true;
+    setShowAutoNextModal(false);
+    const collected = Array.from(new Set([...cumulativePowers, ...(completedResult.collectedPowers ?? [])])) as PowerId[];
+    nextLevelHandler.current?.(selectedPower, collected);
+  };
+  useEffect(() => {
+    if (!showAutoNextModal || !hasNextLevel) return;
+    const deadline = performance.now() + 3000;
+    const timer = setInterval(() => {
+      const remaining = Math.max(0, Math.ceil((deadline - performance.now()) / 1000));
+      setCountdown(remaining);
+      if (remaining === 0) continueLevel();
+    }, 100);
+    return () => clearInterval(timer);
+  }, [showAutoNextModal, hasNextLevel, completedResult]);
+
+  // Compute active TimeOfDay (Real-Time vs Predefined)
+  const resolvedTimeOfDay: TimeOfDay = useMemo(() => {
+    if (timeOfDayPref === 'realtime') {
+      return getCurrentDeviceTimeOfDay().timeOfDay;
+    }
+    return timeOfDayPref || 'morning';
+  }, [timeOfDayPref]);
 
   const [hud, setHud] = useState<Hud>({
     distance: 0,
@@ -80,6 +176,9 @@ export function GameView({
     [saved, setSaved] = useState(''),
     [isFullscreen, setIsFullscreen] = useState(false);
 
+  const completedSession = useRef<{ track: Track; round: number } | null>(null);
+  const nextLevelHandler = useRef(onNextLevel);
+  nextLevelHandler.current = onNextLevel;
   const resultHandler = useRef(onResult);
   resultHandler.current = onResult;
 
@@ -114,27 +213,77 @@ export function GameView({
   }, []);
 
   useEffect(() => {
-    const game = new GameEngine(
-      canvas.current!,
-      track,
-      character,
-      reduced,
-      setHud,
-      (r) => {
-        setResult(r);
-        setSaved('Guardando carrera…');
-        void resultHandler
-          .current(r)
-          .then(() => setSaved('Carrera guardada en este dispositivo'))
-          .catch(() => setSaved('No se pudo guardar la carrera.'));
-      },
-      initialCameraView,
-      scenario,
-      scenarioAssets,
-    );
+    if (!hasConfirmedPower) return; // Wait until player selects power on pre-world screen
+    if (completedSession.current?.track === track && completedSession.current.round === round) return;
 
-    engine.current = game;
-    game.start();
+    let isDisposed = false;
+    let gameInstance: GameEngine | null = null;
+    lastCollectedCount.current = 0;
+
+    const setupEngine = async () => {
+      const levelMusicBuffer = resolveLevelMusic(track, musicLibrary, preferences, sequenceIndex);
+      const bossMusicBuffer = musicLibrary.find((music) => music.id === track.bossMusicId);
+      if (track.levelMusicId && !levelMusicBuffer) setAudioMessage('La música asignada al nivel ya no está disponible. Se usará la música de respaldo.');
+      if (track.bossMusicId && !bossMusicBuffer) setAudioMessage('La música asignada al jefe ya no está disponible. Se conservará la música del nivel.');
+
+      if (isDisposed) return;
+
+      const game = new GameEngine(
+        canvas.current!,
+        track,
+        character,
+        reduced,
+        (h) => {
+          setHud(h);
+          if (h.phase !== 'PLAYING') clearMovement();
+          // Check for new power collections
+          if (h.collectedPowers && h.collectedPowers.length > lastCollectedCount.current) {
+            lastCollectedCount.current = h.collectedPowers.length;
+            const latest = h.collectedPowers[h.collectedPowers.length - 1] as PowerId;
+            const pObj = POWERS[latest];
+            if (pObj) {
+              setPowerToast(`¡Poder recogido: ${pObj.name}! ${pObj.icon}`);
+              clearTimeout(powerToastTimer.current);
+              powerToastTimer.current = setTimeout(() => setPowerToast(''), 3200);
+            }
+          }
+        },
+        (r) => {
+          completedSession.current = { track, round };
+          setResult(r);
+          setSaved('Guardando carrera…');
+          void resultHandler
+            .current(r)
+            .then(() => { if (!isDisposed) setSaved('Carrera guardada'); })
+            .catch(() => { if (!isDisposed) setSaved('Error al guardar'); });
+
+          if (r.won && hasNextLevel && nextLevelHandler.current) {
+            setCompletedResult(r);
+            setCountdown(3);
+            transitioned.current = false;
+            setSelectedPower(game.simulation.activePowerId);
+            setShowAutoNextModal(true);
+          }
+        },
+        initialCameraView,
+        scenario,
+        scenarioAssets,
+        selectedPower,
+        resolvedTimeOfDay,
+        currentScale,
+        currentZoom,
+        cumulativePowers,
+        levelMusicBuffer,
+        bossMusicBuffer,
+        setAudioMessage,
+      );
+
+      gameInstance = game;
+      engine.current = game;
+      game.start();
+    };
+
+    void setupEngine();
 
     const key = (event: KeyboardEvent) => {
       // Don't intercept typing in input fields
@@ -145,6 +294,11 @@ export function GameView({
         return;
       }
 
+      if (['KeyA', 'ArrowLeft', 'KeyD', 'ArrowRight'].includes(event.code)) {
+        event.preventDefault();
+        moveInput(event.code, ['KeyA', 'ArrowLeft'].includes(event.code) ? -1 : 1);
+        return;
+      }
       const isSpace = event.code === 'Space' || event.key === ' ' || event.key === 'Spacebar';
 
       // Always blur any button or activeElement if Space is pressed so it NEVER activates a button's onClick
@@ -167,7 +321,7 @@ export function GameView({
         event.preventDefault();
         event.stopPropagation();
         if (event.stopImmediatePropagation) event.stopImmediatePropagation();
-        game.jump();
+        engine.current?.jump();
       }
       // Slide / Fast Air Drop (ArrowDown, S)
       else if (
@@ -178,7 +332,18 @@ export function GameView({
         event.preventDefault();
         event.stopPropagation();
         if (event.stopImmediatePropagation) event.stopImmediatePropagation();
-        game.slide();
+        engine.current?.slide();
+      }
+      // Power Attack (E, J, X, or KeyQ)
+      else if (
+        ['e', 'E', 'j', 'J', 'x', 'X', 'q', 'Q'].includes(event.key) ||
+        event.code === 'KeyE' ||
+        event.code === 'KeyJ' ||
+        event.code === 'KeyX'
+      ) {
+        event.preventDefault();
+        event.stopPropagation();
+        engine.current?.castPower();
       }
       // Camera perspective switch: First-person vs 3D side view
       else if (
@@ -188,7 +353,25 @@ export function GameView({
       ) {
         event.preventDefault();
         event.stopPropagation();
-        game.toggleCameraView();
+        engine.current?.toggleCameraView();
+      }
+      // Camera Zoom Shortcuts: '+' or '=' to zoom in, '-' or '_' to zoom out
+      else if (event.key === '+' || event.key === '=') {
+        event.preventDefault();
+        event.stopPropagation();
+        setCurrentZoom((z) => {
+          const next = Math.min(2.0, Number((z + 0.1).toFixed(1)));
+          engine.current?.setCameraZoom(next);
+          return next;
+        });
+      } else if (event.key === '-' || event.key === '_') {
+        event.preventDefault();
+        event.stopPropagation();
+        setCurrentZoom((z) => {
+          const next = Math.max(0.6, Number((z - 0.1).toFixed(1)));
+          engine.current?.setCameraZoom(next);
+          return next;
+        });
       }
       // Fullscreen quick shortcut (ONLY on F)
       else if (['f', 'F'].includes(event.key) || event.code === 'KeyF') {
@@ -200,30 +383,38 @@ export function GameView({
       else if (['Escape', 'p', 'P'].includes(event.key) || event.code === 'KeyP') {
         event.preventDefault();
         event.stopPropagation();
-        game.pause();
+        clearMovement();
+        engine.current?.pause();
       }
     };
 
+    const keyup = (event: KeyboardEvent) => { if (movementInputs.current.has(event.code)) moveInput(event.code); };
     const hidden = () => {
-      if (document.hidden && game.simulation.phase === 'PLAYING') game.pause();
+      if (document.hidden) clearMovement();
+      if (document.hidden && engine.current?.simulation.phase === 'PLAYING') engine.current.pause();
     };
 
     window.addEventListener('keydown', key, true);
+    window.addEventListener('keyup', keyup, true);
+    window.addEventListener('blur', clearMovement);
     document.addEventListener('visibilitychange', hidden);
 
-    // Auto-focus canvas so keyboard events route seamlessly
-    requestAnimationFrame(() => {
-      canvas.current?.focus();
-    });
-
     return () => {
-      game.destroy();
+      isDisposed = true;
+      clearTimeout(powerToastTimer.current);
+      if (gameInstance) gameInstance.destroy();
       window.removeEventListener('keydown', key, true);
+      window.removeEventListener('keyup', keyup, true);
+      window.removeEventListener('blur', clearMovement);
+      movementInputs.current.clear();
       document.removeEventListener('visibilitychange', hidden);
     };
-  }, [track, character, reduced, round, initialCameraView, scenario, scenarioAssets]);
-
+  // A run owns a snapshot of its inputs. Only an explicit session/retry starts an engine.
+  }, [sessionId, round, hasConfirmedPower]);
   const retry = () => {
+    transitioned.current = false;
+    setShowAutoNextModal(false);
+    setCompletedResult(null);
     setResult(null);
     setSaved('');
     setRound((n) => n + 1);
@@ -301,13 +492,31 @@ export function GameView({
             tabIndex={0}
             aria-label="Juego: espacio o flecha arriba para saltar; flecha abajo para deslizar; C para cámara; P para pausar"
             onPointerDown={(e) => {
-              touch.current = { x: e.clientX, y: e.clientY };
+              touch.current = { x: e.clientX, y: e.clientY, time: Date.now() };
               e.currentTarget.setPointerCapture(e.pointerId);
             }}
             onPointerUp={(e) => {
               void audioEngine.unlock();
-              if (e.clientY - touch.current.y > 25) engine.current?.slide();
-              else engine.current?.jump();
+              const dy = e.clientY - touch.current.y;
+              const dx = e.clientX - touch.current.x;
+              const dt = Date.now() - touch.current.time;
+
+              // Swipe Down -> Slide
+              if (dy > 30 && Math.abs(dy) > Math.abs(dx)) {
+                engine.current?.slide();
+              }
+              // Swipe Up -> Jump
+              else if (dy < -30 && Math.abs(dy) > Math.abs(dx)) {
+                engine.current?.jump();
+              }
+              // Quick Tap without major drag -> Attack / Cast Power
+              else if (dt < 250 && Math.abs(dx) < 20 && Math.abs(dy) < 20) {
+                engine.current?.castPower();
+              }
+              // Standard tap or other gesture -> Jump fallback
+              else {
+                engine.current?.jump();
+              }
             }}
           />
 
@@ -483,15 +692,37 @@ export function GameView({
             </div>
           )}
 
-          {/* Game Over / Victory Overlay */}
-          {result && (
+          {audioMessage && <p role="status" className="game-audio-message">{audioMessage}</p>}
+          {/* In-game power collection toast */}
+          {powerToast && (
+            <div className="power-collected-toast" role="alert">
+              <Sparkles size={20} className="text-amber-300 animate-spin" />
+              <span>{powerToast}</span>
+            </div>
+          )}
+
+          {showAutoNextModal && completedResult && (
+            <div className="game-overlay auto-progression-overlay">
+              <div className="result-card power-select-modal auto-next-card" role="dialog" aria-modal="true" aria-labelledby="next-level-heading">
+                <h2 id="next-level-heading">¡Nivel completado!</h2>
+                <p role="status">Siguiente nivel en {countdown}…</p>
+                <p>Tus poderes se conservan. Comenzarás con {POWERS[selectedPower].name}.</p>
+                <button className="primary" onClick={continueLevel}>Continuar ahora</button>
+                <button className="secondary" onClick={() => { transitioned.current = true; setShowAutoNextModal(false); }}>Cancelar</button>
+                <small>{saved}</small>
+              </div>
+            </div>
+          )}
+
+          {/* Game Over / Victory Overlay (only shown if not auto-progressing) */}
+          {result && !showAutoNextModal && (
             <div className="game-overlay">
               <div className="result-card" role="status">
                 <span className="round-icon">
                   <Flag />
                 </span>
                 <p className="eyebrow">{result.won ? '¡META ALCANZADA!' : 'CADA SALTO CUENTA'}</p>
-                <h2>{result.won ? 'Una aventura legendaria.' : 'El camino sigue ahí.'}</h2>
+                <h2>{result.won ? campaign && !hasNextLevel ? '¡Aventura completada!' : 'Una aventura legendaria.' : 'El camino sigue ahí.'}</h2>
                 <div className="result-stats">
                   <div>
                     <strong>{result.score.toLocaleString('es')}</strong>
@@ -519,6 +750,33 @@ export function GameView({
 
           <div className="game-floating-controls" aria-label="Controles de vista">
             <button
+              aria-label="Acercar cámara"
+              title="Acercar cámara (Tecla +)"
+              onClick={() => {
+                setCurrentZoom((z) => {
+                  const next = Math.min(2.0, Number((z + 0.1).toFixed(1)));
+                  engine.current?.setCameraZoom(next);
+                  return next;
+                });
+              }}
+            >
+              <ZoomIn size={18} />
+              <span>{Math.round(currentZoom * 100)}%</span>
+            </button>
+            <button
+              aria-label="Alejar cámara"
+              title="Alejar cámara (Tecla -)"
+              onClick={() => {
+                setCurrentZoom((z) => {
+                  const next = Math.max(0.6, Number((z - 0.1).toFixed(1)));
+                  engine.current?.setCameraZoom(next);
+                  return next;
+                });
+              }}
+            >
+              <ZoomOut size={18} />
+            </button>
+            <button
               aria-label="Alternar cámara 1ª persona / lateral"
               onClick={() => engine.current?.toggleCameraView()}
             >
@@ -536,9 +794,94 @@ export function GameView({
             </button>
           </div>
 
+          {/* Pre-World Power Selector Modal (Kid-Friendly 6+) */}
+          {!hasConfirmedPower && (
+            <div className="game-overlay pre-world-power-overlay">
+              <div className="result-card power-select-modal">
+                <div className="power-modal-header">
+                  <span className="round-icon">
+                    <Swords size={28} />
+                  </span>
+                  <h2>¡Elige tu Poder Mágico!</h2>
+                  <p>
+                    Selecciona el poder que usarás en <strong>{track.name}</strong>.
+                    {track.boss && (
+                      <span className="boss-intel-badge">
+                        Jefe del Mundo: <strong>{track.boss.name}</strong> ({track.boss.element})
+                      </span>
+                    )}
+                  </p>
+                </div>
+
+                <div className="power-cards-grid">
+                  {(Object.values(POWERS) as Power[]).map((power) => {
+                    const eff = track.boss ? getPowerEffectiveness(power.element, track.boss) : 'normal';
+                    const effLabel = EFFECTIVENESS_LABELS[eff];
+                    const isSelected = selectedPower === power.id;
+
+                    return (
+                      <button
+                        key={power.id}
+                        type="button"
+                        className={`power-select-card ${isSelected ? 'selected' : ''}`}
+                        onClick={() => setSelectedPower(power.id)}
+                      >
+                        <div className="power-icon-circle" style={{ backgroundColor: power.color }}>
+                          <span>{power.icon}</span>
+                        </div>
+                        <div className="power-card-info">
+                          <strong>{power.name}</strong>
+                          <small>{power.description}</small>
+                        </div>
+                        <div
+                          className="power-eff-badge"
+                          style={{ color: effLabel.color, borderColor: effLabel.color }}
+                        >
+                          {effLabel.badge}
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+
+                <div className="power-modal-footer">
+                  <div className="time-of-day-info">
+                    {TIME_PERIODS[resolvedTimeOfDay].sunMoonType === 'sun' ? (
+                      <Sun size={18} className="text-amber-400" />
+                    ) : (
+                      <Moon size={18} className="text-indigo-300" />
+                    )}
+                    <span>{TIME_PERIODS[resolvedTimeOfDay].name} · {TIME_PERIODS[resolvedTimeOfDay].bonusDescription}</span>
+                  </div>
+
+                  <button
+                    className="primary power-start-btn"
+                    onClick={() => setHasConfirmedPower(true)}
+                  >
+                    <Play size={20} fill="currentColor" /> ¡Comenzar Carrera!
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
           <div className="touch-controls">
+            {hud.isBossFight && ([-1, 1] as const).map((direction) => <button key={direction}
+              aria-label={direction < 0 ? 'Retroceder' : 'Avanzar'} disabled={hud.phase !== 'PLAYING'}
+              onPointerDown={(event) => { event.preventDefault(); event.currentTarget.setPointerCapture(event.pointerId); moveInput(`touch:${event.pointerId}`, direction); }}
+              onPointerUp={(event) => moveInput(`touch:${event.pointerId}`)}
+              onPointerCancel={(event) => moveInput(`touch:${event.pointerId}`)}
+              onLostPointerCapture={(event) => moveInput(`touch:${event.pointerId}`)}>{direction < 0 ? '← Retroceder' : 'Avanzar →'}</button>)}
             <button onPointerDown={() => engine.current?.slide()}>
               <ArrowDown /> Deslizar
+            </button>
+            <button
+              className="attack-touch-btn"
+              style={{ backgroundColor: POWERS[selectedPower].color }}
+              onPointerDown={() => engine.current?.castPower()}
+              title="Disparar poder mágico"
+            >
+              <span>{POWERS[selectedPower].icon}</span> Atacar
             </button>
             <button
               className="secondary-touch-btn"
@@ -555,12 +898,11 @@ export function GameView({
         {/* Video Game Controls & Hotkeys HUD */}
         <div className="game-instructions">
           <p>
-            <kbd>Espacio</kbd> Saltar / Doble salto · <kbd>↓</kbd> Deslizarse / Caída rápida en el
-            aire · <kbd>C</kbd> / <kbd>V</kbd> Cámara 1ª Persona · <kbd>F</kbd> Pantalla Completa ·{' '}
-            <kbd>P</kbd> Pausa
+            <kbd>A / D · ← / →</kbd> Moverse contra el jefe · <kbd>Espacio</kbd> Saltar · <kbd>↓</kbd> Deslizarse · <kbd>E</kbd> / <kbd>J</kbd> Usar Poder ({POWERS[selectedPower].name}) ·{' '}
+            <kbd>C</kbd> / <kbd>V</kbd> Cámara 1ª Persona · <kbd>F</kbd> Pantalla Completa · <kbd>P</kbd> Pausa
           </p>
           <span>
-            <Flag size={15} /> Checkpoint cada 300 m: +5 s y recarga de energía
+            <Flag size={15} /> {TIME_PERIODS[resolvedTimeOfDay].name}: {TIME_PERIODS[resolvedTimeOfDay].bonusDescription}
           </span>
         </div>
 

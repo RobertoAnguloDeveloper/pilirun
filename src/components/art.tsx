@@ -1,4 +1,5 @@
 'use client';
+import { frameScale, drawGroundedSprite, measureSprite, pixelBounds, PLAYER_HEIGHT, PLAYER_SLIDE_HEIGHT } from '@/lib/sprite-geometry';
 import { useEffect, useRef } from 'react';
 import { drawFox, drawLandscape } from '@/game/renderer';
 import type { Character, WorldId } from '@/lib/types';
@@ -31,7 +32,7 @@ export function Landscape({
   }, [world, fox]);
   return <canvas ref={ref} aria-hidden="true" className={`landscape ${className}`} />;
 }
-export function Avatar({ character, size = 80 }: { character: Character; size?: number }) {
+export function Avatar({ character, size = 80, movement = 'run', frameIndex, showGround = false, previewZoom = 1 }: { character: Character; size?: number; movement?: keyof NonNullable<Character['frames']>; frameIndex?: number; showGround?: boolean; previewZoom?: number }) {
   const ref = useRef<HTMLCanvasElement>(null);
   useEffect(() => {
     const canvas = ref.current!;
@@ -40,60 +41,92 @@ export function Avatar({ character, size = 80 }: { character: Character; size?: 
     let imgElement: HTMLImageElement | null = null;
     const runFrames: HTMLImageElement[] = [];
     let frameId: number;
-    if (character.frames?.run && character.frames.run.length > 0) {
-      character.frames.run.forEach((src) => {
+    let lastValidImage: HTMLImageElement | null = null;
+    let lastValidIndex = 0;
+    if (character.frames?.[movement] && character.frames[movement]!.length > 0) {
+      character.frames[movement]!.forEach((src) => {
         const img = new Image();
+        img.onload = () => measureSprite(img);
         img.src = src;
         runFrames.push(img);
       });
     } else if (character.image) {
       imgElement = new Image();
+      imgElement.onload = () => measureSprite(imgElement!);
       imgElement.src = character.image;
     }
 
+    const bounds = character.pixels ? pixelBounds(character.pixels) : undefined;
     const renderFrame = (now: number) => {
       const elapsed = (now - start) / 1000;
       const breathe = Math.sin(elapsed * 3) * 2;
       ctx.clearRect(0, 0, 160, 160);
 
       // Determine active sprite frame (multi-frame animation or single image)
-      let activeImg = imgElement;
+      let activeImg = lastValidImage ?? imgElement;
+      let activeIndex = lastValidIndex;
       if (runFrames.length > 0) {
-        const idx = Math.floor(elapsed * 8) % runFrames.length;
+        const idx = frameIndex === undefined ? Math.floor(elapsed * 8) % runFrames.length : Math.min(frameIndex, runFrames.length - 1);
         if (runFrames[idx]?.complete && runFrames[idx].naturalWidth) {
           activeImg = runFrames[idx];
+          activeIndex = idx;
+          lastValidImage = activeImg;
+          lastValidIndex = idx;
         }
       }
+
+      const charScale = character.scale ?? 1.0;
+      const displayHeight = 58 * charScale * (movement === 'slide' ? PLAYER_SLIDE_HEIGHT / PLAYER_HEIGHT : 1);
+      if (showGround) {
+        ctx.fillStyle = '#d8f36a';
+        ctx.fillRect(0, 145, 160, 1);
+      }
+      ctx.save();
+      ctx.translate(80, 145);
+      ctx.scale(previewZoom, previewZoom);
+      ctx.translate(-80, -145);
 
       if (activeImg) {
         if (activeImg.complete && activeImg.naturalWidth) {
           ctx.save();
-          ctx.translate(80, 80);
-          ctx.scale(1 + Math.sin(elapsed * 2) * 0.02, 1 - Math.sin(elapsed * 2) * 0.02);
+          // Anchor ground at y = 145, bottom of feet touch the baseline
+          ctx.translate(80, 145);
           ctx.imageSmoothingEnabled = false;
-          ctx.drawImage(activeImg, -65, -65 + breathe * 0.5, 130, 130);
+          drawGroundedSprite(ctx, activeImg, displayHeight * frameScale(character, movement, activeIndex),
+            character.frameBaselines?.[activeImg.getAttribute('src')!]);
           ctx.restore();
         }
       } else if (character.pixels) {
         ctx.save();
-        ctx.translate(0, breathe * 0.4);
+        ctx.translate(80, 145);
+        const unit = displayHeight / bounds!.height;
         character.pixels.forEach((color, i) => {
           if (color !== 'transparent') {
             ctx.fillStyle = color;
-            ctx.fillRect((i % 16) * 8 + 16, Math.floor(i / 16) * 8 + 16, 8, 8);
+            ctx.fillRect(((i % 16) - bounds!.x - bounds!.width / 2) * unit,
+              (Math.floor(i / 16) - bounds!.y - bounds!.height) * unit, unit, unit);
           }
         });
         ctx.restore();
       } else {
-        drawFox(ctx, 88, 86 + breathe, 110, character.color, elapsed * 2);
+        ctx.save();
+        ctx.translate(80, 145);
+        ctx.scale(charScale, charScale);
+        drawFox(ctx, 0, -32 + breathe, 90, character.color, elapsed * 2);
+        ctx.restore();
       }
 
+      ctx.restore();
       frameId = requestAnimationFrame(renderFrame);
     };
 
     frameId = requestAnimationFrame(renderFrame);
-    return () => cancelAnimationFrame(frameId);
-  }, [character]);
+    return () => {
+      cancelAnimationFrame(frameId);
+      for (const image of runFrames) image.onload = null;
+      if (imgElement) imgElement.onload = null;
+    };
+  }, [character, movement, frameIndex, showGround, previewZoom]);
   return (
     <canvas
       ref={ref}

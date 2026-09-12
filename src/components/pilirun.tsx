@@ -1,6 +1,7 @@
 'use client';
+import { mergeTracks } from '@/lib/music';
 import dynamic from 'next/dynamic';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   ArrowRight,
   AudioLines,
@@ -36,10 +37,16 @@ import {
   Minimize2,
   Layers3,
   ExternalLink,
+  Database,
+  Trash2,
+  AlertTriangle,
+  RefreshCw,
+  Layers,
 } from 'lucide-react';
 import { Avatar, Landscape } from './art';
 import { BackgroundRunner } from './background-runner';
 import { CHARACTERS, TRACKS, WORLDS } from '@/lib/worlds';
+import { OFFICIAL_LEVELS, type LevelConfig } from '@/lib/procedural';
 import {
   DEFAULT_PREFERENCES,
   type Backend,
@@ -51,10 +58,13 @@ import {
   type AudioTrack,
   type Scenario,
   type ScenarioAsset,
+  type DatabaseSection,
+  type StorageDetails,
 } from '@/lib/types';
 import { localStore } from '@/lib/storage';
 import { audioEngine } from '@/lib/audio';
 import { scenarioToTrack } from '@/lib/scenario';
+import { calculateCharacterStats } from '@/lib/combat';
 const APP_VERSION = process.env.NEXT_PUBLIC_APP_VERSION ?? '1.0.0';
 const loading = () => (
   <div className="loading-state">
@@ -103,7 +113,20 @@ export default function PiliRun() {
     [ready, setReady] = useState(false),
     [error, setError] = useState(''),
     [toast, setToast] = useState('');
+  const [storageDetails, setStorageDetails] = useState<StorageDetails | null>(null);
+  const [resetConfirmOpen, setResetConfirmOpen] = useState(false);
+  const [sectionToDelete, setSectionToDelete] = useState<DatabaseSection | null>(null);
+  const [musicAssignTrack, setMusicAssignTrack] = useState<Track | null>(null);
+  const [musicAssignBusy, setMusicAssignBusy] = useState(false);
+  const [musicAssignError, setMusicAssignError] = useState('');
+  const startTicket = useRef(0);
+  const [cumulativePowers, setCumulativePowers] = useState<import('../lib/combat').PowerId[]>([]);
   const [playing, setPlaying] = useState<{
+      sessionId: string;
+      sequence: string[];
+      sequenceIndex: number;
+      autoStart: boolean;
+      campaign: boolean;
       track: Track;
       scenario?: Scenario;
       assets: ScenarioAsset[];
@@ -115,6 +138,15 @@ export default function PiliRun() {
   const initialized = useRef(false),
     prefTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const currentPrefs = useRef(data.preferences);
+
+  const loadStorageDetails = async () => {
+    try {
+      const details = await localStore.request<StorageDetails>({ action: 'storage-details' });
+      setStorageDetails(details);
+    } catch {
+      // ignore
+    }
+  };
   useEffect(() => {
     if (initialized.current) return;
     initialized.current = true;
@@ -126,10 +158,25 @@ export default function PiliRun() {
         currentPrefs.current = data.preferences;
         audioEngine.configure(data.preferences);
         setReady(true);
+        void loadStorageDetails();
       })
       .catch((e) => setError(e.message));
-    if ('serviceWorker' in navigator && process.env.NODE_ENV === 'production')
-      void navigator.serviceWorker.register('/sw.js').catch(() => {});
+    if ('serviceWorker' in navigator) {
+      if (process.env.NODE_ENV === 'production') {
+        void navigator.serviceWorker.register('/sw.js').catch(() => {});
+      } else {
+        // A previous production worker must not serve stale bundles to HMR.
+        void navigator.serviceWorker.getRegistrations().then(async (registrations) => {
+          for (const registration of registrations) {
+            const worker = registration.active ?? registration.waiting ?? registration.installing;
+            if (worker && new URL(worker.scriptURL).pathname === '/sw.js') await registration.unregister();
+          }
+          for (const key of await caches.keys()) {
+            if (key.startsWith('pilirun-shell-')) await caches.delete(key);
+          }
+        }).catch(() => {});
+      }
+    }
   }, []);
   useEffect(() => {
     const update = () => setOnline(navigator.onLine);
@@ -179,13 +226,17 @@ export default function PiliRun() {
     };
   }, []);
   const characters = [...CHARACTERS, ...data.characters],
-    tracks = [...TRACKS, ...data.tracks, ...data.scenarios.map(scenarioToTrack)];
+    tracks = mergeTracks(TRACKS, data.tracks, data.scenarios.map(scenarioToTrack));
   const character = characters.find((c) => c.id === data.preferences.characterId) ?? CHARACTERS[0],
-    selectedTrack = tracks.find((t) => t.id === data.preferences.trackId) ?? TRACKS[0];
+    selectedTrack = tracks.find((t) => t.id === data.preferences.trackId) ?? tracks[0] ?? TRACKS[0];
   const navigate = (next: Page) => {
+    startTicket.current++;
     setPage(next);
     setPlaying(null);
     window.scrollTo({ top: 0 });
+    if (next === 'settings') {
+      void loadStorageDetails();
+    }
   };
   const preferences = (p: Preferences) => {
     if (!ready) return;
@@ -234,8 +285,11 @@ export default function PiliRun() {
     scenarioOverride?: Scenario,
     assetOverride?: ScenarioAsset[],
     returnPage: Page = 'home',
+    sequence = tracks.map((item) => item.id),
+    autoStart = false,
   ) => {
     if (!ready) return;
+    const ticket = ++startTicket.current;
     if (document.activeElement instanceof HTMLElement) {
       document.activeElement.blur();
     }
@@ -252,13 +306,24 @@ export default function PiliRun() {
             .request<ScenarioAsset[]>({ action: 'scenario-assets-get', scenarioId: scenario.id })
             .catch(() => [])
         : []);
-    setPlaying({ track, scenario, assets, returnPage });
+    if (ticket !== startTicket.current) return;
+    setPlaying({ sessionId: crypto.randomUUID(), sequence, sequenceIndex: Math.max(0, sequence.indexOf(track.id)), autoStart, campaign: returnPage !== 'editor', track, scenario, assets, returnPage });
     setPage('home');
     window.scrollTo({ top: 0 });
   };
   const saveCharacter = async (c: Character) => {
     await localStore.request({ action: 'save', collection: 'characters', id: c.id, value: c });
-    setData((d) => ({ ...d, characters: [...d.characters.filter((item) => item.id !== c.id), c] }));
+    setData((d) => {
+      const isSelected = d.preferences.characterId === c.id;
+      const updatedPrefs = isSelected && c.scale !== undefined
+        ? { ...d.preferences, characterScale: c.scale }
+        : d.preferences;
+      return {
+        ...d,
+        characters: [...d.characters.filter((item) => item.id !== c.id), c],
+        preferences: updatedPrefs,
+      };
+    });
   };
   const saveTrack = async (t: Track) => {
     await localStore.request({ action: 'save', collection: 'tracks', id: t.id, value: t });
@@ -300,13 +365,52 @@ export default function PiliRun() {
       preferences({ ...data.preferences, trackId: 'forest-path' });
     setToast('Creación eliminada.');
   };
+  const gameCharacter = useMemo(() => ({
+    ...character,
+    scale: data.preferences.characterScale ?? character.scale ?? 1,
+    stats: calculateCharacterStats(data.characterLevel ?? 1),
+  }), [character, data.preferences.characterScale, data.characterLevel]);
+
   const saveRun = async (run: RunResult) => {
     await localStore.request({ action: 'save', collection: 'runs', id: run.id, value: run });
-    setData((d) => ({ ...d, runs: [...d.runs, run] }));
+    let newLevel = data.characterLevel ?? 1;
+    if (run.won) {
+      newLevel = Math.min(20, newLevel + 1);
+      setToast(`¡NIVEL AUMENTADO! Tu personaje ahora es Nivel ${newLevel} (Aura más intensa)`);
+    }
+    setData((d) => ({ ...d, runs: [...d.runs, run], characterLevel: newLevel }));
   };
-  const saveMusic = async (track: AudioTrack, bytes: ArrayBuffer) => {
-    await localStore.request({ action: 'music-put', track, bytes });
+  const saveMusic = async (track: AudioTrack, blob: Blob) => {
+    await localStore.request({ action: 'music-put', track, blob });
     setData((d) => ({ ...d, music: [...d.music, track] }));
+  };
+  const clearSection = async (section: DatabaseSection) => {
+    try {
+      const refreshed = await localStore.request<SavedData>({ action: 'section-clear', section });
+      setData(refreshed);
+      currentPrefs.current = refreshed.preferences;
+      audioEngine.configure(refreshed.preferences);
+      await loadStorageDetails();
+      setSectionToDelete(null);
+      setToast(`Sección de base de datos restablecida.`);
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : 'Error al borrar sección';
+      setToast(msg);
+    }
+  };
+  const factoryReset = async () => {
+    try {
+      const refreshed = await localStore.request<SavedData>({ action: 'factory-reset' });
+      setData(refreshed);
+      currentPrefs.current = refreshed.preferences;
+      audioEngine.configure(refreshed.preferences);
+      await loadStorageDetails();
+      setResetConfirmOpen(false);
+      setToast('Base de datos restaurada al estado de fábrica.');
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : 'Error al restablecer de fábrica';
+      setToast(msg);
+    }
   };
   const totalCoins = data.runs.reduce((n, r) => n + r.coins, 0),
     totalDistance = data.runs.reduce((n, r) => n + r.distance, 0),
@@ -426,18 +530,41 @@ export default function PiliRun() {
 
         {playing ? (
           <GameView
+            key={playing.sessionId}
+            sessionId={playing.sessionId}
+            sequenceIndex={playing.sequenceIndex}
+            autoStart={playing.autoStart}
+            campaign={playing.campaign}
+            hasNextLevel={playing.campaign && playing.sequenceIndex + 1 < playing.sequence.length}
             track={playing.track}
             scenario={playing.scenario}
             scenarioAssets={playing.assets}
-            character={character}
+            character={gameCharacter}
             reduced={data.preferences.reducedMotion}
             initialCameraView={data.preferences.cameraView || 'side'}
+            initialPowerId={(data.preferences.selectedPowerId as any) || 'flame_burst'}
+            timeOfDayPref={(data.preferences.timeOfDay as any) || 'realtime'}
+            musicLibrary={data.music}
+            cumulativePowers={cumulativePowers}
+            preferences={data.preferences}
             onClose={() => {
+              startTicket.current++;
               const returnPage = playing.returnPage;
               setPlaying(null);
+              setCumulativePowers([]);
               setPage(returnPage);
             }}
             onResult={saveRun}
+            onNextLevel={(chosenPower, updatedCumulative) => {
+              setCumulativePowers(updatedCumulative);
+              preferences({ ...data.preferences, selectedPowerId: chosenPower });
+
+              const nextId = playing.sequence[playing.sequenceIndex + 1];
+              const nextTrack = tracks.find((track) => track.id === nextId);
+              if (!nextTrack) { setToast('La siguiente pista ya no está disponible.'); return; }
+              void start(nextTrack, undefined, undefined, playing.returnPage, playing.sequence, true);
+              setToast(`¡Avanzando a ${nextTrack.name}! Poder activo: ${chosenPower}`);
+            }}
           />
         ) : page === 'editor' && ready ? (
           <ScenarioEditor
@@ -610,6 +737,7 @@ export default function PiliRun() {
                                 preferences({ ...data.preferences, trackId: track.id });
                                 void start(track);
                               }}
+                              onConfigureMusic={() => { setMusicAssignError(''); setMusicAssignTrack(track); }}
                             />
                           ))}
                         </div>
@@ -627,6 +755,7 @@ export default function PiliRun() {
                     {page === 'builder' && ready && (
                       <TrackBuilder
                         tracks={data.tracks}
+                        musicLibrary={data.music}
                         onSave={saveTrack}
                         onDelete={(id) => remove('tracks', id)}
                         onPlay={(track) => void start(track, undefined, undefined, 'builder')}
@@ -770,51 +899,270 @@ export default function PiliRun() {
                               Detiene el paralaje y las transiciones decorativas. Los elementos de
                               la carrera mantienen su movimiento.
                             </p>
-                          </div>
-                          <div className="panel">
-                            <ShieldCheck className="section-icon" />
-                            <h2>Tu mundo se queda contigo.</h2>
-                            <p className="subtle">
-                              Personajes, pistas, música y carreras se guardan en este navegador. No
-                              necesitas registrarte.
+
+                            <h3 style={{ fontSize: '0.95rem', marginTop: '16px', marginBottom: '8px' }}>
+                              Sincronización de Tiempo y Escenario
+                            </h3>
+                            <label>
+                              Modo de Iluminación y Cielo
+                              <select
+                                value={data.preferences.timeOfDay || 'realtime'}
+                                onChange={(e) =>
+                                  preferences({
+                                    ...data.preferences,
+                                    timeOfDay: e.target.value as any,
+                                  })
+                                }
+                              >
+                                <option value="realtime">
+                                  Sincronizado en Tiempo Real (Automático con tu reloj)
+                                </option>
+                                <option value="dawn">Amanecer (05:00 - 07:00)</option>
+                                <option value="morning">Mañana (07:00 - 11:30)</option>
+                                <option value="midday">Mediodía (11:30 - 14:00)</option>
+                                <option value="afternoon">Tarde (14:00 - 17:30)</option>
+                                <option value="sunset">Puesta de Sol (17:30 - 19:00)</option>
+                                <option value="dusk">Crepúsculo (19:00 - 20:30)</option>
+                                <option value="night">Noche (20:30 - 02:00)</option>
+                                <option value="late_night">Madrugada Profunda (02:00 - 05:00)</option>
+                              </select>
+                            </label>
+                            <p className="subtle" style={{ marginTop: '4px' }}>
+                              Zona horaria local:{' '}
+                              <strong>{Intl.DateTimeFormat().resolvedOptions().timeZone}</strong> ·
+                              Hora detectada: <strong>{new Date().toLocaleTimeString('es', { hour: '2-digit', minute: '2-digit' })}</strong>
                             </p>
-                            <div className="storage-info">
-                              <span>Almacenamiento</span>
-                              <strong>{backend ? `SQLite · ${backend}` : 'Conectando…'}</strong>
+
+                            <h3 style={{ fontSize: '0.95rem', marginTop: '16px', marginBottom: '8px' }}>
+                              Cámara y Escala del Personaje
+                            </h3>
+                            <label>
+                              Zoom de la Cámara · {Math.round((data.preferences.cameraZoom ?? 1.0) * 100)}%
+                              <input
+                                type="range"
+                                min="0.6"
+                                max="2.0"
+                                step="0.1"
+                                value={data.preferences.cameraZoom ?? 1.0}
+                                onChange={(e) =>
+                                  preferences({
+                                    ...data.preferences,
+                                    cameraZoom: Number(e.target.value),
+                                  })
+                                }
+                              />
+                            </label>
+                            <label>
+                              Tamaño / Escala del Personaje · {Math.round((data.preferences.characterScale ?? character.scale ?? 1.0) * 100)}%
+                              <input
+                                type="range"
+                                min="0.5"
+                                max="2.0"
+                                step="0.05"
+                                value={data.preferences.characterScale ?? character.scale ?? 1.0}
+                                onChange={(e) =>
+                                  preferences({
+                                    ...data.preferences,
+                                    characterScale: Number(e.target.value),
+                                  })
+                                }
+                              />
+                            </label>
+                          </div>
+
+                          <div className="panel db-admin-panel">
+                            <div className="section-heading-inline">
+                              <Database className="section-icon" />
+                              <div>
+                                <h2>Administración de Base de Datos</h2>
+                                <p className="subtle">
+                                  Gestiona el motor SQLite local ({backend || 'Cargando'}), restaura datos por sección o restablece al estado de fábrica.
+                                </p>
+                              </div>
                             </div>
+
                             <div className="storage-info">
-                              <span>Estado</span>
-                              <strong>{ready ? 'Listo para guardar' : 'No disponible'}</strong>
+                              <span>Ubicación de almacenamiento</span>
+                              <strong>
+                                {storageDetails
+                                  ? storageDetails.location
+                                  : backend === 'OPFS'
+                                    ? 'OPFS (/pilirun.sqlite3)'
+                                    : 'IndexedDB (pilirun-sqlite)'}
+                              </strong>
                             </div>
-                            <button
-                              className="secondary"
-                              onClick={() => {
-                                if (navigator.storage?.persist)
-                                  void navigator.storage
-                                    .persist()
-                                    .then((granted) =>
-                                      setToast(
-                                        granted
-                                          ? 'El navegador protegió tu guardado contra limpieza automática.'
-                                          : 'El navegador administra el espacio disponible. Tus datos siguen guardados.',
-                                      ),
-                                    )
-                                    .catch(() =>
-                                      setToast('No se pudo solicitar almacenamiento persistente.'),
+
+                            {storageDetails?.absolutePath && (
+                              <div className="storage-info absolute-path-box">
+                                <span>Ruta absoluta en disco ({storageDetails.storageType || 'Local'})</span>
+                                <code className="absolute-path-code">
+                                  {storageDetails.absolutePath}
+                                </code>
+                              </div>
+                            )}
+
+                            <div className="storage-info">
+                              <span>Motor y persistencia</span>
+                              <strong>
+                                {storageDetails?.engine ?? 'SQLite3 WASM'} ·{' '}
+                                {storageDetails?.persisted ? 'Protegido contra desalojo' : 'Estándar'}
+                              </strong>
+                            </div>
+
+                            <div className="db-details-grid">
+                              <div className="db-count-item">
+                                <span className="db-count-label">Carreras</span>
+                                <span className="db-count-val">{storageDetails?.counts.runs ?? data.runs.length}</span>
+                              </div>
+                              <div className="db-count-item">
+                                <span className="db-count-label">Personajes</span>
+                                <span className="db-count-val">{storageDetails?.counts.characters ?? data.characters.length}</span>
+                              </div>
+                              <div className="db-count-item">
+                                <span className="db-count-label">Pistas</span>
+                                <span className="db-count-val">{storageDetails?.counts.tracks ?? data.tracks.length}</span>
+                              </div>
+                              <div className="db-count-item">
+                                <span className="db-count-label">Escenarios</span>
+                                <span className="db-count-val">{storageDetails?.counts.scenarios ?? data.scenarios.length}</span>
+                              </div>
+                              <div className="db-count-item">
+                                <span className="db-count-label">Música</span>
+                                <span className="db-count-val">{storageDetails?.counts.music ?? data.music.length}</span>
+                              </div>
+                            </div>
+
+                            <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                              <button
+                                className="secondary"
+                                onClick={() => void loadStorageDetails()}
+                              >
+                                <RefreshCw size={14} /> Actualizar métricas
+                              </button>
+                              <button
+                                className="secondary"
+                                onClick={() => {
+                                  if (navigator.storage?.persist)
+                                    void navigator.storage
+                                      .persist()
+                                      .then((granted) => {
+                                        void loadStorageDetails();
+                                        setToast(
+                                          granted
+                                            ? 'El navegador protegió tu guardado contra limpieza automática.'
+                                            : 'El navegador administra el espacio disponible. Tus datos siguen guardados.',
+                                        );
+                                      })
+                                      .catch(() =>
+                                        setToast('No se pudo solicitar almacenamiento persistente.'),
+                                      );
+                                  else
+                                    setToast(
+                                      'Este navegador administra el almacenamiento automáticamente.',
                                     );
-                                else
-                                  setToast(
-                                    'Este navegador administra el almacenamiento automáticamente.',
-                                  );
-                              }}
-                            >
-                              Proteger mis guardados <ShieldCheck size={16} />
-                            </button>
-                            <p className="subtle small-print">
-                              Borrar los datos del navegador también elimina tus creaciones. El modo
-                              sin conexión queda disponible tras cargar la versión de producción.
-                            </p>
+                                }}
+                              >
+                                Proteger mis guardados <ShieldCheck size={14} />
+                              </button>
+                            </div>
+
+                            <h3 style={{ fontSize: '0.95rem', marginTop: '6px' }}>
+                              Borrado selectivo por sección
+                            </h3>
+                            <div className="db-section-actions">
+                              <div className="db-section-row">
+                                <div>
+                                  <div className="db-section-title">Historial de Carreras</div>
+                                  <div className="db-section-desc">Puntajes, monedas y distancias acumuladas</div>
+                                </div>
+                                <button
+                                  className="btn-danger-outline"
+                                  onClick={() => setSectionToDelete('runs')}
+                                >
+                                  <Trash2 size={13} /> Borrar
+                                </button>
+                              </div>
+
+                              <div className="db-section-row">
+                                <div>
+                                  <div className="db-section-title">Personajes Personalizados</div>
+                                  <div className="db-section-desc">Sprites creados o importados por el usuario</div>
+                                </div>
+                                <button
+                                  className="btn-danger-outline"
+                                  onClick={() => setSectionToDelete('characters')}
+                                >
+                                  <Trash2 size={13} /> Borrar
+                                </button>
+                              </div>
+
+                              <div className="db-section-row">
+                                <div>
+                                  <div className="db-section-title">Pistas Creadas</div>
+                                  <div className="db-section-desc">Circuitos diseñados en el creador de pistas</div>
+                                </div>
+                                <button
+                                  className="btn-danger-outline"
+                                  onClick={() => setSectionToDelete('tracks')}
+                                >
+                                  <Trash2 size={13} /> Borrar
+                                </button>
+                              </div>
+
+                              <div className="db-section-row">
+                                <div>
+                                  <div className="db-section-title">Escenarios 2.5D</div>
+                                  <div className="db-section-desc">Capas, objetos y texturas personalizadas</div>
+                                </div>
+                                <button
+                                  className="btn-danger-outline"
+                                  onClick={() => setSectionToDelete('scenarios')}
+                                >
+                                  <Trash2 size={13} /> Borrar
+                                </button>
+                              </div>
+
+                              <div className="db-section-row">
+                                <div>
+                                  <div className="db-section-title">Biblioteca de Música</div>
+                                  <div className="db-section-desc">Pistas de audio y sintetizadores guardados</div>
+                                </div>
+                                <button
+                                  className="btn-danger-outline"
+                                  onClick={() => setSectionToDelete('music')}
+                                >
+                                  <Trash2 size={13} /> Borrar
+                                </button>
+                              </div>
+
+                              <div className="db-section-row">
+                                <div>
+                                  <div className="db-section-title">Preferencias de Usuario</div>
+                                  <div className="db-section-desc">Volumen, audio, velocidad y controles</div>
+                                </div>
+                                <button
+                                  className="btn-danger-outline"
+                                  onClick={() => setSectionToDelete('preferences')}
+                                >
+                                  <Trash2 size={13} /> Restablecer
+                                </button>
+                              </div>
+                            </div>
+
+                            <div style={{ marginTop: '10px', paddingTop: '12px', borderTop: '1px solid rgba(255,100,100,0.2)' }}>
+                              <button
+                                className="btn-danger-solid"
+                                style={{ width: '100%' }}
+                                onClick={() => setResetConfirmOpen(true)}
+                              >
+                                <AlertTriangle size={17} /> Restablecer base de datos de fábrica
+                              </button>
+                              <p className="subtle small-print" style={{ marginTop: '6px', textAlign: 'center' }}>
+                                Si la base de datos se borra o corrompe, el sistema creará una base SQLite nueva automáticamente.
+                              </p>
+                            </div>
                           </div>
+
                           <div className="panel about-panel">
                             <picture className="rocatech-logo">
                               <source
@@ -822,7 +1170,7 @@ export default function PiliRun() {
                                 type="image/svg+xml"
                               />
                               <img
-                                src="/assets/rocatech/roca-tech-logo.png"
+                                src="/assets/rocatech/LOGO-Transparente.png"
                                 alt="Roca Tech Solutions"
                               />
                             </picture>
@@ -870,6 +1218,211 @@ export default function PiliRun() {
         </div>
       )}
       {help && <Help onClose={() => setHelp(false)} />}
+
+      {/* Confirmation Modal: Selective Section Deletion */}
+      {sectionToDelete && (
+        <div className="modal-backdrop" onClick={() => setSectionToDelete(null)}>
+          <div className="modal-card" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '440px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', color: '#ff6b6b' }}>
+              <AlertTriangle size={24} />
+              <h3 style={{ margin: 0, fontSize: '1.2rem' }}>¿Borrar esta sección?</h3>
+            </div>
+            <p className="subtle" style={{ margin: '14px 0' }}>
+              Esta acción eliminará de forma permanente los datos guardados en la sección{' '}
+              <strong>
+                {sectionToDelete === 'runs'
+                  ? 'Carreras'
+                  : sectionToDelete === 'characters'
+                    ? 'Personajes'
+                    : sectionToDelete === 'tracks'
+                      ? 'Pistas'
+                      : sectionToDelete === 'scenarios'
+                        ? 'Escenarios'
+                        : sectionToDelete === 'music'
+                          ? 'Música'
+                          : 'Preferencias'}
+              </strong>{' '}
+              sin afectar el resto del juego.
+            </p>
+            <div style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end', marginTop: '20px' }}>
+              <button className="secondary" onClick={() => setSectionToDelete(null)}>
+                Cancelar
+              </button>
+              <button
+                className="btn-danger-solid"
+                onClick={() => void clearSection(sectionToDelete)}
+              >
+                Confirmar y Borrar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Confirmation Modal: Factory Reset */}
+      {resetConfirmOpen && (
+        <div className="modal-backdrop" onClick={() => setResetConfirmOpen(false)}>
+          <div className="modal-card" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '480px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', color: '#ef4444' }}>
+              <AlertTriangle size={26} />
+              <h3 style={{ margin: 0, fontSize: '1.25rem' }}>Restablecer base de datos</h3>
+            </div>
+            <p className="subtle" style={{ margin: '14px 0', lineHeight: 1.5 }}>
+              ¿Estás seguro de que deseas restablecer toda la base de datos a su estado de fábrica?
+              Se borrarán todas las carreras, personajes personalizados, pistas y escenarios. La base de datos SQLite se reconstruirá limpia inmediatamente.
+            </p>
+            <div style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end', marginTop: '20px' }}>
+              <button className="secondary" onClick={() => setResetConfirmOpen(false)}>
+                Cancelar
+              </button>
+              <button
+                className="btn-danger-solid"
+                onClick={() => void factoryReset()}
+              >
+                Restablecer Todo
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+      {/* Modal: Music Assignment for Level & Boss */}
+      {musicAssignTrack && (
+        <div className="modal-backdrop" onClick={() => { if (!musicAssignBusy) setMusicAssignTrack(null); }}>
+          <div
+            className="modal-card surface-dark"
+            role="dialog" aria-modal="true" aria-labelledby="music-assignment-heading"
+            onClick={(e) => e.stopPropagation()}
+            style={{ maxWidth: '520px', background: '#12251d', color: '#fff', border: '1px solid rgba(216, 243, 106, 0.3)' }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '16px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                <Music2 size={24} style={{ color: 'var(--lime)' }} />
+                <h3 id="music-assignment-heading" style={{ margin: 0, fontSize: '1.2rem', color: '#fff' }}>
+                  Música de {musicAssignTrack.name}
+                </h3>
+              </div>
+              <button
+                className="icon-button"
+                aria-label="Cerrar asignación musical" disabled={musicAssignBusy}
+                onClick={() => { if (!musicAssignBusy) setMusicAssignTrack(null); }}
+                style={{ color: '#a4c4b5' }}
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            <p style={{ fontSize: '13px', color: '#a4c4b5', marginBottom: '20px' }}>
+              Asigna pistas de tu biblioteca musical para el fondo del nivel y el combate contra el jefe.
+            </p>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '18px' }}>
+              <div>
+                <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, color: '#d1e2d7', marginBottom: '6px' }}>
+                  Música del Nivel (Recorrido)
+                </label>
+                <select
+                  aria-label="Música del Nivel (Recorrido)"
+                  disabled={musicAssignBusy}
+                  value={musicAssignTrack.levelMusicId || ''}
+                  onChange={(e) => {
+                    const trackId = e.target.value || undefined;
+                    const updated = { ...musicAssignTrack, levelMusicId: trackId };
+                    setMusicAssignTrack(updated);
+
+                  }}
+                  style={{
+                    width: '100%',
+                    padding: '10px 12px',
+                    borderRadius: '8px',
+                    background: '#0a1812',
+                    color: '#fff',
+                    border: '1px solid rgba(255, 255, 255, 0.2)',
+                  }}
+                >
+                  <option value="">Banda sonora predeterminada (Chiptune Arcade)</option>
+                  {data.music.map((m) => (
+                    <option key={m.id} value={m.id}>
+                      {m.name} ({m.category || 'general'} · {Math.floor(m.duration)}s)
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, color: '#d1e2d7', marginBottom: '6px' }}>
+                  Música de Combate contra el Jefe
+                </label>
+                <select
+                  aria-label="Música de Combate contra el Jefe"
+                  disabled={musicAssignBusy}
+                  value={musicAssignTrack.bossMusicId || ''}
+                  onChange={(e) => {
+                    const trackId = e.target.value || undefined;
+                    const updated = { ...musicAssignTrack, bossMusicId: trackId };
+                    setMusicAssignTrack(updated);
+
+                  }}
+                  style={{
+                    width: '100%',
+                    padding: '10px 12px',
+                    borderRadius: '8px',
+                    background: '#0a1812',
+                    color: '#fff',
+                    border: '1px solid rgba(255, 255, 255, 0.2)',
+                  }}
+                >
+                  <option value="">Música de jefe predeterminada</option>
+                  {data.music.map((m) => (
+                    <option key={m.id} value={m.id}>
+                      {m.name} ({m.category || 'general'} · {Math.floor(m.duration)}s)
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
+
+            {data.music.length === 0 && (
+              <div
+                style={{
+                  marginTop: '16px',
+                  padding: '12px',
+                  borderRadius: '8px',
+                  background: 'rgba(216, 243, 106, 0.08)',
+                  border: '1px solid rgba(216, 243, 106, 0.2)',
+                  fontSize: '12px',
+                  color: '#e2ece6',
+                }}
+              >
+                💡 No tienes canciones personalizadas aún. Ve a la sección <strong>Mi Música</strong> para subir archivos MP3, MP4, OGG o WAV.
+              </div>
+            )}
+
+            <p role="status">{musicAssignBusy ? 'Guardando…' : musicAssignError}</p>
+            <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '24px' }}>
+              <button
+                className="primary"
+                onClick={() => {
+                  if (musicAssignBusy) return;
+                  setMusicAssignBusy(true); setMusicAssignError('');
+                  void (async () => {
+                    try {
+                      if (musicAssignTrack.scenarioId) {
+                        const scenario = data.scenarios.find((item) => item.id === musicAssignTrack.scenarioId);
+                        if (!scenario) throw new Error('El escenario ya no existe.');
+                        await saveScenario({ ...scenario, levelMusicId: musicAssignTrack.levelMusicId, bossMusicId: musicAssignTrack.bossMusicId }, []);
+                      } else await saveTrack(musicAssignTrack);
+                      setToast('Configuración musical del nivel guardada.'); setMusicAssignTrack(null);
+                    } catch (error) { setMusicAssignError(error instanceof Error ? error.message : 'No se pudo guardar.'); }
+                    finally { setMusicAssignBusy(false); }
+                  })();
+                }}
+              >
+                Guardar y Cerrar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -878,14 +1431,18 @@ function WorldCard({
   index,
   selected,
   onClick,
+  onConfigureMusic,
 }: {
   track: Track;
   index: number;
   selected: boolean;
   onClick: () => void;
+  onConfigureMusic?: () => void;
 }) {
+  const levelInfo = OFFICIAL_LEVELS.find((lvl) => lvl.id === track.id);
   return (
-    <button className={`world-card ${selected ? 'selected' : ''}`} onClick={onClick}>
+    <article className={`world-card ${selected ? 'selected' : ''}`}>
+      <button className="world-select" aria-label={`Elegir mundo ${track.name}`} aria-pressed={selected} onClick={onClick} />
       <div className="world-art">
         <Landscape world={track.world} />
         <span className="world-number">{String(index + 1).padStart(2, '0')}</span>
@@ -895,24 +1452,66 @@ function WorldCard({
           </span>
         )}
         <span className="world-distance">{track.length / 10} m</span>
+
+        {onConfigureMusic && (
+          <button
+            type="button"
+            className="world-music-badge-btn"
+            title="Configurar música para este nivel y jefe"
+            onClick={(e) => {
+              e.stopPropagation();
+              onConfigureMusic();
+            }}
+            style={{
+              position: 'absolute',
+              bottom: '8px',
+              left: '10px',
+              zIndex: 3,
+              display: 'flex',
+              alignItems: 'center',
+              gap: '4px',
+              background: track.levelMusicId || track.bossMusicId ? 'var(--lime)' : 'rgba(15, 32, 25, 0.85)',
+              color: track.levelMusicId || track.bossMusicId ? '#0b241c' : '#ffffff',
+              border: '1px solid rgba(255, 255, 255, 0.25)',
+              borderRadius: '6px',
+              padding: '3px 7px',
+              fontSize: '10px',
+              fontWeight: 700,
+              cursor: 'pointer',
+              backdropFilter: 'blur(4px)',
+            }}
+          >
+            <Music2 size={12} />
+            <span>{track.levelMusicId || track.bossMusicId ? 'MÚSICA ACTIVA' : 'MÚSICA'}</span>
+          </button>
+        )}
       </div>
       <div className="world-info">
         <div>
-          <h3>{track.name}</h3>
+          <h3>
+            {track.name}
+            {levelInfo && (
+              <span className="world-level-tag">
+                NIVEL {levelInfo.levelNumber}
+              </span>
+            )}
+          </h3>
           <span>
             <i className={`difficulty-dot ${track.world}`} />
             {WORLDS[track.world].difficulty}
             <span className="world-separator">·</span>
             {track.custom
               ? 'Creado por ti'
-              : ['Respira y explora', 'Sigue la luz', 'Brilla en la oscuridad'][index % 3]}
+              : levelInfo
+                ? levelInfo.subtitle
+                : ['Respira y explora', 'Sigue la luz', 'Brilla en la oscuridad'][index % 3]}
           </span>
         </div>
         <span className="world-arrow">
           <ArrowRight size={17} />
         </span>
       </div>
-    </button>
+    </article>
   );
 }
 function Stat({ icon, value, label }: { icon: React.ReactNode; value: string; label: string }) {

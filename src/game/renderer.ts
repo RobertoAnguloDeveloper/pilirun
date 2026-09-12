@@ -1,6 +1,9 @@
+import { frameScale, drawGroundedSprite, measureSprite, pixelBounds, PLAYER_HEIGHT, PLAYER_SLIDE_HEIGHT } from '../lib/sprite-geometry';
 import { WORLDS } from '../lib/worlds';
+import { TIME_PERIODS, type TimeOfDay } from '../lib/environment';
 import type {
   Character,
+  ItemKind,
   Scenario,
   ScenarioAsset,
   ScenarioLayer,
@@ -159,26 +162,67 @@ export function drawLandscape(
   world: WorldId,
   distance: number,
   reduced = false,
+  timeOfDay: TimeOfDay = 'morning',
 ) {
   const palette = WORLDS[world] || WORLDS.forest;
-  // Ground line: fixed horizon across 2D/3D views
+  const env = TIME_PERIODS[timeOfDay] || TIME_PERIODS.morning;
   const ground = height * 0.79;
 
-  // 1. Sky background
-  ctx.fillStyle = palette.sky;
+  // 1. Sky background with dynamic Time-of-Day Gradient
+  const skyGrad = ctx.createLinearGradient(0, 0, 0, ground);
+  skyGrad.addColorStop(0, env.skyTop);
+  skyGrad.addColorStop(1, env.skyBottom);
+  ctx.fillStyle = skyGrad;
   ctx.fillRect(0, 0, width, height);
 
-  // 2. World-specific celestial or atmospheric background
-  if (world === 'neon') {
-    // Cyberpunk sun
-    const sunGrad = ctx.createLinearGradient(0, height * 0.1, 0, height * 0.6);
-    sunGrad.addColorStop(0, '#ff007f');
-    sunGrad.addColorStop(1, '#7928ca');
-    ctx.fillStyle = sunGrad;
-    ctx.beginPath();
-    ctx.arc(width * 0.75, height * 0.35, height * 0.18, 0, Math.PI * 2);
-    ctx.fill();
+  // 2. Stars rendering (active during late_night, night, dusk, dawn)
+  if (env.starAlpha > 0.05) {
+    ctx.save();
+    ctx.globalAlpha = env.starAlpha;
+    ctx.fillStyle = '#f8fafc';
+    for (let i = 0; i < 45; i++) {
+      const sx = (i * 127.3 + (reduced ? 0 : distance * 0.01)) % width;
+      const sy = (i * 41.7) % (height * 0.52);
+      const sSize = i % 4 === 0 ? 2.5 : 1.5;
+      ctx.fillRect(sx, sy, sSize, sSize);
+    }
+    ctx.restore();
+  }
 
+  // 3. Sun and Moon System with position angle
+  ctx.save();
+  const rad = (env.sunMoonAngle * Math.PI) / 180;
+  // Arc path across the sky
+  const cx = width * (0.15 + (env.sunMoonAngle / 180) * 0.7);
+  const cy = height * 0.5 - Math.sin(rad) * height * 0.38;
+
+  // Celestial Glow Aura
+  const glowGrad = ctx.createRadialGradient(cx, cy, 5, cx, cy, env.sunMoonSize * 2.2);
+  glowGrad.addColorStop(0, env.sunMoonGlow);
+  glowGrad.addColorStop(1, 'rgba(0,0,0,0)');
+  ctx.fillStyle = glowGrad;
+  ctx.beginPath();
+  ctx.arc(cx, cy, env.sunMoonSize * 2.2, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Celestial Body Core
+  ctx.fillStyle = env.sunMoonColor;
+  ctx.beginPath();
+  ctx.arc(cx, cy, env.sunMoonSize * 0.5, 0, Math.PI * 2);
+  ctx.fill();
+
+  if (env.sunMoonType === 'moon') {
+    // Moon crater details
+    ctx.fillStyle = 'rgba(100, 116, 139, 0.25)';
+    ctx.beginPath();
+    ctx.arc(cx - 3, cy - 2, env.sunMoonSize * 0.16, 0, Math.PI * 2);
+    ctx.arc(cx + 4, cy + 3, env.sunMoonSize * 0.12, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  ctx.restore();
+
+  // 4. World-specific celestial or atmospheric foreground overlay
+  if (world === 'neon') {
     // Synthwave horizontal horizon lines
     ctx.strokeStyle = '#ff007f33';
     ctx.lineWidth = 1.5;
@@ -207,11 +251,6 @@ export function drawLandscape(
     }
   } else if (world === 'alpine') {
     // Crisp snowy sun and continuous looping snowflakes
-    ctx.fillStyle = '#ffffffdd';
-    ctx.beginPath();
-    ctx.arc(width * 0.8, height * 0.22, height * 0.08, 0, Math.PI * 2);
-    ctx.fill();
-
     ctx.fillStyle = '#ffffff66';
     const snowLoop = Math.max(width, 800);
     for (let i = 0; i < 40; i++) {
@@ -222,24 +261,9 @@ export function drawLandscape(
         ctx.fillRect(flakeX, flakeY, 3, 3);
       }
     }
-  } else if (world === 'night') {
-    // Moon & starry sky
-    ctx.fillStyle = '#efeaca';
-    ctx.beginPath();
-    ctx.arc(width * 0.75, height * 0.24, height * 0.09, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.fillStyle = '#dce6e8';
-    for (let i = 0; i < 35; i++)
-      ctx.fillRect((i * 117.7) % width, (i * 43.1) % (height * 0.53), 2, 2);
   } else {
-    // Day / Sunset sun & seamless floating clouds
-    ctx.fillStyle = world === 'sunset' ? '#ff9e64' : '#f9f4cf';
-    ctx.beginPath();
-    ctx.arc(width * 0.75, height * 0.24, height * 0.09, 0, Math.PI * 2);
-    ctx.fill();
-
     // Floating Clouds: span width + cloud margin seamlessly
-    ctx.fillStyle = '#f4f7e8dd';
+    ctx.fillStyle = env.sunMoonType === 'sun' ? '#f4f7e8aa' : 'rgba(255, 255, 255, 0.15)';
     const cloudSpan = width + 260;
     const cloudSpeed = reduced ? 0 : 0.06;
     for (let i = 0; i < 5; i++) {
@@ -375,12 +399,16 @@ interface ShatterParticle {
 }
 
 export class Renderer {
+  private pixelContentBounds?: ReturnType<typeof pixelBounds>;
   private image?: HTMLImageElement;
   private runFrames: HTMLImageElement[] = [];
   private jumpFrames: HTMLImageElement[] = [];
   private slideFrames: HTMLImageElement[] = [];
   private idleFrames: HTMLImageElement[] = [];
   private particles: ShatterParticle[] = [];
+  private lastSprite?: HTMLImageElement;
+  private lastFrameScale = 1;
+  private particleTime = 0;
   private processedDestroyedIds = new Set<string>();
   private customImages = new Map<string, HTMLImageElement>();
   private customImageUrls: string[] = [];
@@ -392,14 +420,17 @@ export class Renderer {
     private scenario?: Scenario,
     scenarioAssets: ScenarioAsset[] = [],
   ) {
+    if (character.pixels) this.pixelContentBounds = pixelBounds(character.pixels);
     if (character.image) {
       this.image = new Image();
+      this.image.onload = () => measureSprite(this.image!);
       this.image.src = character.image;
     }
     if (character.frames) {
       if (character.frames.run) {
         this.runFrames = character.frames.run.map((src) => {
           const img = new Image();
+          img.onload = () => measureSprite(img);
           img.src = src;
           return img;
         });
@@ -407,6 +438,7 @@ export class Renderer {
       if (character.frames.jump) {
         this.jumpFrames = character.frames.jump.map((src) => {
           const img = new Image();
+          img.onload = () => measureSprite(img);
           img.src = src;
           return img;
         });
@@ -414,6 +446,7 @@ export class Renderer {
       if (character.frames.slide) {
         this.slideFrames = character.frames.slide.map((src) => {
           const img = new Image();
+          img.onload = () => measureSprite(img);
           img.src = src;
           return img;
         });
@@ -421,6 +454,7 @@ export class Renderer {
       if (character.frames.idle) {
         this.idleFrames = character.frames.idle.map((src) => {
           const img = new Image();
+          img.onload = () => measureSprite(img);
           img.src = src;
           return img;
         });
@@ -455,7 +489,8 @@ export class Renderer {
     }
 
     // Update particles
-    this.updateParticles();
+    this.updateParticles(Math.max(0, Math.min(0.05, game.elapsed - this.particleTime)));
+    this.particleTime = game.elapsed;
 
     ctx.save();
 
@@ -508,7 +543,7 @@ export class Renderer {
       palette = ['#866248', '#c39a6a', '#533e34', '#a07855', '#bfe8fa'];
     }
 
-    const count = 26; // High energy shatter burst
+    const count = Math.min(26, Math.max(0, 240 - this.particles.length)); // High energy shatter burst
     for (let i = 0; i < count; i++) {
       const angle = Math.random() * Math.PI * 2;
       const speed = 120 + Math.random() * 320;
@@ -527,7 +562,7 @@ export class Renderer {
     }
 
     // Add bright shield energy plasma sparks
-    for (let i = 0; i < 14; i++) {
+    for (let i = 0; i < 14 && this.particles.length < 240; i++) {
       const angle = Math.random() * Math.PI * 2;
       const speed = 200 + Math.random() * 260;
       this.particles.push({
@@ -545,8 +580,7 @@ export class Renderer {
     }
   }
 
-  private updateParticles() {
-    const dt = 1 / 60;
+  private updateParticles(dt: number) {
     const gravity = 880;
     for (let i = this.particles.length - 1; i >= 0; i--) {
       const p = this.particles[i];
@@ -760,6 +794,25 @@ export class Renderer {
     fog.addColorStop(1, 'rgba(255,255,255,0)');
     ctx.fillStyle = fog;
     ctx.fillRect(0, horizon - 20, width, height * 0.3);
+    if (game.bossEntity && game.inBossFight) {
+      const depth = game.bossEntity.x - game.distance;
+      const point = project(Math.max(120, depth));
+      this.drawBoss(game, depth < -40 ? width * 0.1 : point.center, point.y - game.bossEntity.y * point.scale, point.scale);
+      if (depth < -40) {
+        ctx.fillStyle = '#ffffff'; ctx.strokeStyle = '#172521'; ctx.lineWidth = 4;
+        ctx.font = 'bold 16px sans-serif'; ctx.textAlign = 'left';
+        ctx.strokeText('← Jefe detrás', 16, height * 0.55);
+        ctx.fillText('← Jefe detrás', 16, height * 0.55);
+      }
+    }
+    for (const projectile of game.projectiles) {
+      const depth = projectile.x - game.distance;
+      if (depth < -40 || depth > 2600) continue;
+      const point = project(Math.max(1, depth));
+      ctx.fillStyle = projectile.color; ctx.strokeStyle = '#ffffff'; ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.arc(point.center, point.y - projectile.y * point.scale, Math.max(2, projectile.size * point.scale / 2), 0, Math.PI * 2);
+      ctx.fill(); ctx.stroke();
+    }
     this.drawFirstPersonCockpit(ctx, width, height, game);
   }
 
@@ -988,17 +1041,19 @@ export class Renderer {
   private renderSideView(game: Simulation, width: number, height: number, reduced: boolean) {
     const ctx = this.ctx,
       ground = height * 0.79,
-      scale = Math.min(1, height / 430),
+      baseScale = Math.min(1, height / 430),
+      zoom = game.cameraZoom ?? 1.0,
+      scale = baseScale * zoom,
+      charScale = game.characterScale,
       px = width * 0.23;
 
-    drawLandscape(ctx, width, height, game.track.world, game.distance, reduced);
+    drawLandscape(ctx, width, height, game.track.world, game.distance, reduced, game.timeOfDay);
     this.renderScenarioSide(game, width, height, false);
     ctx.save();
 
-    // 1. Draw Track Items (Obstacles, Collectibles, Springs, Rings)
+    // 1. Draw Track Items (Obstacles, Collectibles, Springs, Rings, Power Orbs)
     for (const item of game.track.items) {
       const x = px + (item.x - game.distance) * scale;
-      // Do not skip obstacles if passed! Draw them so long as they are on screen and not destroyed by hit
       if (x < -120 || x > width + 120 || game.consumed.has(item.id)) continue;
 
       ctx.save();
@@ -1007,14 +1062,42 @@ export class Renderer {
 
       if (item.visual?.source === 'custom') {
         const image = this.customImages.get(item.visual.assetId);
-        if (image?.complete && image.naturalWidth) {
-          const itemWidth = item.width ?? 80;
-          const itemHeight = item.height ?? 80;
-          ctx.drawImage(image, -itemWidth / 2, -(item.y ?? 0) - itemHeight, itemWidth, itemHeight);
-        } else {
-          ctx.fillStyle = '#d8f36a';
-          ctx.fillRect(-20, -40, 40, 40);
-        }
+        if (image?.complete) {
+          const itemW = item.width ?? 60;
+          const itemH = item.height ?? 60;
+          ctx.drawImage(image, -itemW / 2, -itemH, itemW, itemH);
+        } else this.drawItemSide(ctx, item.kind);
+      } else if (item.kind.startsWith('power_')) {
+        // Magical Elemental Power Orb Pickup
+        const orbColors: Record<string, { main: string; glow: string; icon: string }> = {
+          power_fire: { main: '#f97316', glow: 'rgba(249,115,22,0.6)', icon: '🔥' },
+          power_water: { main: '#06b6d4', glow: 'rgba(6,182,212,0.6)', icon: '💧' },
+          power_leaf: { main: '#84cc16', glow: 'rgba(132,204,22,0.6)', icon: '🍃' },
+          power_thunder: { main: '#eab308', glow: 'rgba(234,179,8,0.6)', icon: '⚡' },
+          power_star: { main: '#c084fc', glow: 'rgba(192,132,252,0.6)', icon: '✨' },
+        };
+        const orb = orbColors[item.kind] || orbColors.power_fire;
+        const bob = Math.sin(game.elapsed * 4 + item.x) * 6;
+        const orbY = -60 + bob;
+
+        ctx.save();
+        ctx.shadowColor = orb.glow;
+        ctx.shadowBlur = 18;
+        ctx.fillStyle = orb.main;
+        ctx.beginPath();
+        ctx.arc(0, orbY, 18, 0, Math.PI * 2);
+        ctx.fill();
+
+        ctx.fillStyle = '#ffffff';
+        ctx.beginPath();
+        ctx.arc(-4, orbY - 4, 6, 0, Math.PI * 2);
+        ctx.fill();
+
+        ctx.font = '16px sans-serif';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(orb.icon, 0, orbY);
+        ctx.restore();
       } else if (item.kind === 'coin') {
         ctx.fillStyle = '#ffe08a';
         ctx.beginPath();
@@ -1108,42 +1191,110 @@ export class Renderer {
       }
     }
 
-    // 3. Render Character with Hit Animation & Energy Visuals
+    // 3. Render Ground Contact Shadow (exactly at ground line)
+    ctx.save();
+    const shadowScale = Math.max(0.2, 1 - game.height / 350) * charScale;
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.28)';
+    ctx.beginPath();
+    ctx.ellipse(
+      px,
+      ground,
+      28 * shadowScale * scale,
+      7 * shadowScale * scale,
+      0,
+      0,
+      Math.PI * 2,
+    );
+    ctx.fill();
+    ctx.restore();
+
+    // 4. Render Character (Anchor exactly where feet touch the ground!)
     const isHurtFlash = game.hurt > 0 && Math.floor(game.hurt * 14) % 2 === 0;
     ctx.globalAlpha = isHurtFlash ? 0.35 : 1;
 
     // Recoil / Hit wobble
     const hitAngle = game.hurt > 0 ? Math.sin(game.hurt * 25) * 0.25 : 0;
 
-    ctx.translate(px, ground - game.height * scale - (game.slide > 0 ? 16 : 31) * scale);
-    if (hitAngle !== 0) ctx.rotate(hitAngle);
-    if (game.slide > 0) ctx.scale(1.15, 0.55);
+    // Character vertical origin: exact ground minus altitude height
+    ctx.save();
+    ctx.translate(px, ground - game.height * scale);
+    ctx.scale(game.facing, 1);
+    if (hitAngle !== 0 && game.height > 0) ctx.rotate(hitAngle);
 
-    // Speedrun Aerial Altitude Shadow on Ground
-    if (game.height > 10) {
-      ctx.save();
-      const shadowScale = Math.max(0.2, 1 - game.height / 350);
-      ctx.fillStyle = 'rgba(0, 0, 0, 0.25)';
+
+    // 5. Anime-Style Evolving Energy Aura
+    const auraLevel = game.stats?.auraLevel ?? 1;
+    ctx.save();
+    const auraPulse = Math.sin(game.elapsed * 8) * 4;
+    const baseRadius = (32 + auraLevel * 6 + auraPulse) * scale * charScale;
+
+    if (auraLevel >= 1) {
+      const auraGrad = ctx.createRadialGradient(0, -28 * scale * charScale, 8 * scale, 0, -28 * scale * charScale, baseRadius);
+      const innerColor =
+        auraLevel >= 4
+          ? 'rgba(168, 85, 247, 0.4)'
+          : auraLevel >= 3
+            ? 'rgba(234, 179, 8, 0.45)'
+            : 'rgba(56, 189, 248, 0.35)';
+      auraGrad.addColorStop(0, innerColor);
+      auraGrad.addColorStop(1, 'rgba(255, 255, 255, 0)');
+      ctx.fillStyle = auraGrad;
       ctx.beginPath();
-      ctx.ellipse(
-        0,
-        game.height * scale + (game.slide > 0 ? 16 : 31) * scale,
-        25 * shadowScale,
-        6 * shadowScale,
-        0,
-        0,
-        Math.PI * 2,
-      );
+      ctx.arc(0, -28 * scale * charScale, baseRadius, 0, Math.PI * 2);
       ctx.fill();
-      ctx.restore();
     }
+
+    if (auraLevel >= 2) {
+      ctx.strokeStyle = auraLevel >= 4 ? '#c084fc' : '#38bdf8';
+      ctx.lineWidth = 2 * scale;
+      ctx.beginPath();
+      ctx.arc(0, -28 * scale * charScale, baseRadius * 0.85, 0, Math.PI * 2);
+      ctx.stroke();
+    }
+
+    if (auraLevel >= 3) {
+      ctx.fillStyle = auraLevel >= 5 ? '#f43f5e' : '#facc15';
+      for (let i = 0; i < 6; i++) {
+        const sparkAngle = (game.elapsed * 4 + i * (Math.PI / 3)) % (Math.PI * 2);
+        const sparkDist = baseRadius * (0.6 + Math.sin(game.elapsed * 6 + i) * 0.3);
+        const sx = Math.cos(sparkAngle) * sparkDist;
+        const sy = -28 * scale * charScale + Math.sin(sparkAngle) * sparkDist;
+        ctx.beginPath();
+        ctx.arc(sx, sy, 2.5 * scale, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    }
+
+    if (auraLevel >= 4) {
+      const shockwave = (game.elapsed * 2) % 1;
+      ctx.strokeStyle = `rgba(216, 180, 254, ${1 - shockwave})`;
+      ctx.lineWidth = 3 * scale;
+      ctx.beginPath();
+      ctx.arc(0, -28 * scale * charScale, baseRadius * (1 + shockwave * 0.8), 0, Math.PI * 2);
+      ctx.stroke();
+    }
+
+    if (auraLevel >= 5) {
+      ctx.strokeStyle = '#fef08a';
+      ctx.lineWidth = 2.2 * scale;
+      ctx.beginPath();
+      const zAngle = (game.elapsed * 12) % (Math.PI * 2);
+      const zx1 = Math.cos(zAngle) * baseRadius * 0.9;
+      const zy1 = -28 * scale * charScale + Math.sin(zAngle) * baseRadius * 0.9;
+      const zx2 = zx1 + (Math.random() - 0.5) * 18 * scale;
+      const zy2 = zy1 + (Math.random() - 0.5) * 18 * scale;
+      ctx.moveTo(zx1, zy1);
+      ctx.lineTo(zx2, zy2);
+      ctx.stroke();
+    }
+    ctx.restore();
 
     // Shield Aura
     if (game.shield > 0) {
       ctx.strokeStyle = '#bfe8fa';
       ctx.lineWidth = 3;
       ctx.beginPath();
-      ctx.arc(0, 0, 47 * scale, 0, Math.PI * 2);
+      ctx.arc(0, -28 * scale * charScale, 45 * scale * charScale, 0, Math.PI * 2);
       ctx.stroke();
     }
 
@@ -1151,74 +1302,49 @@ export class Renderer {
     const isSliding = game.slide > 0;
     const stride = game.distance * 0.05;
 
-    // Dynamic multi-frame sprite frame selection
-    let activeFrameImg: HTMLImageElement | undefined = this.image;
-    if (isJumping && this.jumpFrames.length > 0) {
-      // Pick jump ascent (frame 0) or descent (frame 1)
-      const jumpIdx = game.velocity > -100 ? 0 : Math.min(1, this.jumpFrames.length - 1);
-      if (this.jumpFrames[jumpIdx]?.complete && this.jumpFrames[jumpIdx].naturalWidth) {
-        activeFrameImg = this.jumpFrames[jumpIdx];
-      }
-    } else if (isSliding && this.slideFrames.length > 0) {
-      // Dynamic multi-frame crouch:
-      // When slide > 0.16s: deep crouch pose (frame 0)
-      // When slide <= 0.16s: swift upright recovery pose (frame 1 if available)
-      const slideIdx = game.slide > 0.16 || this.slideFrames.length === 1 ? 0 : 1;
-      if (this.slideFrames[slideIdx]?.complete && this.slideFrames[slideIdx].naturalWidth) {
-        activeFrameImg = this.slideFrames[slideIdx];
-      }
-    } else if (this.runFrames.length > 0) {
-      // 6-frame run cycle dynamically indexed by runner distance progress
-      const frameIdx = Math.floor(Math.abs(stride * 1.5)) % this.runFrames.length;
-      if (this.runFrames[frameIdx]?.complete && this.runFrames[frameIdx].naturalWidth) {
-        activeFrameImg = this.runFrames[frameIdx];
-      }
-    }
+    let movement: keyof NonNullable<Character['frames']> = 'run';
+    let activeIndex = 0;
+    let sequence = this.runFrames;
+    if ((game.phase !== 'PLAYING' || (game.inBossFight && game.moveAxis === 0 && !isJumping && !isSliding)) && this.idleFrames.length) {
+      movement = 'idle'; sequence = this.idleFrames;
+      activeIndex = game.phase === 'PLAYING' ? Math.floor(game.animationElapsed * 8) % sequence.length : 0;
+    } else if (isJumping && this.jumpFrames.length) {
+      movement = 'jump'; sequence = this.jumpFrames;
+      activeIndex = Math.floor(game.animationElapsed * 8) % sequence.length;
+    } else if (isSliding && this.slideFrames.length) {
+      movement = 'slide'; sequence = this.slideFrames;
+      activeIndex = Math.min(sequence.length - 1, Math.floor((1 - game.slide / 0.45) * sequence.length));
+    } else if (sequence.length) activeIndex = Math.floor(Math.abs(stride * 1.5)) % sequence.length;
+    let activeFrameImg = sequence.length ? sequence[activeIndex] : this.image;
+    if (activeFrameImg?.complete && activeFrameImg.naturalWidth) {
+      this.lastSprite = activeFrameImg;
+      this.lastFrameScale = frameScale(this.character, movement, activeIndex);
+    } else activeFrameImg = this.lastSprite ?? this.image;
+    const spriteHeight = (isSliding ? PLAYER_SLIDE_HEIGHT : PLAYER_HEIGHT) * scale * charScale;
 
     if (activeFrameImg?.complete && activeFrameImg.naturalWidth) {
-      ctx.save();
-      // Organic platformer character dynamics
-      if (isJumping) {
-        ctx.rotate(Math.max(-0.18, Math.min(0.18, -game.velocity * 0.00025)));
-      } else if (isSliding) {
-        // Subtle forward aerodynamic tilt during slide
-        const slideProgress = Math.max(0, Math.min(1, game.slide / 0.45));
-        ctx.rotate(-0.06 * slideProgress);
-        ctx.translate(0, (1 - slideProgress) * 4);
-      } else {
-        ctx.rotate(Math.sin(stride) * 0.035);
-        ctx.translate(0, -Math.abs(Math.sin(stride * 2)) * 3);
-      }
       ctx.imageSmoothingEnabled = false;
-      ctx.drawImage(activeFrameImg, -30 * scale, -30 * scale, 60 * scale, 60 * scale);
-      ctx.restore();
+      drawGroundedSprite(ctx, activeFrameImg, spriteHeight * this.lastFrameScale,
+        this.character.frameBaselines?.[activeFrameImg.getAttribute('src')!]);
     } else if (this.character.pixels) {
-      ctx.save();
-      if (isJumping) {
-        ctx.rotate(Math.max(-0.15, Math.min(0.15, -game.velocity * 0.0003)));
-      } else if (!isSliding) {
-        ctx.translate(0, -Math.abs(Math.sin(stride * 2)) * 2);
-      }
-      const unit = 4 * scale;
+      const bounds = this.pixelContentBounds!;
+      const unit = spriteHeight / bounds.height;
       this.character.pixels.forEach((c, i) => {
         if (c !== 'transparent') {
           ctx.fillStyle = isHurtFlash ? '#ff5252' : c;
-          ctx.fillRect(
-            (i % 16) * unit - 32 * scale,
-            Math.floor(i / 16) * unit - 32 * scale,
-            unit + 0.2,
-            unit + 0.2,
-          );
+          ctx.fillRect(((i % 16) - bounds.x - bounds.width / 2) * unit,
+            (Math.floor(i / 16) - bounds.y - bounds.height) * unit, unit, unit);
         }
       });
-      ctx.restore();
     } else {
       const slideProgress = Math.max(0, Math.min(1, game.slide / 0.45));
+      ctx.save();
+      ctx.translate(0, -28 * scale * charScale);
       drawFox(
         ctx,
         0,
         0,
-        57 * scale,
+        55 * scale * charScale,
         this.character.color,
         stride,
         isHurtFlash,
@@ -1227,9 +1353,178 @@ export class Renderer {
         isSliding,
         slideProgress,
       );
+      ctx.restore();
     }
 
     ctx.restore();
+
+    // 6. Render Projectiles (Player & Boss)
+    ctx.save();
+    for (const p of game.projectiles) {
+      const pX = px + (p.x - game.distance) * scale;
+      const pY = ground - p.y * scale;
+      ctx.fillStyle = p.color;
+      ctx.beginPath();
+      ctx.arc(pX, pY, p.size * scale * 0.65, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Bright core
+      ctx.fillStyle = '#ffffff';
+      ctx.beginPath();
+      ctx.arc(pX, pY, p.size * scale * 0.25, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.restore();
+
+    if (game.bossEntity) this.drawBoss(game, px + (game.bossEntity.x - game.distance) * scale, ground - game.bossEntity.y * scale, scale);
+
     this.renderScenarioSide(game, width, height, true);
+  }
+
+  private drawBoss(game: Simulation, bx: number, by: number, scale: number) {
+    const ctx = this.ctx;
+    // 7. Render Boss Entity with multi-frame animated features
+    if (game.bossEntity && !game.bossEntity.defeated && game.boss) {
+      const boss = game.boss;
+      const bossSize = 65 * boss.size * scale;
+      const flap = Math.sin(game.elapsed * 9) * 0.35;
+
+      ctx.save();
+      ctx.translate(bx, by);
+
+      // Telegraph warning indicator
+      if (game.bossEntity.isTelegraphing) {
+        ctx.save();
+        ctx.fillStyle = '#ef4444';
+        ctx.font = `bold ${Math.round(26 * scale)}px sans-serif`;
+        ctx.textAlign = 'center';
+        ctx.fillText('⚠️', 0, -bossSize * 0.9);
+        ctx.strokeStyle = '#ef4444';
+        ctx.lineWidth = 3;
+        ctx.setLineDash([6, 6]);
+        ctx.beginPath();
+        const warningY = game.bossEntity.nextAttackType === 'high' ? -25 * scale : 25 * scale;
+        ctx.moveTo(-220 * scale, warningY);
+        ctx.lineTo(0, warningY);
+        ctx.stroke();
+        ctx.restore();
+      }
+
+      // Animated Elemental Wings/Appendages
+      ctx.save();
+      ctx.fillStyle = boss.element === 'fire' ? '#ea580c' : boss.element === 'water' ? '#0284c7' : '#16a34a';
+      // Left Wing
+      ctx.beginPath();
+      ctx.ellipse(-bossSize * 0.45, -bossSize * 0.1 + flap * 14, bossSize * 0.4, bossSize * 0.18, -0.4 + flap * 0.3, 0, Math.PI * 2);
+      ctx.fill();
+      // Right Wing
+      ctx.beginPath();
+      ctx.ellipse(bossSize * 0.45, -bossSize * 0.1 - flap * 14, bossSize * 0.4, bossSize * 0.18, 0.4 - flap * 0.3, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
+
+      // Boss Body Gradient
+      const bossGrad = ctx.createRadialGradient(0, 0, bossSize * 0.15, 0, 0, bossSize * 0.75);
+      bossGrad.addColorStop(
+        0,
+        boss.element === 'fire'
+          ? '#f87171'
+          : boss.element === 'water'
+            ? '#38bdf8'
+            : boss.element === 'nature'
+              ? '#4ade80'
+              : boss.element === 'electric'
+                ? '#fde047'
+                : '#c084fc',
+      );
+      bossGrad.addColorStop(
+        1,
+        boss.element === 'fire'
+          ? '#991b1b'
+          : boss.element === 'water'
+            ? '#0369a1'
+            : boss.element === 'nature'
+              ? '#166534'
+              : boss.element === 'electric'
+                ? '#854d0e'
+                : '#581c87',
+      );
+      ctx.fillStyle = bossGrad;
+      ctx.beginPath();
+      ctx.arc(0, 0, bossSize * 0.5, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Animated Glowing Core
+      const corePulse = bossSize * (0.15 + Math.sin(game.elapsed * 6) * 0.06);
+      ctx.fillStyle = '#ffffff';
+      ctx.beginPath();
+      ctx.arc(0, 0, corePulse, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Boss Animated Eyes
+      const eyeGlow = game.bossEntity.isTelegraphing ? '#ef4444' : '#facc15';
+      ctx.fillStyle = '#ffffff';
+      ctx.beginPath();
+      ctx.ellipse(-bossSize * 0.18, -bossSize * 0.12, bossSize * 0.12, bossSize * 0.18, 0, 0, Math.PI * 2);
+      ctx.ellipse(bossSize * 0.18, -bossSize * 0.12, bossSize * 0.12, bossSize * 0.18, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = eyeGlow;
+      ctx.beginPath();
+      ctx.arc(-bossSize * 0.18, -bossSize * 0.12, bossSize * 0.07, 0, Math.PI * 2);
+      ctx.arc(bossSize * 0.18, -bossSize * 0.12, bossSize * 0.07, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Boss Health Bar
+      const barWidth = 140 * scale;
+      const barHeight = 12 * scale;
+      const hpRatio = Math.max(0, game.bossEntity.health / game.bossEntity.maxHealth);
+
+      ctx.fillStyle = 'rgba(0, 0, 0, 0.6)';
+      ctx.roundRect(-barWidth / 2, -bossSize * 0.7 - barHeight, barWidth, barHeight, 6);
+      ctx.fill();
+
+      ctx.fillStyle = hpRatio > 0.4 ? '#22c55e' : hpRatio > 0.2 ? '#f59e0b' : '#ef4444';
+      ctx.roundRect(-barWidth / 2, -bossSize * 0.7 - barHeight, barWidth * hpRatio, barHeight, 6);
+      ctx.fill();
+
+      // Boss Name Label
+      ctx.fillStyle = '#ffffff';
+      ctx.font = `bold ${Math.max(10, Math.round(11 * scale))}px sans-serif`;
+      ctx.textAlign = 'center';
+      ctx.fillText(boss.name, 0, -bossSize * 0.7 - barHeight - 4);
+
+      ctx.restore();
+    }
+
+  }
+
+  private drawItemSide(ctx: CanvasRenderingContext2D, kind: ItemKind) {
+    if (kind === 'coin') {
+      ctx.fillStyle = '#ffe08a';
+      ctx.beginPath();
+      ctx.arc(0, -62, 10, 0, Math.PI * 2);
+      ctx.fill();
+    } else if (kind === 'log') {
+      ctx.fillStyle = '#866248';
+      ctx.fillRect(-24, -31, 48, 31);
+    } else if (kind === 'rock') {
+      ctx.fillStyle = '#95a49b';
+      ctx.beginPath();
+      ctx.moveTo(-25, 0);
+      ctx.lineTo(-20, -31);
+      ctx.lineTo(1, -47);
+      ctx.lineTo(22, -32);
+      ctx.lineTo(29, 0);
+      ctx.closePath();
+      ctx.fill();
+    } else if (kind === 'branch') {
+      ctx.fillStyle = '#70533e';
+      ctx.fillRect(-26, -85, 52, 38);
+    } else {
+      ctx.fillStyle = '#afdbef';
+      ctx.beginPath();
+      ctx.roundRect(-15, -85, 30, 30, 9);
+      ctx.fill();
+    }
   }
 }

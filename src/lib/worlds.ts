@@ -148,14 +148,10 @@ function makeTrack(
   }
   return { id, name, world, length, items: items.sort((a, b) => a.x - b.x) };
 }
-export const TRACKS: Track[] = [
-  makeTrack('forest-path', 'Bosque Susurro', 'forest', 9000, 640),
-  makeTrack('sunset-path', 'Dunas del Sol', 'sunset', 12000, 570),
-  makeTrack('night-path', 'Valle Lunar', 'night', 15000, 500),
-  makeTrack('neon-path', 'Metrópolis Neón', 'neon', 16000, 560, true),
-  makeTrack('alpine-path', 'Cumbres Celestes', 'alpine', 18000, 620, true),
-  makeTrack('volcano-path', 'Cráter Ígneo', 'volcano', 20000, 680, true),
-];
+import { OFFICIAL_LEVELS, generateProceduralLevel } from './procedural';
+
+export const TRACKS: Track[] = OFFICIAL_LEVELS.map((level) => generateProceduralLevel(level));
+
 export function validateTrack(track: Track): string | null {
   if (!track.name.trim() || track.name.length > 40)
     return 'Ponle un nombre de hasta 40 caracteres.';
@@ -173,6 +169,11 @@ export function validateTrack(track: Track): string | null {
     'time',
     'spring',
     'ring',
+    'power_fire',
+    'power_water',
+    'power_leaf',
+    'power_thunder',
+    'power_star',
   ];
   if (
     track.items.some(

@@ -41,7 +41,7 @@ El protocolo usa `requestId` y una cola serial. Cada mutación se realiza dentro
 
 El esquema v2 se encuentra en `docs/SCHEMA.sql` y en el worker. La migración reconstruye el `CHECK` de `records` y conserva los registros v1. Escenarios y borradores usan JSON validado; música e imágenes personalizadas usan BLOBs separados de sus metadatos.
 
-Límites deliberados: 12 capas, 400 objetos, 200 interactivos y 20 imágenes por escenario; fuente de imagen hasta 8 MB/40 MP, normalizada a 1024 px y aproximadamente 1 MB; ZIP hasta 25 MB descomprimidos. Música admite 20 MB/3 minutos por pista y 60 MB por biblioteca; las pistas miden 300–3.000 m y separan obstáculos al menos 42 m.
+Límites deliberados: 12 capas, 400 objetos, 200 interactivos y 20 imágenes por escenario; fuente de imagen hasta 8 MB/40 MP, normalizada a 1024 px y aproximadamente 1 MB; ZIP hasta 25 MB descomprimidos. Música admite 100 MB por archivo, sin límite de duración ni cupo artificial de biblioteca; las pistas miden 300–3.000 m y separan obstáculos al menos 42 m.
 
 ## Editor y render de escenarios
 
@@ -55,7 +55,7 @@ Las preferencias se agrupan con un debounce de 150 ms. Cerrar abruptamente el pr
 
 ## Audio
 
-Un AudioContext de baja latencia se activa después de un gesto. Dos GainNodes permiten hacer crossfade de 0,7 s entre pistas. `AudioBufferSourceNode.loopStart/loopEnd` realiza los bucles; la validez de los límites se comprueba antes de guardar. Web Audio decodifica los formatos que admita el navegador, incluido el audio de MP4 cuando el códec sea compatible. Los efectos usan osciladores de vida corta, volumen y tono personalizables. Cambiar la pestaña interna de React no desmonta el grafo de audio.
+Un AudioContext de baja latencia se activa después de un gesto. Dos GainNodes permiten hacer crossfade de 0,7 s entre pistas. La música importada usa HTMLAudioElement con URL de Blob y MediaElementAudioSourceNode, sin decodificar la pista completa. La duración se lee de metadatos; los bucles completos usan loop y los parciales conservan sus límites mediante eventos del elemento. La compatibilidad de formatos depende del navegador. El sintetizador y los efectos siguen separados. Los efectos usan osciladores de vida corta, volumen y tono personalizables. Cambiar la pestaña interna de React no desmonta el grafo de audio.
 
 ## Offline e instalación
 
@@ -77,4 +77,25 @@ Las capturas de escritorio y móvil se generan en `test-results`. Las pruebas m�
 
 ## Próximas ampliaciones posibles
 
-Exportación/importación del guardado completo, checkpoints colocables, accesorios por capas, streaming de audio largo y verificación en dispositivos físicos. Cada ampliación debe conservar la separación del motor, las migraciones explícitas y el guardado local.
+Exportación/importación del guardado completo, checkpoints colocables, accesorios por capas, verificación en dispositivos físicos. Cada ampliación debe conservar la separación del motor, las migraciones explícitas y el guardado local.
+
+## Correcciones de personajes y finalización (septiembre 2026)
+
+La vista previa y el render lateral comparten `sprite-geometry.ts`: detectan el contenido opaco (alfa >= 128), ignoran padding y sombras tenues, y anclan los pies al origen del suelo. El alto visible comparte las constantes de colisión: 58 unidades de pie y 32 agachado. La escala del personaje se aplica una sola vez. Las imágenes con sombras opacas admiten un baseline manual por imagen, persistido en `Character.frameBaselines`; los guardados previos usan detección automática.
+
+El editor permite revisar, reproducir, reordenar, reemplazar, quitar y reutilizar fotogramas de reposo, carrera, salto/caída y deslizamiento. Guardar una animación conserva las secuencias guardadas de los demás movimientos; Guardar personaje guarda el borrador completo. Los fotogramas importados individualmente se normalizan a PNG de hasta 512 px.
+
+La finalización se resuelve antes de daño, gravedad y temporizadores del paso que cruza la meta. La simulación bloquea entradas y el motor deja de solicitar frames. GameView conserva la sesión finalizada aunque guardar el resultado cambie props; sólo un reinicio explícito o una pista distinta crea otra sesión. Los arrays predeterminados y el personaje derivado mantienen referencias estables para evitar reinicios en actualizaciones del HUD.
+
+La precarga HTTP conserva assets disponibles aunque otro falle e informa las rutas faltantes. Desarrollo genera un worker que se retira sin interceptar peticiones y elimina registros/cachés de PiliRun; producción genera el manifiesto de bundles del build actual. Una precarga incompleta puede limitar el uso offline hasta una carga correcta.
+
+El editor conserva la paleta existente: pino HSL(165, 45%, 17%) y lima HSL(72, 85%, 68%), con predominio oscuro y acentos limitados. Contraste calculado: blanco/pino 11,66:1; lima/pino 9,41:1. La selección incluye número, borde y estado accesible; las acciones llevan texto y no dependen del color. Hover aclara el fondo, pulsación lo oscurece y disabled utiliza semántica nativa y menor opacidad.
+
+
+### Persistencia y sesiones de juego
+
+`music-store.ts` mantiene `pilirun-audio` con metadatos y Blob en una sola transacción. El worker combina esa biblioteca con la música heredada de SQLite; nuevas importaciones no inflan los snapshots SQLite. Los límites y bucles se validan tanto en la interfaz como al persistir. Eliminación, restablecimiento y reporte de almacenamiento incluyen los dos almacenes.
+
+Cada partida recibe un sessionId y una instantánea de configuración. Los cambios del HUD, guardados y carga de audio no recrean la simulación. Las solicitudes musicales llevan identificadores para descartar respuestas tardías. La secuencia captura el orden de mundos deduplicado al comenzar y cada transición ocurre una sola vez, independientemente del guardado del resultado.
+
+La física posee movimiento, dirección, encuentro, progreso máximo y salud de obstáculos. El render usa escalas de fotograma opcionales y anclaje inferior, sin modificar geometría de colisión. Los proyectiles prueban segmentos barridos contra obstáculos y enemigos para evitar atravesarlos entre pasos. La animación y las partículas no detienen la física; los efectos se acotan y se limpian al terminar la sesión.

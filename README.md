@@ -36,6 +36,17 @@ Espacio, W o flecha arriba: saltar; una segunda pulsación permite el doble salt
 
 ## Guardados y audio
 
-Todo se guarda en este navegador. Para evitar sobrescrituras, sólo una pestaña de PiliRun puede acceder a los guardados al mismo tiempo. Las fotos se recortan a 128×128; los archivos de música admiten hasta 20 MB y 3 minutos, y la biblioteca completa hasta 60 MB. La compatibilidad con códecs depende del navegador. Borrar los datos del sitio elimina las creaciones.
+Todo se guarda en este navegador. Para evitar sobrescrituras, sólo una pestaña de PiliRun puede acceder a los guardados al mismo tiempo. Las fotos se recortan a 128×128; los archivos de música admiten hasta 100 MB sin límite de duración; la biblioteca depende del espacio disponible del navegador. La compatibilidad con códecs depende del navegador. Borrar los datos del sitio elimina las creaciones.
 
 La aplicación no necesita cuentas ni una base de datos externa. El modo offline se prepara en producción; las funciones que requieren contexto seguro están disponibles en localhost o HTTPS.
+
+
+## Controles y reglas nuevas
+
+- En cada movimiento del editor, revisa, reordena, reemplaza y guarda sus fotogramas. Cada aparición tiene un tamaño independiente de 25–300 %, con deslizador, entrada numérica y restablecimiento. Reordenar conserva el tamaño; reemplazar conserva el ajuste; agregar empieza en 100 %. Los pies comparten el anclaje de la vista previa y del juego. Estos ajustes son visuales; el tamaño general del personaje sí modifica las colisiones.
+- La música asignada al nivel tiene prioridad sobre el reproductor y la música predeterminada. La asignación del jefe se usa durante el encuentro; al vencerlo vuelve la música del nivel. Guarda ambas selecciones con **Guardar y Cerrar**. Pausar conserva la pista y su posición. Los errores de formato o espacio se muestran antes de confirmar el guardado.
+- Normalmente el personaje corre automáticamente. Durante un jefe, mantén **A/D**, **←/→** o los controles táctiles para avanzar o retroceder; al soltarlos se detiene. Los ataques siguen la última dirección. Puedes retirarte sin reiniciar el encuentro ni repetir recompensas. La salida se abre al derrotar al jefe.
+- Una victoria bloquea movimiento y daño inmediatamente. Tras tres segundos continúa el siguiente nivel con los poderes conservados; **Continuar ahora** adelanta el cambio y **Cancelar** lo detiene. El último nivel muestra la finalización de la aventura. Las pruebas del editor son independientes.
+- La rama tiene 25 de salud y el tronco 60: fuego, hojas, rayos y luz estelar los dañan. La roca tiene 90 y sólo recibe daño de rayos o luz estelar. Agua no destruye obstáculos. El escudo conserva su destrucción al contacto. El editor de escenarios permite cambiar material y salud; estos valores se incluyen en el ZIP.
+
+La música nueva se guarda como metadatos y Blob en una transacción de IndexedDB. La música antigua en SQLite sigue disponible sin importarla otra vez. Borrar una pista o restablecer los datos incluye ambos almacenes. Para conservar creaciones, no borres los datos del sitio.

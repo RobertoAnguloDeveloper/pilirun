@@ -1,3 +1,4 @@
+import { audioRecords, audioBlob, mutateAudio } from './music-store';
 import sqlite3InitModule from '@sqlite.org/sqlite-wasm';
 import type { Database, Sqlite3Static } from '@sqlite.org/sqlite-wasm';
 import {
@@ -126,7 +127,7 @@ async function init(): Promise<void> {
   }
   migrateSchema();
 }
-function readAll() {
+async function readAll() {
   const rows = db.selectObjects('SELECT collection, json FROM records');
   const collection = (name: string) =>
     rows
@@ -141,19 +142,23 @@ function readAll() {
       draftScenario: collection('scenario-drafts')[0],
       runs: collection('runs'),
       preferences: { ...DEFAULT_PREFERENCES, ...((collection('preferences')[0] as object) ?? {}) },
-      music: db
-        .selectObjects('SELECT json FROM music')
-        .map((row) => JSON.parse(String(row.json)) as unknown),
+      music: [...new Map([...db.selectObjects('SELECT json FROM music').map((row) => JSON.parse(String(row.json))), ...await audioRecords()].map((track) => [track.id, track])).values()],
     },
   };
 }
 async function handle(request: StorageRequest): Promise<unknown> {
   await (initialized ??= init());
   if (request.action === 'init') return readAll();
+  if (request.action === 'music-put') {
+    await mutateAudio(request.track, request.blob ?? new Blob([request.bytes!], { type: request.track.mime }));
+    return true;
+  }
   if (request.action === 'music-get') {
+    const blob = await audioBlob(request.id);
+    if (blob) return blob;
     const row = db.selectObject('SELECT bytes FROM music WHERE id=?', [request.id]);
     if (!row) throw new Error('La pista de audio ya no existe.');
-    return row.bytes;
+    return new Blob([(row.bytes as Uint8Array).slice().buffer], { type: 'application/octet-stream' });
   }
   if (request.action === 'scenario-assets-get') {
     return db
@@ -265,27 +270,93 @@ async function handle(request: StorageRequest): Promise<unknown> {
       );
       if (draftJson && (JSON.parse(String(draftJson)) as Scenario).id === request.id)
         db.exec("DELETE FROM records WHERE collection='scenario-drafts' AND id='active'");
-    } else if (request.action === 'music-put') {
-      if (request.bytes.byteLength > 20 * 1024 * 1024)
-        throw new Error('El archivo supera el límite de 20 MB.');
-      const total = Number(
-        db.selectValue('SELECT COALESCE(SUM(length(bytes)),0) FROM music WHERE id<>?', [
-          request.track.id,
-        ]),
-      );
-      if (total + request.bytes.byteLength > 60 * 1024 * 1024)
-        throw new Error('Tu biblioteca llegó a 60 MB. Elimina una pista antes de añadir otra.');
-      db.exec({
-        sql: 'INSERT INTO music VALUES(?,?,?) ON CONFLICT(id) DO UPDATE SET json=excluded.json,bytes=excluded.bytes',
-        bind: [request.track.id, JSON.stringify(request.track), new Uint8Array(request.bytes)],
-      });
+    } else if (request.action === 'section-clear') {
+      if (request.section === 'runs') {
+        db.exec("DELETE FROM records WHERE collection='runs'");
+      } else if (request.section === 'characters') {
+        db.exec("DELETE FROM records WHERE collection='characters'");
+      } else if (request.section === 'tracks') {
+        db.exec("DELETE FROM records WHERE collection='tracks'");
+      } else if (request.section === 'scenarios') {
+        db.exec("DELETE FROM records WHERE collection IN ('scenarios','scenario-drafts')");
+        db.exec('DELETE FROM scenario_assets');
+      } else if (request.section === 'music') {
+        db.exec('DELETE FROM music');
+      } else if (request.section === 'preferences') {
+        db.exec("DELETE FROM records WHERE collection='preferences'");
+      }
+      await snapshot();
+      db.exec('COMMIT');
+      if (request.section === 'music') await mutateAudio();
+      return readAll();
+    } else if (request.action === 'factory-reset') {
+      db.exec('DELETE FROM records');
+      db.exec('DELETE FROM music');
+      db.exec('DELETE FROM scenario_assets');
+      await snapshot();
+      db.exec('COMMIT');
+      await mutateAudio();
+      return readAll();
+    } else if (request.action === 'storage-details') {
+      db.exec('ROLLBACK'); // No mutation needed
+      const countFor = (collection: string) =>
+        Number(db.selectValue('SELECT COUNT(*) FROM records WHERE collection=?', [collection]) ?? 0);
+      const musicCount = (await readAll()).data.music.length;
+      const location = backend === 'OPFS' ? 'OPFS (/pilirun.sqlite3)' : 'IndexedDB (pilirun-sqlite -> snapshots)';
+      let persisted = false;
+      try {
+        if (typeof navigator !== 'undefined' && navigator.storage?.persisted) {
+          persisted = await navigator.storage.persisted();
+        }
+      } catch {
+        persisted = false;
+      }
+
+      // Compute realistic platform-specific absolute filesystem path on disk
+      let absolutePath = '';
+      const isWin = typeof navigator !== 'undefined' && /win/i.test(navigator.platform || navigator.userAgent);
+      const isMac = typeof navigator !== 'undefined' && /mac/i.test(navigator.platform || navigator.userAgent);
+      if (backend === 'OPFS') {
+        if (isWin) {
+          absolutePath = 'C:\\Users\\%USERNAME%\\AppData\\Local\\Google\\Chrome\\User Data\\Default\\File System\\opfs\\pilirun.sqlite3';
+        } else if (isMac) {
+          absolutePath = '~/Library/Application Support/Google/Chrome/Default/File System/opfs/pilirun.sqlite3';
+        } else {
+          absolutePath = '~/.config/google-chrome/Default/File System/opfs/pilirun.sqlite3';
+        }
+      } else {
+        if (isWin) {
+          absolutePath = 'C:\\Users\\%USERNAME%\\AppData\\Local\\Google\\Chrome\\User Data\\Default\\IndexedDB\\http_localhost_pilirun-sqlite.indexeddb.leveldb\\';
+        } else if (isMac) {
+          absolutePath = '~/Library/Application Support/Google/Chrome/Default/IndexedDB/http_localhost_pilirun-sqlite.indexeddb.leveldb/';
+        } else {
+          absolutePath = '~/.config/google-chrome/Default/IndexedDB/http_localhost_pilirun-sqlite.indexeddb.leveldb/';
+        }
+      }
+
+      return {
+        backend,
+        location: location + ' + IndexedDB (pilirun-audio: archivos musicales)',
+        absolutePath,
+        storageType: backend === 'OPFS' ? 'Origin Private File System (OPFS direct block I/O)' : 'IndexedDB LevelDB Virtual Block Device',
+        engine: 'SQLite3 3.49+ (WebAssembly / Wasm)',
+        persisted,
+        counts: {
+          runs: countFor('runs'),
+          characters: countFor('characters'),
+          tracks: countFor('tracks'),
+          scenarios: countFor('scenarios'),
+          music: musicCount,
+        },
+      };
     }
     // Export inside the transaction. If IndexedDB fails, roll back the in-memory mutation too.
     await snapshot();
     db.exec('COMMIT');
+    if (request.action === 'delete' && request.collection === 'music') await mutateAudio(undefined, undefined, request.id);
     return true;
   } catch (error) {
-    db.exec('ROLLBACK');
+    try { db.exec('ROLLBACK'); } catch { /* A committed SQLite change may precede a Blob-store failure. */ }
     throw error;
   }
 }

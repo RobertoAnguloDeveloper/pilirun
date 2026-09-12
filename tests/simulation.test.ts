@@ -7,6 +7,25 @@ function advance(game: Simulation, seconds: number) {
   for (let n = 0; n < Math.round(seconds / STEP); n++) game.update(STEP);
 }
 describe('runner physics and progression', () => {
+  it('wins before finish-line damage or time expiry and freezes all subsequent inputs', () => {
+    const track = { ...empty(), length: 100, items: [{ id: 'finish-rock', x: 100, kind: 'rock' as const }] };
+    const game = new Simulation(track);
+    game.start(); game.distance = 99; game.lives = 1; game.time = STEP / 2;
+    game.velocity = -200; game.boost = 2;
+    game.projectiles.push({ id: 'late-hit', sender: 'boss', x: 100, y: 20, vx: 0, vy: 0,
+      damage: 100, element: 'fire', type: 'fireball', size: 24, color: '#f00', life: 1 });
+    game.update(STEP);
+    expect(game.result().won).toBe(true);
+    expect(game.lives).toBe(1);
+    expect(game.projectiles).toHaveLength(0);
+    expect(game.velocity).toBe(0);
+    const hud = game.hud();
+    game.jump(); game.duck(); game.castPower(); game.togglePause(); game.start();
+    advance(game, 10);
+    expect(game.hud()).toEqual(hud);
+    expect(game.events.filter((event) => event === 'win')).toHaveLength(1);
+    expect(game.events).not.toContain('hit');
+  });
   it('covers equal distance at 30, 60 and 120 display frames per second', () => {
     const distances = [30, 60, 120].map((fps) => {
       const game = new Simulation(empty());
@@ -100,9 +119,15 @@ describe('runner physics and progression', () => {
     expect(game.phase).toBe('GAME_OVER');
     expect(game.result().won).toBe(true);
     expect(game.distance).toBe(3000);
+    expect(game.velocity).toBe(0);
+    expect(game.boost).toBe(0);
+    expect(game.slide).toBe(0);
+    expect(game.hurt).toBe(0);
+    expect(game.projectiles.length).toBe(0);
     const time = game.time;
     advance(game, 3);
     expect(game.time).toBe(time);
+    expect(game.distance).toBe(3000);
   });
   it('expires a run when its timer runs out', () => {
     const game = new Simulation(empty());
@@ -144,7 +169,8 @@ describe('runner physics and progression', () => {
     advance(game, 1.8); // Hits log around 1.7s
     expect(game.lives).toBe(2);
     expect(game.energy).toBeLessThan(initialEnergy);
-    expect(game.consumed.has('log-hit')).toBe(true);
+    expect(game.consumed.has('log-hit')).toBe(false);
+    expect(game.cleared.has('log-hit')).toBe(true);
     expect(game.hurt).toBeGreaterThan(0);
     expect(game.shake).toBeGreaterThan(0);
   });
@@ -164,10 +190,59 @@ describe('runner physics and progression', () => {
     game.toggleCameraView();
     expect(game.cameraView).toBe('side');
   });
+  it('allows customizing camera zoom and character scale', () => {
+    const game = new Simulation(empty(), undefined, undefined, undefined, 1.4, 1.25);
+    expect(game.characterScale).toBe(1.4);
+    expect(game.cameraZoom).toBe(1.25);
+    game.setCameraZoom(1.8);
+    game.setCharacterScale(0.8);
+    expect(game.cameraZoom).toBe(1.8);
+    expect(game.characterScale).toBe(0.8);
+  });
+  it('collects elemental power orbs on the track and adds them to collectedPowers', () => {
+    const track = { ...empty(), items: [{ id: 'pw-1', x: 450, kind: 'power_fire' as const }] };
+    const game = new Simulation(track);
+    game.start();
+    advance(game, 1.58);
+    expect(game.consumed.has('pw-1')).toBe(true);
+    expect(game.collectedPowers.has('flame_burst')).toBe(true);
+  });
+  it('damages player upon direct contact with an active boss entity', () => {
+    const track = {
+      ...empty(),
+      boss: {
+        id: 'test-boss',
+        name: 'Boss Gigante',
+        element: 'fire' as const,
+        size: 1.5,
+        health: 100,
+        maxHealth: 100,
+        damage: 1,
+        speed: 300,
+        attackFrequency: 5,
+        projectileType: 'fireball' as const,
+        projectileSpeed: 300,
+        weakness: 'water' as const,
+        resistance: 'fire' as const,
+      },
+    };
+    const game = new Simulation(track);
+    game.start();
+    // Simulate player right next to boss
+    game.distance = track.length - 280;
+    if (game.bossEntity) {
+      game.bossEntity.x = track.length - 280;
+      game.bossEntity.y = 10;
+    }
+    const initialLives = game.lives;
+    advance(game, 0.1);
+    expect(game.lives).toBeLessThan(initialLives);
+    expect(game.hurt).toBeGreaterThan(0);
+  });
 });
 describe('playable track validation', () => {
-  it('accepts all 6 built-in worlds', () => {
-    expect(TRACKS.length).toBe(6);
+  it('accepts all 18 built-in official progression levels', () => {
+    expect(TRACKS.length).toBe(18);
     TRACKS.forEach((track) => expect(validateTrack(track)).toBeNull());
   });
   it('rejects impossible obstacle spacing and invalid positions', () => {

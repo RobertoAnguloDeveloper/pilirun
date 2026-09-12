@@ -23,6 +23,7 @@ import {
   Save,
   Shield,
   Sparkles,
+  Swords,
   Timer,
   Trash2,
   Undo2,
@@ -42,6 +43,7 @@ import {
 } from '@/lib/scenario';
 import { exportScenarioZip, importScenarioZip } from '@/lib/scenario-zip';
 import type {
+  BossConfig,
   ItemKind,
   Scenario,
   ScenarioAsset,
@@ -73,6 +75,11 @@ const defaultSize: Record<ItemKind, { width: number; height: number; y: number }
   time: { width: 34, height: 34, y: 55 },
   spring: { width: 46, height: 22, y: 0 },
   ring: { width: 58, height: 58, y: 110 },
+  power_fire: { width: 36, height: 36, y: 55 },
+  power_water: { width: 36, height: 36, y: 55 },
+  power_leaf: { width: 36, height: 36, y: 55 },
+  power_thunder: { width: 36, height: 36, y: 55 },
+  power_star: { width: 36, height: 36, y: 55 },
 };
 
 type MobilePanel = 'palette' | 'properties' | 'layers' | null;
@@ -193,6 +200,13 @@ export function ScenarioEditor({
   const [message, setMessage] = useState(recoveredDraft ? 'Recuperamos tu último borrador.' : '');
   const [imageRevision, setImageRevision] = useState(0);
   const [mobilePanel, setMobilePanel] = useState<MobilePanel>(null);
+  const [obstacleSpacing, setObstacleSpacing] = useState(600); // 60 meters default (safe bounds 44m to 120m)
+  const [bossEditorOpen, setBossEditorOpen] = useState(false);
+  const [confirmDialog, setConfirmDialog] = useState<{
+    title: string;
+    message: string;
+    onConfirm: () => void;
+  } | null>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const importRef = useRef<HTMLInputElement>(null);
   const imageRef = useRef<HTMLInputElement>(null);
@@ -881,6 +895,20 @@ export function ScenarioEditor({
               </label>
             ))}
           </div>
+          {['log', 'branch', 'rock'].includes(selected.behavior) && <>
+            <label>Material del obstáculo
+              <select value={String(selected.properties.material ?? (selected.behavior === 'rock' ? 'stone' : 'wood'))}
+                onChange={(event) => updateObject(selected.id, { properties: { ...selected.properties, material: event.target.value } })}>
+                <option value="wood">Madera · fuego, hojas, rayo y estrellas</option>
+                <option value="stone">Piedra · rayo y estrellas</option>
+                <option value="indestructible">Indestructible por poderes</option>
+              </select>
+            </label>
+            <label>Resistencia del obstáculo
+              <input type="number" min="1" max="10000" value={Number(selected.properties.health ?? (selected.behavior === 'branch' ? 25 : selected.behavior === 'rock' ? 90 : 60))}
+                onChange={(event) => updateObject(selected.id, { properties: { ...selected.properties, health: Number(event.target.value) } })} />
+            </label>
+          </>}
           {selected.behavior === 'decoration' && (
             <label>
               Posición lateral 3D · {selected.laneOffset.toFixed(1)}
@@ -976,6 +1004,21 @@ export function ScenarioEditor({
       <div className="scenario-layer-title">
         <Layers3 />
         <strong>Capas</strong>
+
+        {/* Obstacle Spacing Controller (Safe bounds 44m to 120m) */}
+        <div className="scenario-spacing-control" title="Separación segura mínima entre obstáculos para saltar y esquivar">
+          <span>Espaciado: <strong>{Math.round(obstacleSpacing / 10)} m</strong></span>
+          <input
+            type="range"
+            min="440"
+            max="1200"
+            step="20"
+            value={obstacleSpacing}
+            onChange={(e) => setObstacleSpacing(Number(e.target.value))}
+            aria-label="Separación entre obstáculos"
+          />
+        </div>
+
         <button
           disabled={scenario.layers.length >= MAX_SCENARIO_LAYERS}
           onClick={() =>
@@ -1167,11 +1210,22 @@ export function ScenarioEditor({
             <button
               className="danger compact"
               onClick={() => {
-                if (
-                  activeLayer.objects.length &&
-                  !window.confirm('Esta capa contiene objetos. ¿Eliminarla?')
-                )
+                if (activeLayer.objects.length) {
+                  setConfirmDialog({
+                    title: '¿Eliminar esta capa?',
+                    message: `La capa "${activeLayer.name}" tiene ${activeLayer.objects.length} objetos. ¿Seguro que quieres borrarla?`,
+                    onConfirm: () => {
+                      mutate((draft) => {
+                        draft.layers = draft.layers.filter((layer) => layer.id !== activeLayer.id);
+                      });
+                      setActiveLayerId(
+                        scenario.layers.find((layer) => layer.id !== activeLayer.id)?.id ?? null,
+                      );
+                      setConfirmDialog(null);
+                    },
+                  });
                   return;
+                }
                 mutate((draft) => {
                   draft.layers = draft.layers.filter((layer) => layer.id !== activeLayer.id);
                 });
@@ -1347,6 +1401,13 @@ export function ScenarioEditor({
             <Download /> Exportar
           </button>
           <button
+            className={`scenario-boss-btn ${scenario.boss ? 'has-boss' : ''}`}
+            onClick={() => setBossEditorOpen(true)}
+            title="Configurar Jefe Final del Escenario"
+          >
+            <Swords size={18} /> {scenario.boss ? `Jefe: ${scenario.boss.name}` : 'Añadir Jefe'}
+          </button>
+          <button
             className="scenario-play"
             onClick={() => {
               const error = validateScenario(scenario, assets);
@@ -1427,17 +1488,22 @@ export function ScenarioEditor({
         <button
           className="scenario-delete-project"
           onClick={() => {
-            if (!window.confirm(`¿Eliminar ${scenario.name}? Esta acción no se puede deshacer.`))
-              return;
-            void onDelete(scenario.id).then(() => {
-              const next = createScenario();
-              setScenario(next);
-              setAssets([]);
-              setHistory([]);
-              setFuture([]);
-              setDirty(false);
-              setSelectedId(null);
-              setActiveLayerId(next.layers.at(-1)?.id ?? null);
+            setConfirmDialog({
+              title: '¿Eliminar escenario?',
+              message: `¿Seguro que quieres borrar "${scenario.name}"? Esta acción no se puede deshacer.`,
+              onConfirm: () => {
+                void onDelete(scenario.id).then(() => {
+                  const next = createScenario();
+                  setScenario(next);
+                  setAssets([]);
+                  setHistory([]);
+                  setFuture([]);
+                  setDirty(false);
+                  setSelectedId(null);
+                  setActiveLayerId(next.layers.at(-1)?.id ?? null);
+                });
+                setConfirmDialog(null);
+              },
             });
           }}
         >
@@ -1448,21 +1514,235 @@ export function ScenarioEditor({
         <button
           className="scenario-discard-draft"
           onClick={() => {
-            if (!window.confirm('¿Descartar el borrador recuperado?')) return;
-            void onDiscardDraft(scenario.id).then(() => {
-              const next = createScenario();
-              setScenario(next);
-              setAssets([]);
-              setHistory([]);
-              setFuture([]);
-              setDirty(false);
-              setSelectedId(null);
-              setActiveLayerId(next.layers.at(-1)?.id ?? null);
+            setConfirmDialog({
+              title: '¿Descartar borrador?',
+              message: 'Se perderán los cambios del borrador recuperado.',
+              onConfirm: () => {
+                void onDiscardDraft(scenario.id).then(() => {
+                  const next = createScenario();
+                  setScenario(next);
+                  setAssets([]);
+                  setHistory([]);
+                  setFuture([]);
+                  setDirty(false);
+                  setSelectedId(null);
+                  setActiveLayerId(next.layers.at(-1)?.id ?? null);
+                });
+                setConfirmDialog(null);
+              },
             });
           }}
         >
           Descartar borrador
         </button>
+      )}
+
+      {/* Boss Creation Visual Editor Modal (Designed for Kids 6+) */}
+      {bossEditorOpen && (
+        <div className="game-overlay boss-editor-modal-overlay">
+          <div className="result-card boss-editor-card">
+            <div className="boss-editor-header">
+              <span className="round-icon">
+                <Swords size={28} />
+              </span>
+              <h2>¡Crea o Modifica tu Jefe Final!</h2>
+              <p>Elige su tamaño, elemento mágico, vida y ataques con controles sencillos.</p>
+            </div>
+
+            <div className="boss-editor-body">
+              {/* Element Selector */}
+              <div className="boss-config-section">
+                <span className="boss-label">Elemento Mágico del Jefe</span>
+                <div className="boss-element-buttons">
+                  {[
+                    { id: 'fire', label: 'Fuego 🔥', color: '#f97316' },
+                    { id: 'water', label: 'Agua 💧', color: '#06b6d4' },
+                    { id: 'nature', label: 'Naturaleza 🍃', color: '#22c55e' },
+                    { id: 'electric', label: 'Rayo ⚡', color: '#eab308' },
+                    { id: 'cosmic', label: 'Cósmico 🌌', color: '#a855f7' },
+                  ].map((el) => {
+                    const isSelected = (scenario.boss?.element ?? 'fire') === el.id;
+                    return (
+                      <button
+                        key={el.id}
+                        type="button"
+                        className={`boss-el-btn ${isSelected ? 'selected' : ''}`}
+                        style={{ borderColor: isSelected ? el.color : 'rgba(255,255,255,0.2)' }}
+                        onClick={() => {
+                          const element = el.id as BossConfig['element'];
+                          const weakness =
+                            element === 'fire' ? 'water' : element === 'water' ? 'electric' : element === 'nature' ? 'fire' : 'nature';
+                          mutate((draft) => {
+                            if (!draft.boss) {
+                              draft.boss = {
+                                id: crypto.randomUUID(),
+                                name: `Titán de ${el.label.split(' ')[0]}`,
+                                element,
+                                size: 1.5,
+                                health: 180,
+                                maxHealth: 180,
+                                damage: 1,
+                                speed: 300,
+                                attackFrequency: 2.4,
+                                projectileType: element === 'fire' ? 'fireball' : element === 'water' ? 'ice_spike' : 'boulder',
+                                projectileSpeed: 400,
+                                weakness,
+                                resistance: element,
+                              };
+                            } else {
+                              draft.boss.element = element;
+                              draft.boss.weakness = weakness;
+                              draft.boss.resistance = element;
+                            }
+                          });
+                        }}
+                      >
+                        {el.label}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Physical Size Selector */}
+              <div className="boss-config-section">
+                <span className="boss-label">
+                  Tamaño Físico · {scenario.boss?.size === 1 ? '🐣 Pequeño' : scenario.boss?.size === 2.2 ? '🐲 Gigante' : '🦊 Mediano'}
+                </span>
+                <div className="boss-size-buttons">
+                  {[
+                    { size: 1.0, label: '🐣 Pequeño' },
+                    { size: 1.5, label: '🦊 Mediano' },
+                    { size: 2.2, label: '🐲 Gigante' },
+                  ].map((s) => (
+                    <button
+                      key={s.size}
+                      type="button"
+                      className={`boss-size-btn ${(scenario.boss?.size ?? 1.5) === s.size ? 'active' : ''}`}
+                      onClick={() => {
+                        mutate((draft) => {
+                          if (!draft.boss) {
+                            draft.boss = {
+                              id: crypto.randomUUID(),
+                              name: 'Guardián del Escenario',
+                              element: 'fire',
+                              size: s.size,
+                              health: 180,
+                              maxHealth: 180,
+                              damage: 1,
+                              speed: 300,
+                              attackFrequency: 2.4,
+                              projectileType: 'fireball',
+                              projectileSpeed: 400,
+                              weakness: 'water',
+                              resistance: 'fire',
+                            };
+                          } else {
+                            draft.boss.size = s.size;
+                          }
+                        });
+                      }}
+                    >
+                      {s.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Health and Attack Speed Sliders */}
+              <div className="boss-config-section">
+                <label className="boss-slider-label">
+                  Vida del Jefe · {scenario.boss?.maxHealth ?? 180} HP
+                  <input
+                    type="range"
+                    min="60"
+                    max="350"
+                    step="10"
+                    value={scenario.boss?.maxHealth ?? 180}
+                    onChange={(e) => {
+                      const val = Number(e.target.value);
+                      mutate((draft) => {
+                        if (draft.boss) {
+                          draft.boss.maxHealth = val;
+                          draft.boss.health = val;
+                        }
+                      });
+                    }}
+                  />
+                </label>
+                <label className="boss-slider-label">
+                  Frecuencia de Ataque · Cada {(scenario.boss?.attackFrequency ?? 2.4).toFixed(1)} segundos
+                  <input
+                    type="range"
+                    min="1.6"
+                    max="4.0"
+                    step="0.2"
+                    value={scenario.boss?.attackFrequency ?? 2.4}
+                    onChange={(e) => {
+                      const val = Number(e.target.value);
+                      mutate((draft) => {
+                        if (draft.boss) {
+                          draft.boss.attackFrequency = val;
+                        }
+                      });
+                    }}
+                  />
+                </label>
+              </div>
+            </div>
+
+            <div className="boss-editor-footer">
+              {scenario.boss && (
+                <button
+                  type="button"
+                  className="danger-btn"
+                  onClick={() => {
+                    mutate((draft) => {
+                      draft.boss = undefined;
+                    });
+                    setBossEditorOpen(false);
+                  }}
+                >
+                  <Trash2 size={16} /> Quitar Jefe
+                </button>
+              )}
+              <button
+                type="button"
+                className="primary"
+                onClick={() => setBossEditorOpen(false)}
+              >
+                ¡Listo! Guardar Jefe
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Friendly Dialog Modal (Child-Safe 6+) */}
+      {confirmDialog && (
+        <div className="game-overlay confirm-modal-overlay">
+          <div className="result-card confirm-modal-card">
+            <span className="round-icon danger-icon">
+              <Trash2 size={24} />
+            </span>
+            <h3>{confirmDialog.title}</h3>
+            <p>{confirmDialog.message}</p>
+            <div className="modal-buttons-row">
+              <button
+                className="secondary"
+                onClick={() => setConfirmDialog(null)}
+              >
+                Cancelar
+              </button>
+              <button
+                className="danger-btn"
+                onClick={confirmDialog.onConfirm}
+              >
+                Sí, continuar
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </section>
   );

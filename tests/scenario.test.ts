@@ -28,6 +28,16 @@ function interactive(overrides: Partial<ScenarioObject> = {}): ScenarioObject {
 }
 
 describe('scenario contracts', () => {
+  it('preserves obstacle material and durability through ZIP import and track conversion', async () => {
+    const scenario = createScenario();
+    const layer = scenario.layers.find((item) => item.type === 'obstacle')!;
+    layer.objects.push(interactive({ layerId: layer.id, behavior: 'rock', visual: { source: 'builtin', kind: 'rock' }, properties: { material: 'wood', health: 75 } }));
+    expect(validateScenario(scenario)).toBeNull();
+    const archive = await exportScenarioZip(scenario, []);
+    const restored = await importScenarioZip(new File([await archive.blob.arrayBuffer()], archive.filename, { type: 'application/zip' }));
+    expect(scenarioToTrack(restored.scenario).items[0]).toMatchObject({ material: 'wood', health: 75 });
+  });
+
   it('converts visible interactive objects while preserving identity and geometry', () => {
     const scenario = createScenario();
     const layer = scenario.layers.find((item) => item.type === 'obstacle')!;

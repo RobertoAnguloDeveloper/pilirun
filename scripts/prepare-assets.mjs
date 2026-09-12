@@ -1,4 +1,4 @@
-import { mkdir, cp } from 'node:fs/promises';
+import { mkdir, cp, writeFile } from 'node:fs/promises';
 import { build } from 'esbuild';
 import sharp from 'sharp';
 for (const size of [192, 512])
@@ -79,3 +79,11 @@ await build({
     },
   ],
 });
+
+// Development must also replace stale build-specific precache manifests.
+if (process.env.npm_lifecycle_event === 'dev') {
+  await writeFile('public/sw.js', `// Development: retire production caching without intercepting requests.
+self.addEventListener('install', () => self.skipWaiting());
+self.addEventListener('activate', (event) => event.waitUntil(self.registration.unregister()));
+`);
+}

@@ -1,5 +1,5 @@
 /* Versioned production shell. User data is never stored in this HTTP cache. */
-const CACHE = 'pilirun-shell-pICYqoVo4spiMvc5_vyCH';
+const CACHE = 'pilirun-shell-is_EErJ0NIHJx68MTi970';
 const CORE = [
   '/',
   '/manifest.webmanifest',
@@ -14,14 +14,18 @@ const CORE = [
   '/sqlite/sqlite3.wasm',
   '/sqlite/sqlite3-opfs-async-proxy.js',
 ];
-CORE.push(...["/_next/static/pICYqoVo4spiMvc5_vyCH/_buildManifest.js","/_next/static/pICYqoVo4spiMvc5_vyCH/_clientMiddlewareManifest.js","/_next/static/pICYqoVo4spiMvc5_vyCH/_ssgManifest.js","/_next/static/chunks/093_sugt6qlro.js","/_next/static/chunks/09lgyggnhjlha.js","/_next/static/chunks/0cz1d0mv5g_q7.js","/_next/static/chunks/0ooisf1w96ltk.css","/_next/static/chunks/0w1d3e03o__k5.js","/_next/static/chunks/0_4gssbd1guhh.js","/_next/static/chunks/14ganm8jkowcb.js","/_next/static/chunks/17616-7fvww81.js","/_next/static/chunks/191uqr6lrg1wb.js","/_next/static/chunks/1mh6a-0e61pyc.js","/_next/static/chunks/1s3c205euw6_r.js","/_next/static/chunks/2ihx27huniprx.js","/_next/static/chunks/2l_y_qqi24r7y.js","/_next/static/chunks/2ryf7d-mfgyke.js","/_next/static/chunks/2w1zbhzb9amel.js","/_next/static/chunks/3fntmmi971322.js","/_next/static/chunks/turbopack-3wbyi96ng71ls.js"]);
+CORE.push(...["/_next/static/is_EErJ0NIHJx68MTi970/_buildManifest.js","/_next/static/is_EErJ0NIHJx68MTi970/_clientMiddlewareManifest.js","/_next/static/is_EErJ0NIHJx68MTi970/_ssgManifest.js","/_next/static/chunks/06c7qzneowj73.js","/_next/static/chunks/093_sugt6qlro.js","/_next/static/chunks/09lgyggnhjlha.js","/_next/static/chunks/0cz1d0mv5g_q7.js","/_next/static/chunks/0deu0i4ozx66n.js","/_next/static/chunks/0pmb2a8phctk8.js","/_next/static/chunks/12siefkqc0_82.css","/_next/static/chunks/1mh6a-0e61pyc.js","/_next/static/chunks/2-nmpeeopblwh.js","/_next/static/chunks/20o58ufh_atb-.js","/_next/static/chunks/2gw_w_32tj1_y.js","/_next/static/chunks/2j7c-rteab6_6.js","/_next/static/chunks/2l_y_qqi24r7y.js","/_next/static/chunks/32pcg3v57dzn-.js","/_next/static/chunks/3fntmmi971322.js","/_next/static/chunks/3o1i_aeg09si9.js","/_next/static/chunks/3p5db865q00w_.js","/_next/static/chunks/3vej5hu5ebe0r.js","/_next/static/chunks/turbopack-3wbyi96ng71ls.js"]);
 self.addEventListener('install', (event) =>
   event.waitUntil(
     (async () => {
       const cache = await caches.open(CACHE);
-      await cache.addAll(CORE);
+      // Cache independently: a missing optional asset must not reject the entire install.
+      const results = await Promise.allSettled(CORE.map((url) => cache.add(url)));
+      const missing = CORE.filter((_, index) => results[index].status === 'rejected');
+      if (missing.length) console.warn('PiliRun: offline assets unavailable', missing);
       // The first page is already loading before this worker controls it; cache its linked bundles too.
-      const html = await (await cache.match('/')).text();
+      const shell = await cache.match('/');
+      const html = shell ? await shell.text() : '';
       const assets = [
         ...new Set(
           [...html.matchAll(/(?:src|href)="([^" ]+\.(?:js|css))"/g)]
@@ -29,7 +33,7 @@ self.addEventListener('install', (event) =>
             .filter((path) => path.startsWith('/_next/')),
         ),
       ];
-      await cache.addAll(assets);
+      await Promise.allSettled(assets.map((url) => cache.add(url)));
     })(),
   ),
 );

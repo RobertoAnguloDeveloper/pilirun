@@ -17,6 +17,7 @@ import {
   Copy,
   X,
 } from 'lucide-react';
+import { AnimationEditor, type Movement } from './animation-editor';
 import { Avatar } from './art';
 import type { Character } from '@/lib/types';
 
@@ -183,16 +184,100 @@ function findClosestPaletteColor(r: number, g: number, b: number): string {
 }
 
 /**
- * Automatically analyze an image or sprite sheet, extract a single character frame,
- * eliminate background noise / checkerboards if present, and produce:
- * 1. A clean 16x16 pixel art array
- * 2. A crisp transparent PNG Data URL for high-res rendering
+ * Extracts a specific rectangular region of an image, cleaning background while preserving
+ * character contours and contact ground shadow.
  */
-function processImageToSprite(img: HTMLImageElement): { pixels: string[]; croppedDataUrl: string } {
+function extractCellFrame(
+  fullCanvas: HTMLCanvasElement,
+  x: number,
+  y: number,
+  w: number,
+  h: number,
+  cornerRGB: { r: number; g: number; b: number },
+): string {
+  // Step 1: Draw into intermediate canvas
+  const tempCanvas = document.createElement('canvas');
+  tempCanvas.width = w;
+  tempCanvas.height = h;
+  const tempCtx = tempCanvas.getContext('2d', { willReadFrequently: true });
+  if (!tempCtx) return '';
+  tempCtx.drawImage(fullCanvas, x, y, w, h, 0, 0, w, h);
+
+  const imgData = tempCtx.getImageData(0, 0, w, h);
+  const data = imgData.data;
+
+  // Background vs foreground & shadow distinction
+  let minX = w, maxX = 0, minY = h, maxY = 0;
+  let hasOpaque = false;
+
+  for (let py = 0; py < h; py++) {
+    for (let px = 0; px < w; px++) {
+      const idx = (py * w + px) * 4;
+      const a = data[idx + 3];
+      if (a < 20) {
+        data[idx + 3] = 0;
+        continue;
+      }
+      const r = data[idx];
+      const g = data[idx + 1];
+      const b = data[idx + 2];
+      const diff = Math.hypot(r - cornerRGB.r, g - cornerRGB.g, b - cornerRGB.b);
+      const chroma = Math.max(r, g, b) - Math.min(r, g, b);
+      const lum = (r + g + b) / 3;
+
+      // Only strip flat corner/checkerboard backgrounds; preserve dark/semi-transparent contact shadows
+      if (diff < 26 && chroma < 14 && lum > 115 && lum < 235) {
+        data[idx + 3] = 0;
+      } else {
+        hasOpaque = true;
+        if (px < minX) minX = px;
+        if (px > maxX) maxX = px;
+        if (py < minY) minY = py;
+        if (py > maxY) maxY = py;
+      }
+    }
+  }
+  tempCtx.putImageData(imgData, 0, 0);
+
+  // If no content found, fallback
+  if (!hasOpaque || minX > maxX || minY > maxY) {
+    minX = 0; maxX = w - 1; minY = 0; maxY = h - 1;
+  }
+
+  // Step 2: Render into square cellCanvas with feet anchored at bottom
+  const contentW = maxX - minX + 1;
+  const contentH = maxY - minY + 1;
+  const size = Math.max(contentW, contentH);
+  const cellCanvas = document.createElement('canvas');
+  cellCanvas.width = size;
+  cellCanvas.height = size;
+  const ctx = cellCanvas.getContext('2d');
+  if (!ctx) return '';
+  ctx.clearRect(0, 0, size, size);
+
+  // Center horizontally, flush to bottom vertically
+  const destX = Math.floor((size - contentW) / 2);
+  const destY = size - contentH;
+  ctx.drawImage(tempCanvas, minX, minY, contentW, contentH, destX, destY, contentW, contentH);
+
+  return cellCanvas.toDataURL('image/png');
+}
+
+/**
+ * Automatically analyze an image or sprite sheet, extract individual character frames
+ * for all movement actions (run, jump, slide, idle), and generate:
+ * 1. An animated Character.frames set (all frames preserved)
+ * 2. A clean 16x16 pixel art array from the primary idle/run frame
+ * 3. A crisp primary image Data URL
+ */
+function processImageToSpriteSheet(img: HTMLImageElement): {
+  pixels: string[];
+  croppedDataUrl: string;
+  frames?: Character['frames'];
+} {
   const srcW = img.naturalWidth || img.width;
   const srcH = img.naturalHeight || img.height;
 
-  // Work with a source canvas to read pixels
   const fullCanvas = document.createElement('canvas');
   fullCanvas.width = srcW;
   fullCanvas.height = srcH;
@@ -204,43 +289,99 @@ function processImageToSprite(img: HTMLImageElement): { pixels: string[]; croppe
   const imgData = fullCtx.getImageData(0, 0, srcW, srcH);
   const d = imgData.data;
 
-  // Check corner color to detect neutral or checkerboard backgrounds
   const cornerR = (d[0] + d[(srcW - 1) * 4]) / 2;
   const cornerG = (d[1] + d[(srcW - 1) * 4 + 1]) / 2;
   const cornerB = (d[2] + d[(srcW - 1) * 4 + 2]) / 2;
+  const cornerRGB = { r: cornerR, g: cornerG, b: cornerB };
 
-  // Function to classify if a pixel is foreground character vs background
-  const isForeground = (x: number, y: number): boolean => {
+  // Helper to determine whether pixel is character/shadow foreground
+  const isFg = (x: number, y: number): boolean => {
     const idx = (y * srcW + x) * 4;
     const a = d[idx + 3];
-    if (a < 35) return false;
-
-    // Check RGB distance against corner background
+    if (a < 25) return false;
     const r = d[idx], g = d[idx + 1], b = d[idx + 2];
-    const diffCorner = Math.hypot(r - cornerR, g - cornerG, b - cornerB);
-    const lum = (r + g + b) / 3;
+    const diff = Math.hypot(r - cornerR, g - cornerG, b - cornerB);
     const chroma = Math.max(r, g, b) - Math.min(r, g, b);
-
-    // If opaque sheet without alpha (like assets/1.png), remove flat neutral/gray borders
-    if (diffCorner < 28 && chroma < 16 && lum > 120 && lum < 225) {
+    const lum = (r + g + b) / 3;
+    if (diff < 26 && chroma < 14 && lum > 115 && lum < 235) {
       return false;
     }
     return true;
   };
 
-  // 1. Detect if this is a sprite sheet (multiple column clusters)
-  let cropX = 0;
-  let cropY = 0;
-  let cropW = srcW;
-  let cropH = srcH;
+  const frames: {
+    run: string[];
+    jump: string[];
+    slide: string[];
+    idle: string[];
+  } = { run: [], jump: [], slide: [], idle: [] };
 
-  if (srcW > 250 || srcH > 250) {
-    // Column projection
+  const extractedList: string[] = [];
+
+  // Strategy A: Grid-based extraction (e.g. 6 columns x 2 rows, or 4x4, or 3x1 banner)
+  const isBanner2x6 = Math.abs(srcW / srcH - 3.0) < 0.35 || (srcW >= 600 && srcH >= 200 && srcW > srcH * 2.2);
+  const isSquare4x4 = Math.abs(srcW / srcH - 1.0) < 0.15 && srcW >= 512;
+
+  if (isBanner2x6) {
+    const cols = 6;
+    const rows = 2;
+    const cellW = srcW / cols;
+    const cellH = srcH / rows;
+
+    for (let r = 0; r < rows; r++) {
+      for (let c = 0; c < cols; c++) {
+        const x = Math.round(c * cellW);
+        const y = Math.round(r * cellH);
+        const w = Math.round(cellW);
+        const h = Math.round(cellH);
+        const url = extractCellFrame(fullCanvas, x, y, w, h, cornerRGB);
+        if (url) extractedList.push(url);
+      }
+    }
+
+    // Map 12 cells in strict sequential order:
+    // Row 1: 0-1: idle, 2-5: run 1-4
+    // Row 2: 6-7: run 5-6, 8-9: jump, 10-11: slide/crouch
+    if (extractedList.length >= 12) {
+      frames.idle = [extractedList[0], extractedList[1]];
+      frames.run = [
+        extractedList[2],
+        extractedList[3],
+        extractedList[4],
+        extractedList[5],
+        extractedList[6],
+        extractedList[7],
+      ];
+      frames.jump = [extractedList[8], extractedList[9]];
+      frames.slide = [extractedList[10], extractedList[11]];
+    }
+  } else if (isSquare4x4) {
+    const cols = 4;
+    const rows = 4;
+    const cellW = srcW / cols;
+    const cellH = srcH / rows;
+
+    for (let r = 0; r < rows; r++) {
+      for (let c = 0; c < cols; c++) {
+        const x = Math.round(c * cellW);
+        const y = Math.round(r * cellH);
+        const url = extractCellFrame(fullCanvas, x, y, Math.round(cellW), Math.round(cellH), cornerRGB);
+        if (url) extractedList.push(url);
+      }
+    }
+    if (extractedList.length >= 12) {
+      frames.idle = [extractedList[0]];
+      frames.run = extractedList.slice(1, 7);
+      frames.jump = extractedList.slice(7, 9);
+      frames.slide = extractedList.slice(9, 11);
+    }
+  } else if (srcW > 250) {
+    // Strategy B: Column and Row projections to find clusters
     const colCounts = new Array(srcW).fill(0);
     const stepY = Math.max(1, Math.floor(srcH / 200));
     for (let x = 0; x < srcW; x++) {
       for (let y = 0; y < srcH; y += stepY) {
-        if (isForeground(x, y)) colCounts[x]++;
+        if (isFg(x, y)) colCounts[x]++;
       }
     }
 
@@ -248,96 +389,37 @@ function processImageToSprite(img: HTMLImageElement): { pixels: string[]; croppe
     let inCol = false;
     let startCol = 0;
     for (let x = 0; x < srcW; x++) {
-      if (colCounts[x] > 15 && !inCol) {
+      if (colCounts[x] > 12 && !inCol) {
         inCol = true;
         startCol = x;
-      } else if (colCounts[x] <= 15 && inCol) {
+      } else if (colCounts[x] <= 12 && inCol) {
         inCol = false;
-        if (x - startCol > 40) colClusters.push({ x: startCol, w: x - startCol });
+        if (x - startCol > 35) colClusters.push({ x: startCol, w: x - startCol });
       }
     }
-    if (inCol && srcW - startCol > 40) {
+    if (inCol && srcW - startCol > 35) {
       colClusters.push({ x: startCol, w: srcW - startCol });
     }
 
-    // If multiple clusters found, choose cluster 1 (often main idle pose) or 0
-    if (colClusters.length > 0) {
-      const chosenCol = colClusters.length > 1 ? colClusters[1] : colClusters[0];
-      cropX = chosenCol.x;
-      cropW = chosenCol.w;
+    for (const cluster of colClusters) {
+      const url = extractCellFrame(fullCanvas, cluster.x, 0, cluster.w, srcH, cornerRGB);
+      if (url) extractedList.push(url);
+    }
 
-      // Now row projection within that column cluster
-      const rowCounts = new Array(srcH).fill(0);
-      for (let y = 0; y < srcH; y++) {
-        for (let x = cropX; x < cropX + cropW; x++) {
-          if (isForeground(x, y)) rowCounts[y]++;
-        }
-      }
-
-      const rowClusters: { y: number; h: number }[] = [];
-      let inRow = false;
-      let startRow = 0;
-      for (let y = 0; y < srcH; y++) {
-        if (rowCounts[y] > 15 && !inRow) {
-          inRow = true;
-          startRow = y;
-        } else if (rowCounts[y] <= 15 && inRow) {
-          inRow = false;
-          if (y - startRow > 40) rowClusters.push({ y: startRow, h: y - startRow });
-        }
-      }
-      if (inRow && srcH - startRow > 40) {
-        rowClusters.push({ y: startRow, h: srcH - startRow });
-      }
-
-      if (rowClusters.length > 0) {
-        cropY = rowClusters[0].y;
-        cropH = rowClusters[0].h;
-      }
+    if (extractedList.length > 1) {
+      frames.idle = [extractedList[0]];
+      frames.run = extractedList.slice(0, Math.min(extractedList.length, 6));
+      frames.jump = [extractedList[Math.min(extractedList.length - 1, 1)]];
+      frames.slide = [extractedList[Math.min(extractedList.length - 1, 2)]];
     }
   }
 
-  // 2. Render isolated sprite into cropped canvas with transparent background
-  const croppedCanvas = document.createElement('canvas');
-  const maxDim = Math.max(cropW, cropH);
-  croppedCanvas.width = maxDim;
-  croppedCanvas.height = maxDim;
-  const croppedCtx = croppedCanvas.getContext('2d', { willReadFrequently: true });
+  // Choose primary representative frame for idle/avatar/pixels
+  const primaryUrl = frames.idle[0] ?? extractedList[0] ?? fullCanvas.toDataURL('image/png');
 
-  if (croppedCtx) {
-    const offsetX = Math.floor((maxDim - cropW) / 2);
-    const offsetY = Math.floor((maxDim - cropH) / 2);
-    croppedCtx.drawImage(
-      fullCanvas,
-      cropX,
-      cropY,
-      cropW,
-      cropH,
-      offsetX,
-      offsetY,
-      cropW,
-      cropH,
-    );
-
-    // Clean background pixels in cropped area
-    const croppedImgData = croppedCtx.getImageData(0, 0, maxDim, maxDim);
-    const cd = croppedImgData.data;
-    for (let y = 0; y < maxDim; y++) {
-      for (let x = 0; x < maxDim; x++) {
-        const origX = cropX + (x - offsetX);
-        const origY = cropY + (y - offsetY);
-        const idx = (y * maxDim + x) * 4;
-        if (origX < cropX || origX >= cropX + cropW || origY < cropY || origY >= cropY + cropH) {
-          cd[idx + 3] = 0;
-        } else if (!isForeground(origX, origY)) {
-          cd[idx + 3] = 0;
-        }
-      }
-    }
-    croppedCtx.putImageData(croppedImgData, 0, 0);
-  }
-
-  // 3. Generate 16x16 pixel art representation
+  // Generate 16x16 pixel representation from primary frame
+  const pixelImg = new Image();
+  pixelImg.src = primaryUrl;
   const pixelCanvas = document.createElement('canvas');
   pixelCanvas.width = 16;
   pixelCanvas.height = 16;
@@ -345,7 +427,7 @@ function processImageToSprite(img: HTMLImageElement): { pixels: string[]; croppe
   const sampled: string[] = [];
 
   if (pCtx) {
-    pCtx.drawImage(croppedCanvas, 0, 0, 16, 16);
+    pCtx.drawImage(fullCanvas, 0, 0, srcW, srcH, 0, 0, 16, 16);
     const pData = pCtx.getImageData(0, 0, 16, 16).data;
     for (let i = 0; i < 256; i++) {
       const idx = i * 4;
@@ -354,7 +436,7 @@ function processImageToSprite(img: HTMLImageElement): { pixels: string[]; croppe
       const b = pData[idx + 2];
       const a = pData[idx + 3];
 
-      if (a < 65) {
+      if (a < 50) {
         sampled.push('transparent');
       } else {
         sampled.push(findClosestPaletteColor(r, g, b));
@@ -364,7 +446,8 @@ function processImageToSprite(img: HTMLImageElement): { pixels: string[]; croppe
 
   return {
     pixels: sampled.length === 256 ? sampled : defaultPixels(),
-    croppedDataUrl: croppedCanvas.toDataURL('image/png'),
+    croppedDataUrl: primaryUrl,
+    frames: extractedList.length > 1 ? frames : undefined,
   };
 }
 
@@ -477,7 +560,7 @@ export function CharacterEditor({
     }
 
     setProcessing(true);
-    setMessage('Analizando vector/sprite y recortando personaje…');
+    setMessage('Analizando hoja de sprites y extrayendo animaciones (carrera, saltos, agachado)…');
 
     const reader = new FileReader();
     reader.onload = () => {
@@ -485,15 +568,16 @@ export function CharacterEditor({
       const img = new Image();
       img.onload = () => {
         try {
-          const { pixels: generatedPixels, croppedDataUrl } = processImageToSprite(img);
+          const { pixels: generatedPixels, croppedDataUrl, frames: extractedFrames } = processImageToSpriteSheet(img);
           setEditing((prev) => ({
             ...prev,
             image: croppedDataUrl || dataUrl,
             pixels: generatedPixels,
+            frames: extractedFrames,
           }));
           pixels.current = generatedPixels;
           setProcessing(false);
-          setMessage('¡Sprite aislado y avatar generados con éxito! Puedes retocarlo en pixel art.');
+          setMessage('¡Sprites extraídos con éxito! Ciclos de carrera, salto y agachado listos.');
         } catch {
           setEditing((prev) => ({
             ...prev,
@@ -544,8 +628,10 @@ export function CharacterEditor({
         ...editing,
         id: editing.id || crypto.randomUUID(),
         name: editing.name.trim(),
+        scale: editing.scale ?? 1.0,
         pixels: pixels.current.some((p) => p !== 'transparent') ? pixels.current : undefined,
         image: editing.image || undefined,
+        frames: editing.frames,
       };
       await onSave(character);
       setEditing(character);
@@ -557,14 +643,89 @@ export function CharacterEditor({
     }
   };
 
+  const saveMovement = async (movement: Movement) => {
+    if (!editing.name.trim()) { setMessage('Dale un nombre a tu personaje.'); return; }
+    setBusy(true);
+    try {
+      const existing = characters.find((c) => c.id === editing.id);
+      const frameBaselines = { ...existing?.frameBaselines };
+      for (const source of editing.frames?.[movement] ?? []) {
+        if (editing.frameBaselines?.[source] === undefined) delete frameBaselines[source];
+        else frameBaselines[source] = editing.frameBaselines[source];
+      }
+      const character: Character = {
+        ...(existing ?? editing),
+        id: editing.id || crypto.randomUUID(), name: editing.name.trim(),
+        frames: { ...(existing?.frames ?? editing.frames), [movement]: editing.frames?.[movement] },
+        frameBaselines,
+        frameScales: { ...(existing?.frameScales ?? editing.frameScales), [movement]: editing.frameScales?.[movement] },
+      };
+      await onSave(character);
+      setEditing((current) => ({ ...current, id: character.id }));
+      setMessage('Animación guardada. Los otros movimientos conservan su secuencia.');
+    } catch (e) { setMessage(e instanceof Error ? e.message : 'No se pudo guardar la animación.'); }
+    finally { setBusy(false); }
+  };
+
   return (
     <>
-      <div className="section-heading">
+      <div className="section-heading" style={{ flexWrap: 'wrap', gap: '16px', justifyContent: 'space-between', alignItems: 'center' }}>
         <div>
           <p className="eyebrow">CREACIÓN DE SPRITES Y PERSONAJES</p>
           <h1>Tu taller de exploradores.</h1>
           <p>Dibuja en pixel art, elige una plantilla o sube un SVG/PNG para generar tu sprite.</p>
         </div>
+
+        {/* Live Character Size Adjuster for the Active Character */}
+        {(() => {
+          const activeChar = characters.find((c) => c.id === selected) || characters[0];
+          const currentScale = activeChar?.scale ?? 1.0;
+          return (
+            <div
+              className="panel"
+              style={{
+                display: 'flex',
+                flexDirection: 'column',
+                gap: '8px',
+                padding: '12px 18px',
+                background: 'var(--panel)',
+                border: '1px solid var(--border)',
+                borderRadius: '14px',
+                minWidth: '240px',
+              }}
+            >
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <span style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--ink)' }}>
+                  Tamaño de {activeChar?.name ?? 'Personaje'}
+                </span>
+                <span style={{ fontSize: '0.82rem', fontWeight: 700, color: 'var(--lime)' }}>
+                  {Math.round(currentScale * 100)}%
+                </span>
+              </div>
+              <input
+                type="range"
+                min="0.5"
+                max="2.2"
+                step="0.05"
+                value={currentScale}
+                aria-label={`Tamaño de ${activeChar?.name ?? 'personaje'}`}
+                onChange={(e) => {
+                  const newScale = Number(e.target.value);
+                  if (activeChar) {
+                    void onSave({ ...activeChar, scale: newScale });
+                    if (editing.id === activeChar.id) {
+                      setEditing((prev) => ({ ...prev, scale: newScale }));
+                    }
+                  }
+                }}
+                style={{ cursor: 'pointer', accentColor: 'var(--lime)' }}
+              />
+              <span style={{ fontSize: '0.75rem', color: 'var(--subtle)' }}>
+                Se aplica inmediatamente en la vista previa y en la carrera.
+              </span>
+            </div>
+          );
+        })()}
       </div>
 
       <div className="character-list">
@@ -589,7 +750,7 @@ export function CharacterEditor({
                   aria-label={`Editar ${c.name}`}
                   onClick={() => {
                     setEditing(c);
-                    setMode(c.image ? 'auto_sprite' : 'pixel');
+                    setMode(c.image || c.frames ? 'auto_sprite' : 'pixel');
                     setPhoto(undefined);
                     undo.current = [];
                     setMessage('');
@@ -657,13 +818,13 @@ export function CharacterEditor({
                 const img = new Image();
                 img.onload = () => {
                   try {
-                    const { pixels: generatedPixels, croppedDataUrl } = processImageToSprite(img);
+                    const { pixels: generatedPixels, croppedDataUrl, frames } = processImageToSpriteSheet(img);
                     setEditing((prev) => ({
                       ...prev,
                       name: preset.name,
                       image: croppedDataUrl || preset.src,
                       pixels: generatedPixels,
-                      frames: (preset as { frames?: Character['frames'] }).frames,
+                      frames: (preset as { frames?: Character['frames'] }).frames || frames,
                     }));
                     pixels.current = generatedPixels;
                     setMessage(`¡${preset.name} cargado con éxito! Sprite aislado y avatar listos.`);
@@ -829,6 +990,9 @@ export function CharacterEditor({
             </div>
           )}
 
+          {mode === 'auto_sprite' && <AnimationEditor key={editing.id || 'new'} character={editing}
+            onChange={setEditing} onSave={saveMovement} busy={busy || processing} />}
+
           {mode === 'photo' && (
             <div className="photo-editor">
               <label className="upload-zone">
@@ -898,7 +1062,9 @@ export function CharacterEditor({
                 ...editing,
                 image: editing.image,
                 pixels: editing.pixels,
+                frames: editing.frames,
               }}
+              showGround
               size={145}
             />
           </div>
@@ -908,6 +1074,17 @@ export function CharacterEditor({
               maxLength={24}
               value={editing.name}
               onChange={(e) => setEditing((c) => ({ ...c, name: e.target.value }))}
+            />
+          </label>
+          <label>
+            Tamaño en el juego · {Math.round((editing.scale ?? 1) * 100)}%
+            <input
+              type="range"
+              min="0.5"
+              max="2.2"
+              step="0.05"
+              value={editing.scale ?? 1}
+              onChange={(e) => setEditing((c) => ({ ...c, scale: Number(e.target.value) }))}
             />
           </label>
           <p className="subtle">
@@ -967,28 +1144,29 @@ You are a precision 2D Game Asset Engine. Your sole function is to generate prod
 1. Canvas layout: Fixed grid of exactly 2 ROWS and 6 COLUMNS (total of exactly 12 cells).
 2. Canvas aspect ratio: 3:1 horizontal banner (e.g., 1536 x 512 px).
 3. Cell size: Every cell has the EXACT same uniform width and height (e.g., 256 x 256 px).
-4. Background: Pure transparent background (Alpha = 0). No background color, no gradients, no scenery, no shadow plane, and no checkerboard texture.
-5. Content isolation: Exactly ONE character pose per cell. Never draw multiple characters, duplicates, ghosting, or debris within any cell.
-6. Zero text / Zero UI: Do not include labels, frame numbers, titles, borders, divider lines, crop marks, watermark, or metadata inside the image.
+4. Background: Pure transparent background (Alpha = 0). No background color, no gradients, no scenery, and no checkerboard texture.
+5. Ground Contact Shadow: EVERY pose in contact with the ground (Frames 0, 1, 2, 3, 4, 5, 6, 7, 10, 11) MUST include a subtle, soft elliptical dark contact drop shadow directly beneath the feet/body. The shadow is an integral part of the character animation to anchor it to the world.
+6. Content isolation: Exactly ONE character pose per cell (with its ground contact shadow). Never draw multiple characters, duplicates, ghosting, or debris within any cell.
+7. Zero text / Zero UI: Do not include labels, frame numbers, titles, borders, divider lines, crop marks, watermark, or metadata inside the image.
 
 [STRICT 12-FRAME SEQUENTIAL ACTION MAPPING]
 Frames are numbered 0 to 11 in strict reading order (Row 1 from Left to Right, then Row 2 from Left to Right). You must output the poses in this EXACT order without skipping, reordering, or swapping:
 
 ROW 1:
-- Cell (Row 1, Col 1) -> Frame 0 [IDLE 1]: Neutral standing breathing pose, arms relaxed, feet grounded, facing right.
-- Cell (Row 1, Col 2) -> Frame 1 [IDLE 2]: Ready idle stance, subtle weight shift, facing right.
-- Cell (Row 1, Col 3) -> Frame 2 [RUN 1]: Right foot heel strike forward, left foot back, left arm forward.
-- Cell (Row 1, Col 4) -> Frame 3 [RUN 2]: Right foot flat supporting weight, left leg passing through center.
-- Cell (Row 1, Col 5) -> Frame 4 [RUN 3]: Right foot push-off with toes, airborne transition phase.
-- Cell (Row 1, Col 6) -> Frame 5 [RUN 4]: Left foot heel strike forward, right foot back, right arm forward.
+- Cell (Row 1, Col 1) -> Frame 0 [IDLE 1]: Neutral standing breathing pose, arms relaxed, feet grounded, contact shadow beneath feet, facing right.
+- Cell (Row 1, Col 2) -> Frame 1 [IDLE 2]: Ready idle stance, subtle weight shift, contact shadow beneath feet, facing right.
+- Cell (Row 1, Col 3) -> Frame 2 [RUN 1]: Right foot heel strike forward, left foot back, left arm forward, dynamic contact shadow beneath.
+- Cell (Row 1, Col 4) -> Frame 3 [RUN 2]: Right foot flat supporting weight, left leg passing through center, contact shadow beneath.
+- Cell (Row 1, Col 5) -> Frame 4 [RUN 3]: Right foot push-off with toes, airborne transition phase, smaller lighter shadow beneath.
+- Cell (Row 1, Col 6) -> Frame 5 [RUN 4]: Left foot heel strike forward, right foot back, right arm forward, contact shadow beneath.
 
 ROW 2:
-- Cell (Row 2, Col 1) -> Frame 6 [RUN 5]: Left foot flat supporting weight, right leg passing through center.
-- Cell (Row 2, Col 2) -> Frame 7 [RUN 6]: Left foot push-off with toes, full propulsion extension.
-- Cell (Row 2, Col 3) -> Frame 8 [JUMP ASCENT]: High leap upward, body stretched upwards, knees flexing, arms raised.
-- Cell (Row 2, Col 4) -> Frame 9 [JUMP APEX / FALL]: Apex tuck and descent, downward velocity anticipation, legs prepared for ground.
-- Cell (Row 2, Col 5) -> Frame 10 [CROUCH / SLIDE]: Low-profile obstacle crouch/slide, body lowered close to baseline, legs extended forward.
-- Cell (Row 2, Col 6) -> Frame 11 [CROUCH RECOVERY / STAND TRANSITION]: Low crouch preparing recovery to upright stance.
+- Cell (Row 2, Col 1) -> Frame 6 [RUN 5]: Left foot flat supporting weight, right leg passing through center, contact shadow beneath.
+- Cell (Row 2, Col 2) -> Frame 7 [RUN 6]: Left foot push-off with toes, full propulsion extension, contact shadow beneath.
+- Cell (Row 2, Col 3) -> Frame 8 [JUMP ASCENT]: High leap upward, body stretched upwards, knees flexing, arms raised, light distant ground shadow.
+- Cell (Row 2, Col 4) -> Frame 9 [JUMP APEX / FALL]: Apex tuck and descent, downward velocity anticipation, legs prepared for ground, light distant ground shadow.
+- Cell (Row 2, Col 5) -> Frame 10 [CROUCH / SLIDE]: Low-profile obstacle crouch/slide, body lowered close to baseline, legs extended forward, elongated ground shadow beneath body.
+- Cell (Row 2, Col 6) -> Frame 11 [CROUCH RECOVERY / STAND TRANSITION]: Low crouch preparing recovery to upright stance, contact shadow beneath.
 
 [GLOBAL KINEMATIC & ANATOMICAL INVARIANTS]
 Across all 12 cells, the following parameters MUST remain 100% constant:
@@ -996,7 +1174,7 @@ Across all 12 cells, the following parameters MUST remain 100% constant:
 - Orientation: Strict lateral profile view facing RIGHT (+X direction). Do not rotate the camera to 3/4 view, front view, or perspective.
 - Baseline Alignment: The floor contact line (ground baseline) for grounded poses (Frames 0, 1, 2, 3, 4, 5, 6, 7, 10, 11) must align at the exact same Y-coordinate across all cells (approximately 80% down from the top of the cell).
 - Padding: Keep a minimum 16px safety margin between the character outline and cell boundaries so no limbs or accessories cross into neighboring cells.
-- Lighting & Shading: Consistent directional lighting across all frames.
+- Shadow & Lighting: Consistent directional lighting and contact ground drop shadows across all grounded frames.
 - Negative Constraints: DO NOT invent actions, DO NOT merge cells, DO NOT draw motion blur or speed lines, DO NOT rotate the character backwards.`}
                 style={{
                   width: '100%',
@@ -1032,28 +1210,29 @@ You are a precision 2D Game Asset Engine. Your sole function is to generate prod
 1. Canvas layout: Fixed grid of exactly 2 ROWS and 6 COLUMNS (total of exactly 12 cells).
 2. Canvas aspect ratio: 3:1 horizontal banner (e.g., 1536 x 512 px).
 3. Cell size: Every cell has the EXACT same uniform width and height (e.g., 256 x 256 px).
-4. Background: Pure transparent background (Alpha = 0). No background color, no gradients, no scenery, no shadow plane, and no checkerboard texture.
-5. Content isolation: Exactly ONE character pose per cell. Never draw multiple characters, duplicates, ghosting, or debris within any cell.
-6. Zero text / Zero UI: Do not include labels, frame numbers, titles, borders, divider lines, crop marks, watermark, or metadata inside the image.
+4. Background: Pure transparent background (Alpha = 0). No background color, no gradients, no scenery, and no checkerboard texture.
+5. Ground Contact Shadow: EVERY pose in contact with the ground (Frames 0, 1, 2, 3, 4, 5, 6, 7, 10, 11) MUST include a subtle, soft elliptical dark contact drop shadow directly beneath the feet/body. The shadow is an integral part of the character animation to anchor it to the world.
+6. Content isolation: Exactly ONE character pose per cell (with its ground contact shadow). Never draw multiple characters, duplicates, ghosting, or debris within any cell.
+7. Zero text / Zero UI: Do not include labels, frame numbers, titles, borders, divider lines, crop marks, watermark, or metadata inside the image.
 
 [STRICT 12-FRAME SEQUENTIAL ACTION MAPPING]
 Frames are numbered 0 to 11 in strict reading order (Row 1 from Left to Right, then Row 2 from Left to Right). You must output the poses in this EXACT order without skipping, reordering, or swapping:
 
 ROW 1:
-- Cell (Row 1, Col 1) -> Frame 0 [IDLE 1]: Neutral standing breathing pose, arms relaxed, feet grounded, facing right.
-- Cell (Row 1, Col 2) -> Frame 1 [IDLE 2]: Ready idle stance, subtle weight shift, facing right.
-- Cell (Row 1, Col 3) -> Frame 2 [RUN 1]: Right foot heel strike forward, left foot back, left arm forward.
-- Cell (Row 1, Col 4) -> Frame 3 [RUN 2]: Right foot flat supporting weight, left leg passing through center.
-- Cell (Row 1, Col 5) -> Frame 4 [RUN 3]: Right foot push-off with toes, airborne transition phase.
-- Cell (Row 1, Col 6) -> Frame 5 [RUN 4]: Left foot heel strike forward, right foot back, right arm forward.
+- Cell (Row 1, Col 1) -> Frame 0 [IDLE 1]: Neutral standing breathing pose, arms relaxed, feet grounded, contact shadow beneath feet, facing right.
+- Cell (Row 1, Col 2) -> Frame 1 [IDLE 2]: Ready idle stance, subtle weight shift, contact shadow beneath feet, facing right.
+- Cell (Row 1, Col 3) -> Frame 2 [RUN 1]: Right foot heel strike forward, left foot back, left arm forward, dynamic contact shadow beneath.
+- Cell (Row 1, Col 4) -> Frame 3 [RUN 2]: Right foot flat supporting weight, left leg passing through center, contact shadow beneath.
+- Cell (Row 1, Col 5) -> Frame 4 [RUN 3]: Right foot push-off with toes, airborne transition phase, smaller lighter shadow beneath.
+- Cell (Row 1, Col 6) -> Frame 5 [RUN 4]: Left foot heel strike forward, right foot back, right arm forward, contact shadow beneath.
 
 ROW 2:
-- Cell (Row 2, Col 1) -> Frame 6 [RUN 5]: Left foot flat supporting weight, right leg passing through center.
-- Cell (Row 2, Col 2) -> Frame 7 [RUN 6]: Left foot push-off with toes, full propulsion extension.
-- Cell (Row 2, Col 3) -> Frame 8 [JUMP ASCENT]: High leap upward, body stretched upwards, knees flexing, arms raised.
-- Cell (Row 2, Col 4) -> Frame 9 [JUMP APEX / FALL]: Apex tuck and descent, downward velocity anticipation, legs prepared for ground.
-- Cell (Row 2, Col 5) -> Frame 10 [CROUCH / SLIDE]: Low-profile obstacle crouch/slide, body lowered close to baseline, legs extended forward.
-- Cell (Row 2, Col 6) -> Frame 11 [CROUCH RECOVERY / STAND TRANSITION]: Low crouch preparing recovery to upright stance.
+- Cell (Row 2, Col 1) -> Frame 6 [RUN 5]: Left foot flat supporting weight, right leg passing through center, contact shadow beneath.
+- Cell (Row 2, Col 2) -> Frame 7 [RUN 6]: Left foot push-off with toes, full propulsion extension, contact shadow beneath.
+- Cell (Row 2, Col 3) -> Frame 8 [JUMP ASCENT]: High leap upward, body stretched upwards, knees flexing, arms raised, light distant ground shadow.
+- Cell (Row 2, Col 4) -> Frame 9 [JUMP APEX / FALL]: Apex tuck and descent, downward velocity anticipation, legs prepared for ground, light distant ground shadow.
+- Cell (Row 2, Col 5) -> Frame 10 [CROUCH / SLIDE]: Low-profile obstacle crouch/slide, body lowered close to baseline, legs extended forward, elongated ground shadow beneath body.
+- Cell (Row 2, Col 6) -> Frame 11 [CROUCH RECOVERY / STAND TRANSITION]: Low crouch preparing recovery to upright stance, contact shadow beneath.
 
 [GLOBAL KINEMATIC & ANATOMICAL INVARIANTS]
 Across all 12 cells, the following parameters MUST remain 100% constant:
@@ -1061,7 +1240,7 @@ Across all 12 cells, the following parameters MUST remain 100% constant:
 - Orientation: Strict lateral profile view facing RIGHT (+X direction). Do not rotate the camera to 3/4 view, front view, or perspective.
 - Baseline Alignment: The floor contact line (ground baseline) for grounded poses (Frames 0, 1, 2, 3, 4, 5, 6, 7, 10, 11) must align at the exact same Y-coordinate across all cells (approximately 80% down from the top of the cell).
 - Padding: Keep a minimum 16px safety margin between the character outline and cell boundaries so no limbs or accessories cross into neighboring cells.
-- Lighting & Shading: Consistent directional lighting across all frames.
+- Shadow & Lighting: Consistent directional lighting and contact ground drop shadows across all grounded frames.
 - Negative Constraints: DO NOT invent actions, DO NOT merge cells, DO NOT draw motion blur or speed lines, DO NOT rotate the character backwards.`;
                   void navigator.clipboard.writeText(promptText).then(() => {
                     setCopiedPrompt(true);

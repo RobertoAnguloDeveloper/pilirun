@@ -18,9 +18,13 @@ self.addEventListener('install', (event) =>
   event.waitUntil(
     (async () => {
       const cache = await caches.open(CACHE);
-      await cache.addAll(CORE);
+      // Cache independently: a missing optional asset must not reject the entire install.
+      const results = await Promise.allSettled(CORE.map((url) => cache.add(url)));
+      const missing = CORE.filter((_, index) => results[index].status === 'rejected');
+      if (missing.length) console.warn('PiliRun: offline assets unavailable', missing);
       // The first page is already loading before this worker controls it; cache its linked bundles too.
-      const html = await (await cache.match('/')).text();
+      const shell = await cache.match('/');
+      const html = shell ? await shell.text() : '';
       const assets = [
         ...new Set(
           [...html.matchAll(/(?:src|href)="([^" ]+\.(?:js|css))"/g)]
@@ -28,7 +32,7 @@ self.addEventListener('install', (event) =>
             .filter((path) => path.startsWith('/_next/')),
         ),
       ];
-      await cache.addAll(assets);
+      await Promise.allSettled(assets.map((url) => cache.add(url)));
     })(),
   ),
 );

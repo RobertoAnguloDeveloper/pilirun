@@ -1,15 +1,25 @@
+import type { MusicSource } from './music';
 import type { Preferences } from './types';
 class AudioEngine {
   private context?: AudioContext;
   private master?: GainNode;
   private voice?: { source: AudioBufferSourceNode; gain: GainNode };
   private preferences: Pick<Preferences, 'volume' | 'muted' | 'sfxVolume' | 'sfxPitch'> = {
-    volume: 0.45,
+    volume: 0.9,
     muted: false,
-    sfxVolume: 0.7,
+    sfxVolume: 0.9,
     sfxPitch: 1,
   };
   private ticket = 0;
+  private media?: { audio: HTMLAudioElement; node: MediaElementAudioSourceNode; gain: GainNode; url: string };
+  private selected?: AudioBuffer | MusicSource;
+  private offset = 0;
+  private startedAt = 0;
+  private loopStart = 0;
+  private loopEnd = 0;
+  private ambientBuffer?: AudioBuffer;
+  private paused = false;
+  private retiring = new Map<ReturnType<typeof setTimeout>, () => void>();
   private ensure(): AudioContext {
     if (!this.context) {
       this.context = new AudioContext({ latencyHint: 'interactive' });
@@ -38,47 +48,107 @@ class AudioEngine {
   async decode(bytes: ArrayBuffer): Promise<AudioBuffer> {
     return this.ensure().decodeAudioData(bytes);
   }
-  async play(buffer?: AudioBuffer, loopStart = 0, loopEnd = 0) {
+  async play(source?: AudioBuffer | MusicSource, loopStart = 0, loopEnd = 0) {
     const ticket = ++this.ticket;
     await this.unlock();
     if (ticket !== this.ticket) return;
     const ctx = this.ensure();
-    const source = ctx.createBufferSource();
-    source.buffer = buffer ?? this.ambient(ctx);
-    source.loop = true;
-    source.loopStart = loopStart;
-    source.loopEnd = loopEnd > loopStart ? loopEnd : source.buffer.duration;
+    const oldMedia = this.media;
+    const oldVoice = this.voice;
     const gain = ctx.createGain();
     gain.gain.setValueAtTime(0, ctx.currentTime);
-    gain.gain.linearRampToValueAtTime(0.48, ctx.currentTime + 0.7);
-    source.connect(gain);
     gain.connect(this.master!);
-    source.start();
-    if (this.voice) {
-      const old = this.voice;
-      old.gain.gain.cancelScheduledValues(ctx.currentTime);
-      old.gain.gain.setValueAtTime(old.gain.gain.value, ctx.currentTime);
-      old.gain.gain.linearRampToValueAtTime(0, ctx.currentTime + 0.7);
-      old.source.stop(ctx.currentTime + 0.75);
-      old.source.onended = () => {
-        old.source.disconnect();
-        old.gain.disconnect();
+    if (source && 'blob' in source) {
+      const url = URL.createObjectURL(source.blob);
+      const audio = new Audio();
+      audio.preload = 'auto'; audio.src = url;
+      const node = ctx.createMediaElementSource(audio);
+      node.connect(gain);
+      audio.currentTime = source.track.loopStart;
+      audio.loop = source.track.loopStart === 0 && source.track.loopEnd >= source.track.duration - 0.05;
+      audio.ontimeupdate = () => {
+        if (!audio.loop && audio.currentTime >= source.track.loopEnd) audio.currentTime = source.track.loopStart;
       };
+      audio.onended = () => {
+        if (this.media?.audio === audio && !this.paused) {
+          audio.currentTime = source.track.loopStart;
+          void audio.play().catch(() => {});
+        }
+      };
+      try { await audio.play(); } catch (error) {
+        audio.removeAttribute('src'); audio.load(); node.disconnect(); gain.disconnect(); URL.revokeObjectURL(url);
+        throw error;
+      }
+      if (ticket !== this.ticket) {
+        audio.pause(); audio.removeAttribute('src'); audio.load(); node.disconnect(); gain.disconnect(); URL.revokeObjectURL(url);
+        return;
+      }
+      this.media = { audio, node, gain, url }; this.voice = undefined;
+    } else {
+      const voice = ctx.createBufferSource();
+      voice.buffer = source ?? (this.ambientBuffer ??= this.ambient(ctx));
+      voice.loop = true; voice.loopStart = loopStart;
+      voice.loopEnd = loopEnd > loopStart ? loopEnd : voice.buffer.duration;
+      voice.connect(gain); voice.start(0, loopStart);
+      this.voice = { source: voice, gain }; this.media = undefined;
     }
-    this.voice = { source, gain };
+    this.selected = source; this.offset = loopStart; this.loopStart = loopStart; this.loopEnd = loopEnd;
+    this.startedAt = ctx.currentTime; this.paused = false;
+    gain.gain.linearRampToValueAtTime(0.8, ctx.currentTime + 0.7);
+    const oldGain = oldMedia?.gain ?? oldVoice?.gain;
+    if (oldGain) {
+      oldGain.gain.cancelScheduledValues(ctx.currentTime);
+      oldGain.gain.setValueAtTime(oldGain.gain.value, ctx.currentTime);
+      oldGain.gain.linearRampToValueAtTime(0, ctx.currentTime + 0.7);
+      const release = () => {
+        if (oldMedia) this.releaseMedia(oldMedia);
+        if (oldVoice) { try { oldVoice.source.stop(); } catch {} oldVoice.source.disconnect(); oldVoice.gain.disconnect(); }
+      };
+      const timer = setTimeout(() => { this.retiring.delete(timer); release(); }, 750);
+      this.retiring.set(timer, release);
+    }
+  }
+  private releaseMedia(media: NonNullable<AudioEngine['media']>) {
+    media.audio.pause(); media.audio.ontimeupdate = null; media.audio.onended = null;
+    media.audio.removeAttribute('src'); media.audio.load(); media.node.disconnect(); media.gain.disconnect();
+    URL.revokeObjectURL(media.url);
+  }
+  pause() {
+    this.clearRetiring();
+    this.paused = true;
+    if (this.media) this.media.audio.pause();
+    if (this.voice && this.context) {
+      const duration = this.voice.source.loopEnd - this.voice.source.loopStart;
+      this.offset = this.voice.source.loopStart + ((this.offset - this.voice.source.loopStart + this.context.currentTime - this.startedAt) % duration);
+      this.voice.source.stop(); this.voice.source.disconnect(); this.voice.gain.disconnect(); this.voice = undefined;
+    }
+  }
+  async resume() {
+    const ticket = this.ticket;
+    await this.unlock();
+    if (ticket !== this.ticket) return;
+    this.paused = false;
+    if (this.media) { await this.media.audio.play(); return; }
+    const offset = this.offset;
+    await this.play(this.selected, this.loopStart, this.loopEnd);
+    if (this.voice && this.context) {
+      const old = this.voice.source;
+      const source = this.context.createBufferSource();
+      source.buffer = old.buffer; source.loop = true; source.loopStart = old.loopStart; source.loopEnd = old.loopEnd;
+      old.stop(); old.disconnect(); source.connect(this.voice.gain); source.start(0, offset);
+      this.voice.source = source; this.offset = offset; this.startedAt = this.context.currentTime;
+    }
   }
   stop() {
     this.ticket++;
-    if (!this.voice || !this.context) return;
-    const old = this.voice;
-    old.gain.gain.cancelScheduledValues(this.context.currentTime);
-    old.gain.gain.setTargetAtTime(0, this.context.currentTime, 0.08);
-    old.source.stop(this.context.currentTime + 0.4);
-    old.source.onended = () => {
-      old.source.disconnect();
-      old.gain.disconnect();
-    };
-    this.voice = undefined;
+    this.clearRetiring();
+    if (this.media) this.releaseMedia(this.media);
+    if (this.voice) { try { this.voice.source.stop(); } catch {} this.voice.source.disconnect(); this.voice.gain.disconnect(); }
+    this.media = undefined; this.voice = undefined; this.paused = false; this.selected = undefined; this.offset = 0;
+  }
+  private clearRetiring() {
+    for (const [timer, release] of this.retiring) { clearTimeout(timer); release(); }
+    this.retiring.clear();
   }
   private ambient(ctx: AudioContext): AudioBuffer {
     // 16-second seamless looping classic platformer chiptune soundtrack (140 BPM)

@@ -65,18 +65,19 @@ export function BackgroundRunner({
 
       // Ground position
       const ground = height * 0.79;
-      const scale = Math.min(1.4, Math.max(0.8, height / 520));
+      const baseScale = Math.min(1.4, Math.max(0.8, height / 520));
+      const charScale = character.scale ?? 1.0;
+      const scale = baseScale * charScale;
       const foxX = width * 0.22;
-      const foxY = ground - 28 * scale;
       const stride = distance * 0.05;
       const isJumping = false;
       const isSliding = false;
 
-      // Character shadow
+      // Character shadow right at ground line
       ctx.save();
-      ctx.fillStyle = 'rgba(0, 0, 0, 0.18)';
+      ctx.fillStyle = 'rgba(0, 0, 0, 0.25)';
       ctx.beginPath();
-      ctx.ellipse(foxX, ground + 2, 32 * scale, 9 * scale, 0, 0, Math.PI * 2);
+      ctx.ellipse(foxX, ground, 28 * scale, 7 * scale, 0, 0, Math.PI * 2);
       ctx.fill();
       ctx.restore();
 
@@ -89,25 +90,27 @@ export function BackgroundRunner({
         }
       }
 
-      // Render character with seamless transparent rendering
+      const spriteWidth = 60 * scale;
+      const spriteHeight = 60 * scale;
+
+      // Render character with seamless transparent rendering anchored at ground
       if (activeImg && activeImg.complete && activeImg.naturalWidth) {
         ctx.save();
-        ctx.translate(foxX, foxY);
+        ctx.translate(foxX, ground);
         ctx.rotate(Math.sin(stride) * 0.035);
-        ctx.translate(0, -Math.abs(Math.sin(stride * 2)) * 3);
         ctx.imageSmoothingEnabled = false;
-        ctx.drawImage(activeImg, -30 * scale, -30 * scale, 60 * scale, 60 * scale);
+        ctx.drawImage(activeImg, -spriteWidth / 2, -spriteHeight + 2 * scale, spriteWidth, spriteHeight);
         ctx.restore();
       } else if (character.pixels) {
         ctx.save();
-        ctx.translate(foxX, foxY - Math.abs(Math.sin(stride * 2)) * 3);
-        const unit = 4 * scale;
+        ctx.translate(foxX, ground);
+        const unit = 3.8 * scale;
         character.pixels.forEach((c, i) => {
           if (c !== 'transparent') {
             ctx.fillStyle = c;
             ctx.fillRect(
-              (i % 16) * unit - 32 * scale,
-              Math.floor(i / 16) * unit - 32 * scale,
+              (i % 16) * unit - 30 * scale,
+              Math.floor(i / 16) * unit - 60 * scale,
               unit + 0.2,
               unit + 0.2,
             );
@@ -115,11 +118,13 @@ export function BackgroundRunner({
         });
         ctx.restore();
       } else {
+        ctx.save();
+        ctx.translate(foxX, ground - 28 * scale);
         drawFox(
           ctx,
-          foxX,
-          foxY,
-          57 * scale,
+          0,
+          0,
+          55 * scale,
           character.color,
           stride,
           false,
@@ -127,6 +132,7 @@ export function BackgroundRunner({
           0,
           isSliding,
         );
+        ctx.restore();
       }
 
       frameId = requestAnimationFrame(render);

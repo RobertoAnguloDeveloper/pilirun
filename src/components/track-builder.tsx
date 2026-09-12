@@ -40,11 +40,13 @@ const blank = (): Track => ({
 });
 export function TrackBuilder({
   tracks,
+  musicLibrary = [],
   onSave,
   onDelete,
   onPlay,
 }: {
   tracks: Track[];
+  musicLibrary?: import('@/lib/types').MusicTrack[];
   onSave: (t: Track) => Promise<void>;
   onDelete: (id: string) => Promise<void>;
   onPlay: (t: Track) => void;
@@ -125,24 +127,31 @@ export function TrackBuilder({
             </select>
           </label>
           <label>
-            Distancia
+            Música de la pista
             <select
-              value={draft.length}
-              onChange={(e) => {
-                const length = Number(e.target.value);
-                setDraft((t) => ({
-                  ...t,
-                  length,
-                  items: t.items.filter((i) => i.x <= length - 150),
-                }));
-                setPosition(600);
-              }}
+              value={draft.levelMusicId || ''}
+              onChange={(e) => setDraft((t) => ({ ...t, levelMusicId: e.target.value || undefined }))}
             >
-              <option value={3000}>300 metros</option>
-              <option value={6000}>600 metros</option>
-              <option value={9000}>900 metros</option>
-              <option value={15000}>1.500 metros</option>
-              <option value={30000}>3.000 metros</option>
+              <option value="">Sintetizador por defecto</option>
+              {musicLibrary.map((m) => (
+                <option key={m.id} value={m.id}>
+                  {m.name} ({(m.mime || 'audio').split('/')[1]?.toUpperCase() || 'AUDIO'})
+                </option>
+              ))}
+            </select>
+          </label>
+          <label>
+            Música del Jefe final
+            <select
+              value={draft.bossMusicId || ''}
+              onChange={(e) => setDraft((t) => ({ ...t, bossMusicId: e.target.value || undefined }))}
+            >
+              <option value="">Sintetizador por defecto</option>
+              {musicLibrary.map((m) => (
+                <option key={m.id} value={m.id}>
+                  {m.name} ({(m.mime || 'audio').split('/')[1]?.toUpperCase() || 'AUDIO'})
+                </option>
+              ))}
             </select>
           </label>
         </div>

@@ -10,6 +10,7 @@ test('camp, game controls, character and track persistence', async ({ page }) =>
   });
   await page.screenshot({ path: 'test-results/camp-desktop.png', fullPage: true });
   await page.getByRole('button', { name: playButton }).click();
+  await page.getByRole('button', { name: '¡Comenzar Carrera!', exact: true }).click();
   const canvas = page.locator('.game-canvas');
   await expect(canvas).toBeVisible();
   await canvas.press('Space');
@@ -108,6 +109,7 @@ test('offline shell includes previously unopened editors and the game', async ({
   await expect(page.getByRole('button', { name: 'Guardar personaje' })).toBeVisible();
   await page.getByRole('button', { name: 'Campamento', exact: true }).click();
   await page.getByRole('button', { name: playButton }).click();
+  await page.getByRole('button', { name: '¡Comenzar Carrera!', exact: true }).click();
   await expect(page.locator('.game-canvas')).toBeVisible();
 });
 test('a completed attempt is saved in the adventure diary', async ({ page }) => {
@@ -116,6 +118,7 @@ test('a completed attempt is saved in the adventure diary', async ({ page }) => 
     timeout: 30000,
   });
   await page.getByRole('button', { name: playButton }).click();
+  await page.getByRole('button', { name: '¡Comenzar Carrera!', exact: true }).click();
   await expect(page.getByText('Carrera guardada en este dispositivo')).toBeVisible({
     timeout: 20000,
   });
@@ -214,6 +217,7 @@ test('mobile layout and touch race', async ({ page }) => {
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   await page.screenshot({ path: 'test-results/camp-mobile.png', fullPage: true });
   await page.getByRole('button', { name: playButton }).click();
+  await page.getByRole('button', { name: '¡Comenzar Carrera!', exact: true }).click();
   await expect(page.locator('.game-canvas')).toBeVisible();
   await page.getByRole('button', { name: 'Saltar', exact: true }).click();
   await page.getByRole('button', { name: 'Pausar', exact: true }).click();
@@ -249,6 +253,7 @@ test('PiliRun branding, about panel and portrait race are complete', async ({ pa
   await page.getByRole('button', { name: 'Cerrar y volver al juego' }).click();
 
   await page.getByRole('button', { name: playButton }).click();
+  await page.getByRole('button', { name: '¡Comenzar Carrera!', exact: true }).click();
   const stage = page.locator('.game-stage');
   await expect(stage).toBeVisible();
   const height = await stage.evaluate((element) => element.getBoundingClientRect().height);
