@@ -623,6 +623,7 @@ export function CharacterEditor({
 
   // Photo editing state
   const [photo, setPhoto] = useState<File>(),
+    [uneditedPhotoUrl, setUneditedPhotoUrl] = useState<string>(''),
     [zoom, setZoom] = useState(1),
     [cropX, setCropX] = useState(0.5),
     [cropY, setCropY] = useState(0.5),
@@ -638,6 +639,7 @@ export function CharacterEditor({
     photoCanvasRef = useRef<HTMLCanvasElement>(null),
     originalPhotoImg = useRef<HTMLImageElement | null>(null),
     photoDrawing = useRef(false),
+    photoDragStart = useRef<{ clientX: number; clientY: number; startX: number; startY: number } | null>(null),
     freehandDrawing = useRef(false),
     freehandUndo = useRef<ImageData[]>([]),
     drawing = useRef(false),
@@ -810,7 +812,14 @@ export function CharacterEditor({
       const reader = new FileReader();
       reader.onload = () => {
         if (event.data.id === requestId.current) {
-          setEditing((c) => ({ ...c, image: String(reader.result) }));
+          const res = String(reader.result);
+          setEditing((c) => ({ ...c, image: res }));
+          setUneditedPhotoUrl(res);
+          const orig = new Image();
+          orig.onload = () => {
+            originalPhotoImg.current = orig;
+          };
+          orig.src = res;
           setProcessing(false);
         }
       };
@@ -821,7 +830,14 @@ export function CharacterEditor({
       if (photo) {
         const reader = new FileReader();
         reader.onload = () => {
-          setEditing((c) => ({ ...c, image: String(reader.result) }));
+          const res = String(reader.result);
+          setEditing((c) => ({ ...c, image: res }));
+          setUneditedPhotoUrl(res);
+          const orig = new Image();
+          orig.onload = () => {
+            originalPhotoImg.current = orig;
+          };
+          orig.src = res;
           setProcessing(false);
         };
         reader.readAsDataURL(photo);
@@ -843,7 +859,16 @@ export function CharacterEditor({
     // Also synchronously read initial dataUrl so image tools appear immediately
     const reader = new FileReader();
     reader.onload = () => {
-      setEditing((c) => ({ ...c, image: String(reader.result) }));
+      const res = String(reader.result);
+      setEditing((c) => ({ ...c, image: res }));
+      setUneditedPhotoUrl((prev) => prev || res);
+      if (!originalPhotoImg.current) {
+        const orig = new Image();
+        orig.onload = () => {
+          originalPhotoImg.current = orig;
+        };
+        orig.src = res;
+      }
     };
     reader.readAsDataURL(photo);
 
@@ -1717,6 +1742,8 @@ export function CharacterEditor({
                     const file = e.target.files?.[0];
                     if (!file) return;
                     setPhoto(file);
+                    setUneditedPhotoUrl('');
+                    originalPhotoImg.current = null;
                     setZoom(1);
                     setCropX(0.5);
                     setCropY(0.5);
@@ -1727,40 +1754,124 @@ export function CharacterEditor({
 
               {photo && (
                 <>
-                  <div className="crop-sliders">
-                    <label>
-                      Acercamiento
-                      <input
-                        type="range"
-                        min="1"
-                        max="4"
-                        step="0.05"
-                        value={zoom}
-                        onChange={(e) => setZoom(Number(e.target.value))}
-                      />
-                    </label>
-                    <label>
-                      Posición horizontal
-                      <input
-                        type="range"
-                        min="0"
-                        max="1"
-                        step="0.01"
-                        value={cropX}
-                        onChange={(e) => setCropX(Number(e.target.value))}
-                      />
-                    </label>
-                    <label>
-                      Posición vertical
-                      <input
-                        type="range"
-                        min="0"
-                        max="1"
-                        step="0.01"
-                        value={cropY}
-                        onChange={(e) => setCropY(Number(e.target.value))}
-                      />
-                    </label>
+                  {/* Photo Positioning and Focal Point Drag Stage */}
+                  <div className="photo-reposition-container">
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px' }}>
+                      <span style={{ fontSize: '0.85rem', fontWeight: 700, color: 'var(--ink)', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                        <Crosshair size={14} style={{ color: 'var(--lime-dark, #244b36)' }} />
+                        Posición de la Foto y Punto Focal del Personaje
+                      </span>
+                      <button
+                        type="button"
+                        className="template-pill-btn"
+                        onClick={() => {
+                          setCropX(0.5);
+                          setCropY(0.5);
+                          setZoom(1);
+                          setMessage('Punto focal centrado.');
+                        }}
+                        title="Centrar punto focal"
+                      >
+                        <Crosshair size={12} /> Centrar
+                      </button>
+                    </div>
+
+                    {/* Interactive Focal Point & Pan Stage */}
+                    <div
+                      className="photo-reposition-stage"
+                      title="Arrastra para mover la foto y ajustar el punto focal del personaje"
+                      onPointerDown={(e) => {
+                        const target = e.currentTarget;
+                        target.setPointerCapture(e.pointerId);
+                        photoDragStart.current = {
+                          clientX: e.clientX,
+                          clientY: e.clientY,
+                          startX: cropX,
+                          startY: cropY,
+                        };
+                      }}
+                      onPointerMove={(e) => {
+                        if (!photoDragStart.current) return;
+                        const target = e.currentTarget;
+                        const rect = target.getBoundingClientRect();
+                        const dx = (e.clientX - photoDragStart.current.clientX) / (rect.width * Math.max(1, zoom));
+                        const dy = (e.clientY - photoDragStart.current.clientY) / (rect.height * Math.max(1, zoom));
+                        const newX = Math.max(0, Math.min(1, photoDragStart.current.startX - dx));
+                        const newY = Math.max(0, Math.min(1, photoDragStart.current.startY - dy));
+                        setCropX(Number(newX.toFixed(3)));
+                        setCropY(Number(newY.toFixed(3)));
+                      }}
+                      onPointerUp={(e) => {
+                        if (photoDragStart.current) {
+                          try {
+                            e.currentTarget.releasePointerCapture(e.pointerId);
+                          } catch {}
+                          photoDragStart.current = null;
+                        }
+                      }}
+                      onPointerCancel={() => {
+                        photoDragStart.current = null;
+                      }}
+                    >
+                      {(uneditedPhotoUrl || editing.image) && (
+                        <img
+                          src={uneditedPhotoUrl || editing.image}
+                          alt="Focal preview"
+                          className="photo-reposition-img"
+                          style={{
+                            width: `${Math.round(zoom * 100)}%`,
+                            height: `${Math.round(zoom * 100)}%`,
+                            objectFit: 'cover',
+                            transform: `translate(${-cropX * 100}%, ${-cropY * 100}%)`,
+                          }}
+                        />
+                      )}
+                      {/* Character framing overlay & focal guides */}
+                      <div className="photo-focal-frame" />
+                      <div className="photo-focal-crosshair-h" />
+                      <div className="photo-focal-crosshair-v" />
+                      <div className="photo-focal-center-pip" />
+                    </div>
+
+                    <small style={{ color: 'var(--subtle)', fontSize: '0.75rem', textAlign: 'center', display: 'block' }}>
+                      Arrastra la imagen arriba o usa los controles deslizantes para encuadrar la cara exactamente en el centro.
+                    </small>
+
+                    <div className="crop-sliders" style={{ marginTop: '4px' }}>
+                      <label>
+                        Acercamiento ({zoom.toFixed(2)}x)
+                        <input
+                          type="range"
+                          min="1"
+                          max="4"
+                          step="0.05"
+                          value={zoom}
+                          onChange={(e) => setZoom(Number(e.target.value))}
+                        />
+                      </label>
+                      <label>
+                        Posición horizontal ({Math.round(cropX * 100)}%)
+                        <input
+                          type="range"
+                          min="0"
+                          max="1"
+                          step="0.01"
+                          value={cropX}
+                          onChange={(e) => setCropX(Number(e.target.value))}
+                        />
+                      </label>
+                      <label>
+                        Posición vertical ({Math.round(cropY * 100)}%)
+                        <input
+                          type="range"
+                          min="0"
+                          max="1"
+                          step="0.01"
+                          value={cropY}
+                          onChange={(e) => setCropY(Number(e.target.value))}
+                        />
+                      </label>
+                    </div>
                   </div>
 
                   {/* Photo Edit & Background Removal Suite */}
@@ -1770,47 +1881,77 @@ export function CharacterEditor({
                         <span style={{ fontSize: '0.85rem', fontWeight: 700, color: 'var(--ink)' }}>
                           Herramientas de Recorte y Eliminación de Fondo
                         </span>
-                        <button
-                          type="button"
-                          className="template-pill-btn"
-                          style={{ borderColor: 'var(--lime)', color: '#183f35', background: 'var(--lime)', fontWeight: 600, fontSize: '0.8rem' }}
-                          onClick={() => {
-                            const pCanvas = photoCanvasRef.current;
-                            if (!pCanvas) return;
-                            const ctx = pCanvas.getContext('2d')!;
-                            const w = pCanvas.width;
-                            const h = pCanvas.height;
-                            const imgData = ctx.getImageData(0, 0, w, h);
-                            const data = imgData.data;
+                        <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                          <button
+                            type="button"
+                            className="template-pill-btn"
+                            style={{ borderColor: '#d14343', color: '#881b1b', background: '#ffecec', fontWeight: 600, fontSize: '0.8rem' }}
+                            onClick={() => {
+                              const targetUrl = uneditedPhotoUrl || editing.image;
+                              if (targetUrl) {
+                                setEditing((prev) => ({ ...prev, image: targetUrl }));
+                                const pCanvas = photoCanvasRef.current;
+                                if (pCanvas) {
+                                  const ctx = pCanvas.getContext('2d')!;
+                                  const img = new Image();
+                                  img.onload = () => {
+                                    originalPhotoImg.current = img;
+                                    ctx.clearRect(0, 0, 260, 260);
+                                    ctx.drawImage(img, 0, 0, 260, 260);
+                                  };
+                                  img.src = targetUrl;
+                                }
+                                setMessage('Foto restaurada al estado original.');
+                              } else {
+                                setMessage('No hay foto original para restaurar.');
+                              }
+                            }}
+                            title="Restaura la foto completa a su estado original sin ediciones ni borrados"
+                          >
+                            <RotateCcw size={14} style={{ marginRight: 4 }} /> Restaurar foto original
+                          </button>
+                          <button
+                            type="button"
+                            className="template-pill-btn"
+                            style={{ borderColor: 'var(--lime)', color: '#183f35', background: 'var(--lime)', fontWeight: 600, fontSize: '0.8rem' }}
+                            onClick={() => {
+                              const pCanvas = photoCanvasRef.current;
+                              if (!pCanvas) return;
+                              const ctx = pCanvas.getContext('2d')!;
+                              const w = pCanvas.width;
+                              const h = pCanvas.height;
+                              const imgData = ctx.getImageData(0, 0, w, h);
+                              const data = imgData.data;
 
-                            // Sample corner colors as background references
-                            const corners = [
-                              { r: data[0], g: data[1], b: data[2] },
-                              { r: data[(w - 1) * 4], g: data[(w - 1) * 4 + 1], b: data[(w - 1) * 4 + 2] },
-                              { r: data[((h - 1) * w) * 4], g: data[((h - 1) * w) * 4 + 1], b: data[((h - 1) * w) * 4 + 2] },
-                              { r: data[(w * h - 1) * 4], g: data[(w * h - 1) * 4 + 1], b: data[(w * h - 1) * 4 + 2] },
-                            ];
+                              // Sample corner colors as background references
+                              const corners = [
+                                { r: data[0], g: data[1], b: data[2] },
+                                { r: data[(w - 1) * 4], g: data[(w - 1) * 4 + 1], b: data[(w - 1) * 4 + 2] },
+                                { r: data[((h - 1) * w) * 4], g: data[((h - 1) * w) * 4 + 1], b: data[((h - 1) * w) * 4 + 2] },
+                                { r: data[(w * h - 1) * 4], g: data[(w * h - 1) * 4 + 1], b: data[(w * h - 1) * 4 + 2] },
+                              ];
 
-                            for (let i = 0; i < w * h; i++) {
-                              const idx = i * 4;
-                              if (data[idx + 3] === 0) continue;
-                              const r = data[idx], g = data[idx + 1], b = data[idx + 2];
-                              for (const c of corners) {
-                                const diff = Math.hypot(r - c.r, g - c.g, b - c.b);
-                                if (diff < wandTolerance) {
-                                  data[idx + 3] = 0;
-                                  break;
+                              for (let i = 0; i < w * h; i++) {
+                                const idx = i * 4;
+                                if (data[idx + 3] === 0) continue;
+                                const r = data[idx], g = data[idx + 1], b = data[idx + 2];
+                                for (const c of corners) {
+                                  const diff = Math.hypot(r - c.r, g - c.g, b - c.b);
+                                  if (diff < wandTolerance) {
+                                    data[idx + 3] = 0;
+                                    break;
+                                  }
                                 }
                               }
-                            }
-                            ctx.putImageData(imgData, 0, 0);
-                            const updatedUrl = pCanvas.toDataURL('image/png');
-                            setEditing((prev) => ({ ...prev, image: updatedUrl }));
-                            setMessage('Fondo eliminado automáticamente.');
-                          }}
-                        >
-                          <Sparkles size={14} style={{ marginRight: 4 }} /> Quitar fondo automático
-                        </button>
+                              ctx.putImageData(imgData, 0, 0);
+                              const updatedUrl = pCanvas.toDataURL('image/png');
+                              setEditing((prev) => ({ ...prev, image: updatedUrl }));
+                              setMessage('Fondo eliminado automáticamente.');
+                            }}
+                          >
+                            <Sparkles size={14} style={{ marginRight: 4 }} /> Quitar fondo automático
+                          </button>
+                        </div>
                       </div>
 
                       {/* Tool selector */}
@@ -1837,7 +1978,7 @@ export function CharacterEditor({
                           onClick={() => setPhotoTool('restore')}
                           title="Restaurar: Recupera partes borradas de la foto original"
                         >
-                          <RotateCcw size={13} style={{ marginRight: 4 }} /> Restaurar
+                          <RotateCcw size={13} style={{ marginRight: 4 }} /> Pincel Restaurador
                         </button>
                       </div>
 

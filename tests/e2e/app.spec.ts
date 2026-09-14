@@ -496,7 +496,28 @@ test.describe('PWA Tablet Installation & Manifest Suite', () => {
     await expect(page.getByRole('button', { name: /Quitar fondo automático/i })).toBeVisible({ timeout: 15000 });
     await expect(page.getByRole('button', { name: /Varita Mágica/i })).toBeVisible();
     await expect(page.getByRole('button', { name: /Borrador/i })).toBeVisible();
-    await expect(page.getByRole('button', { name: /Restaurar/i })).toBeVisible();
+    await expect(page.getByRole('button', { name: /Pincel Restaurador/i })).toBeVisible();
+
+    // 6. Verify Restore Original Image button
+    const restoreOriginalBtn = page.getByRole('button', { name: /Restaurar foto original/i });
+    await expect(restoreOriginalBtn).toBeVisible();
+    await restoreOriginalBtn.click();
+    await expect(page.getByText(/Foto restaurada al estado original/i)).toBeVisible();
+
+    // 7. Verify Photo Positioning and Focal Point Drag Stage
+    const repositionStage = page.locator('.photo-reposition-stage');
+    await expect(repositionStage).toBeVisible();
+    const stageBox = await repositionStage.boundingBox();
+    if (stageBox) {
+      await page.mouse.move(stageBox.x + stageBox.width / 2, stageBox.y + stageBox.height / 2);
+      await page.mouse.down();
+      await page.mouse.move(stageBox.x + stageBox.width / 2 - 40, stageBox.y + stageBox.height / 2 - 30);
+      await page.mouse.up();
+    }
+    const centerBtn = page.getByRole('button', { name: 'Centrar' });
+    await expect(centerBtn).toBeVisible();
+    await centerBtn.click();
+    await expect(page.getByText('Punto focal centrado.')).toBeVisible();
   });
 });
 
