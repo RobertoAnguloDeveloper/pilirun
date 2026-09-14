@@ -1,0 +1,148 @@
+import type { AudioTrack } from './types';
+
+/**
+ * Built-in background music tracks shipped with the game.
+ * Compressed to 64 kbps mono MP3 during the build step (prepare-assets.mjs).
+ * Each entry maps to a file under /assets/bmg/<file>.mp3 in the public directory.
+ */
+export interface BuiltinTrack extends AudioTrack {
+  /** Filename stem under /assets/bmg/ (without extension). */
+  file: string;
+  /** Whether this track ships with the game (always true for builtins). */
+  builtin: true;
+}
+
+export const BUILTIN_MUSIC: BuiltinTrack[] = [
+  {
+    id: 'bmg-bounding-through-the-blooms',
+    name: 'Bounding Through The Blooms',
+    file: 'Bounding_Through_The_Blooms',
+    mime: 'audio/mpeg',
+    size: 0, // Populated at runtime from compressed file
+    duration: 178.68,
+    loopStart: 0,
+    loopEnd: 178.68,
+    category: 'adventure',
+    builtin: true,
+  },
+  {
+    id: 'bmg-a-window-facing-west',
+    name: 'A Window Facing West',
+    file: 'A_Window_Facing_West',
+    mime: 'audio/mpeg',
+    size: 0,
+    duration: 157.99,
+    loopStart: 0,
+    loopEnd: 157.99,
+    category: 'chill',
+    builtin: true,
+  },
+  {
+    id: 'bmg-climbing-the-spire',
+    name: 'Climbing the Spire',
+    file: 'Climbing_the_Spire',
+    mime: 'audio/mpeg',
+    size: 0,
+    duration: 173.74,
+    loopStart: 0,
+    loopEnd: 173.74,
+    category: 'adventure',
+    builtin: true,
+  },
+  {
+    id: 'bmg-high-score-sprint',
+    name: 'High Score Sprint',
+    file: 'High_Score_Sprint',
+    mime: 'audio/mpeg',
+    size: 0,
+    duration: 177.01,
+    loopStart: 0,
+    loopEnd: 177.01,
+    category: 'retro',
+    builtin: true,
+  },
+  {
+    id: 'bmg-marching-toward-the-final-gate',
+    name: 'Marching Toward the Final Gate',
+    file: 'Marching_Toward_the_Final_Gate',
+    mime: 'audio/mpeg',
+    size: 0,
+    duration: 162.27,
+    loopStart: 0,
+    loopEnd: 162.27,
+    category: 'boss',
+    builtin: true,
+  },
+  {
+    id: 'bmg-showdown-at-the-clockwork-spire',
+    name: 'Showdown at the Clockwork Spire',
+    file: 'Showdown_at_the_Clockwork_Spire',
+    mime: 'audio/mpeg',
+    size: 0,
+    duration: 178.63,
+    loopStart: 0,
+    loopEnd: 178.63,
+    category: 'boss',
+    builtin: true,
+  },
+  {
+    id: 'bmg-sprint-to-the-final-gate',
+    name: 'Sprint to the Final Gate',
+    file: 'Sprint_to_the_Final_Gate',
+    mime: 'audio/mpeg',
+    size: 0,
+    duration: 180.4,
+    loopStart: 0,
+    loopEnd: 180.4,
+    category: 'adventure',
+    builtin: true,
+  },
+  {
+    id: 'bmg-star-collectors-dash',
+    name: "Star Collector's Dash",
+    file: 'Star_Collector_s_Dash',
+    mime: 'audio/mpeg',
+    size: 0,
+    duration: 180.74,
+    loopStart: 0,
+    loopEnd: 180.74,
+    category: 'adventure',
+    builtin: true,
+  },
+  {
+    id: 'bmg-the-crowns-last-round',
+    name: "The Crown's Last Round",
+    file: 'The_Crown_s_Last_Round',
+    mime: 'audio/mpeg',
+    size: 0,
+    duration: 179.41,
+    loopStart: 0,
+    loopEnd: 179.41,
+    category: 'boss',
+    builtin: true,
+  },
+  {
+    id: 'bmg-the-grand-leap-upwards',
+    name: 'The Grand Leap Upwards',
+    file: 'The_Grand_Leap_Upwards',
+    mime: 'audio/mpeg',
+    size: 0,
+    duration: 180.66,
+    loopStart: 0,
+    loopEnd: 180.66,
+    category: 'adventure',
+    builtin: true,
+  },
+  {
+    id: 'bmg-the-last-harpsichord',
+    name: 'The Last Harpsichord',
+    file: 'The_Last_Harpsichord',
+    mime: 'audio/mpeg',
+    size: 0,
+    duration: 178.08,
+    loopStart: 0,
+    loopEnd: 178.08,
+    category: 'chill',
+    builtin: true,
+  },
+];

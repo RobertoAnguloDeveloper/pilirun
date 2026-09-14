@@ -1,0 +1,49 @@
+{
+  "version": 1,
+  "sources": {
+    "A_Window_Facing_West.mp3": {
+      "hash": "39d99cdb883e153f13b426c3199d8deb552a72ee381eab1b4a54241c6689e041",
+      "size": 1264370
+    },
+    "Bounding_Through_The_Blooms.mp3": {
+      "hash": "3bbb8401f3c49992cc7d7f8e86d1345c4a1d8dbf6bded0bbfd4411d906abb89b",
+      "size": 1429882
+    },
+    "Climbing_the_Spire.mp3": {
+      "hash": "5241c12e0dc669fafbc1e5084c48d9d5cc2cce92ed4c05176929e5b0645dee0a",
+      "size": 1390385
+    },
+    "High_Score_Sprint.mp3": {
+      "hash": "aa464dfff369c3ea710919af80b01d6de46b2b89c87beb40c2ab9a13c6642bf1",
+      "size": 1416507
+    },
+    "Marching_Toward_the_Final_Gate.mp3": {
+      "hash": "569f4d931238e1578a0de1c5a9c2b1be3d7be2ed7019983d77d739edec4659e3",
+      "size": 1298643
+    },
+    "Showdown_at_the_Clockwork_Spire.mp3": {
+      "hash": "6f2745af79bd0048f01aad02f5cbded762d921f1eb150dd7f93e97630e279b47",
+      "size": 1429464
+    },
+    "Sprint_to_the_Final_Gate.mp3": {
+      "hash": "8a2a874ba9b7a91c56ccb164ec982787407a667578509f3a5cd9120a9327db5a",
+      "size": 1443675
+    },
+    "Star_Collector_s_Dash.mp3": {
+      "hash": "96ae3c3474a0b3a8763b84e17672e0567c158bd1db92710d8c6e33ec26776d4e",
+      "size": 1446391
+    },
+    "The_Crown_s_Last_Round.mp3": {
+      "hash": "3ffc9bd2e4a8d15adcabcc06971663b7bbbc10b796683f03019539c70aca9fd5",
+      "size": 1435733
+    },
+    "The_Grand_Leap_Upwards.mp3": {
+      "hash": "19277b11608350914bfddb5cad749227582120c13a3ce039b55ea2985997bc0c",
+      "size": 1445764
+    },
+    "The_Last_Harpsichord.mp3": {
+      "hash": "9663527a01296c2d6b92ace4c5ad3b995e677b6933fde0374e5fcad417811b88",
+      "size": 1425075
+    }
+  }
+}

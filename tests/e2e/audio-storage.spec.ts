@@ -3,6 +3,21 @@ import { build } from 'esbuild';
 import { DatabaseSync } from 'node:sqlite';
 import { readFile } from 'node:fs/promises';
 
+test('built-in music is seeded and plays from the compressed asset catalogue', async ({ page }) => {
+  const audioResponse = page.waitForResponse((response) =>
+    response.url().endsWith('/assets/bmg/Bounding_Through_The_Blooms.mp3'),
+  );
+  await page.goto('/');
+  await expect(page.getByRole('button', { name: /JUGAR AHORA|Vamos a correr/i })).toBeEnabled({ timeout: 30000 });
+  await page.getByRole('button', { name: 'Mi música', exact: true }).click();
+  await expect(page.locator('.music-layout .count-badge')).toHaveText('11');
+  await page.getByRole('button', { name: 'Reproducir Bounding Through The Blooms' }).click();
+  const response = await audioResponse;
+  expect(response.ok()).toBe(true);
+  expect(Number(response.headers()['content-length'])).toBeLessThan(2_000_000);
+  await expect(page.getByRole('button', { name: 'Pausar Bounding Through The Blooms' })).toBeVisible();
+});
+
 test('audio transactions preserve atomicity on quota failure and support deletion and reset', async ({ page }) => {
   const bundle = await build({ stdin: { contents: `export * from './src/workers/music-store';`, resolveDir: process.cwd() }, bundle: true, write: false, format: 'iife', globalName: 'AudioStore' });
   await page.goto('/');

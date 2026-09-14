@@ -7,6 +7,7 @@ import {
   validateLevelPlayability,
 } from '../src/lib/procedural';
 import { validateTrack } from '../src/lib/worlds';
+import { BUILTIN_MUSIC } from '../src/lib/builtin-music';
 import type { Track, TrackItem } from '../src/lib/types';
 
 const mockTrack = (items: TrackItem[], length = 8000): Track => ({
@@ -45,6 +46,18 @@ describe('procedural generation and deterministic replayability', () => {
       expect(validation.valid).toBe(true);
       expect(validation.reason).toBeUndefined();
       expect(validateTrack(track)).toBeNull();
+    }
+  });
+
+  it('assigns every official level to one of the 11 packaged music tracks', () => {
+    const builtinIds = new Set(BUILTIN_MUSIC.map((track) => track.id));
+
+    expect(BUILTIN_MUSIC).toHaveLength(11);
+    expect(builtinIds.size).toBe(11);
+    for (const level of OFFICIAL_LEVELS) {
+      expect(level.levelMusicId).toBeTruthy();
+      expect(builtinIds.has(level.levelMusicId!)).toBe(true);
+      expect(generateProceduralLevel(level).levelMusicId).toBe(level.levelMusicId);
     }
   });
 

@@ -1,6 +1,15 @@
-import { mkdir, cp, writeFile } from 'node:fs/promises';
+import { mkdir, cp, writeFile, readFile, readdir, rm, stat } from 'node:fs/promises';
+import { execFile } from 'node:child_process';
+import { createHash } from 'node:crypto';
+import { resolve, join } from 'node:path';
+import { promisify } from 'node:util';
+import ffmpeg from '@ffmpeg-installer/ffmpeg';
 import { build } from 'esbuild';
 import sharp from 'sharp';
+
+const runFile = promisify(execFile);
+
+// ──────────────── Icons & Screenshots ────────────────
 for (const size of [192, 512])
   await sharp('public/icon.svg').resize(size, size).png().toFile(`public/icon-${size}.png`);
 for (const size of [192, 512]) {
@@ -41,23 +50,50 @@ await sharp({
   .composite([{ input: 'public/icon-512.png', top: 411, left: 119 }])
   .png()
   .toFile('public/screenshot-narrow.png');
+
+// ──────────────── SQLite WASM ────────────────
 await mkdir('public/sqlite', { recursive: true });
 await cp('node_modules/@sqlite.org/sqlite-wasm/dist', 'public/sqlite', { recursive: true });
+
+// ──────────────── Assets (selective copy, skip raw bmg) ────────────────
 await mkdir('public/assets', { recursive: true });
-await cp('assets', 'public/assets', { recursive: true });
+// Copy all assets EXCEPT the raw bmg folder (we'll compress those separately)
+await cp('assets', 'public/assets', {
+  recursive: true,
+  filter: (src) => !src.replace(/\\/g, '/').includes('assets/bmg'),
+});
+
+// ──────────────── Roca Tech Logo ────────────────
 await mkdir('public/assets/rocatech', { recursive: true });
 await cp('assets/rocatech/VECTOR LOGO FINAL.svg', 'public/assets/rocatech/roca-tech-logo.svg');
 await sharp('assets/rocatech/LOGO-Transparente.png')
   .resize(320, 320, { fit: 'inside', withoutEnlargement: true })
   .png({ compressionLevel: 9, palette: true })
   .toFile('public/assets/rocatech/roca-tech-logo.png');
+
+// ──────────────── Character Sprite Extraction → WebP ────────────────
 try {
+  const legacySpritePngs = [
+    'character-sprite-1.png',
+    'character-sprite-2.png',
+    ...Array.from({ length: 6 }, (_, index) => `pili-run-${index}.png`),
+    ...Array.from({ length: 2 }, (_, index) => `pili-jump-${index}.png`),
+    ...Array.from({ length: 2 }, (_, index) => `pili-slide-${index}.png`),
+    'pili-idle-0.png',
+  ];
+  await Promise.all(
+    legacySpritePngs.map((file) => rm(join(resolve('public/assets'), file), { force: true })),
+  );
+
+  // Character profile sprites
   await sharp('assets/2.png')
     .extract({ left: 530, top: 13, width: 242, height: 230 })
-    .toFile('public/assets/character-sprite-1.png');
+    .webp({ quality: 80 })
+    .toFile('public/assets/character-sprite-1.webp');
   await sharp('assets/2.png')
     .extract({ left: 802, top: 10, width: 218, height: 235 })
-    .toFile('public/assets/character-sprite-2.png');
+    .webp({ quality: 80 })
+    .toFile('public/assets/character-sprite-2.webp');
 
   // Dynamic run cycle frames from row 1 of assets/2.png
   const runCoords = [
@@ -69,7 +105,10 @@ try {
     { left: 1320, top: 260, width: 196, height: 235 },
   ];
   for (let i = 0; i < runCoords.length; i++) {
-    await sharp('assets/2.png').extract(runCoords[i]).toFile(`public/assets/pili-run-${i}.png`);
+    await sharp('assets/2.png')
+      .extract(runCoords[i])
+      .webp({ quality: 80 })
+      .toFile(`public/assets/pili-run-${i}.webp`);
   }
 
   // Jump animation frames
@@ -78,24 +117,108 @@ try {
     { left: 551, top: 509, width: 227, height: 247 },
   ];
   for (let i = 0; i < jumpCoords.length; i++) {
-    await sharp('assets/2.png').extract(jumpCoords[i]).toFile(`public/assets/pili-jump-${i}.png`);
+    await sharp('assets/2.png')
+      .extract(jumpCoords[i])
+      .webp({ quality: 80 })
+      .toFile(`public/assets/pili-jump-${i}.webp`);
   }
 
   // Crouching / Slide frames from row 3
   await sharp('assets/2.png')
     .extract({ left: 810, top: 760, width: 230, height: 260 })
-    .toFile('public/assets/pili-slide-0.png');
+    .webp({ quality: 80 })
+    .toFile('public/assets/pili-slide-0.webp');
   await sharp('assets/2.png')
     .extract({ left: 1060, top: 760, width: 230, height: 260 })
-    .toFile('public/assets/pili-slide-1.png');
+    .webp({ quality: 80 })
+    .toFile('public/assets/pili-slide-1.webp');
 
   // Idle frame
   await sharp('assets/2.png')
     .extract({ left: 300, top: 10, width: 180, height: 234 })
-    .toFile('public/assets/pili-idle-0.png');
+    .webp({ quality: 80 })
+    .toFile('public/assets/pili-idle-0.webp');
 } catch (err) {
   console.error('Error extracting character frames:', err);
 }
+
+// ──────────────── Audio Compression (MP3 → 64 kbps mono MP3) ────────────────
+const bmgSrc = resolve('assets/bmg');
+const bmgDest = resolve('public/assets/bmg');
+const audioManifestPath = join(bmgDest, 'asset-manifest.json');
+const audioEncodingVersion = 1;
+await mkdir(bmgDest, { recursive: true });
+
+const mp3Files = (await readdir(bmgSrc))
+  .filter((file) => file.toLowerCase().endsWith('.mp3'))
+  .sort((left, right) => left.localeCompare(right));
+if (mp3Files.length !== 11) {
+  throw new Error(`Expected 11 built-in music tracks in assets/bmg, found ${mp3Files.length}.`);
+}
+const expectedAudioFiles = new Set([...mp3Files, 'asset-manifest.json']);
+for (const file of await readdir(bmgDest)) {
+  if (!expectedAudioFiles.has(file)) await rm(join(bmgDest, file), { recursive: true });
+}
+/** @type {{ version: number, sources: Record<string, { hash: string, size: number }> }} */
+let previousAudioManifest = { version: 0, sources: {} };
+try {
+  previousAudioManifest = JSON.parse(await readFile(audioManifestPath, 'utf8'));
+} catch {
+  // A clean checkout or an older pipeline has no manifest yet.
+}
+/** @type {{ version: number, sources: Record<string, { hash: string, size: number }> }} */
+const nextAudioManifest = { version: audioEncodingVersion, sources: {} };
+console.log(`\n🎵 Compressing ${mp3Files.length} music tracks to 64 kbps mono MP3…`);
+let audioTotal = 0;
+for (const file of mp3Files) {
+  const src = join(bmgSrc, file);
+  const dest = join(bmgDest, file);
+  const sourceHash = createHash('sha256')
+    .update(await readFile(src))
+    .digest('hex');
+  const previous = previousAudioManifest.sources[file];
+  let output;
+  try {
+    output = await stat(dest);
+  } catch {
+    // Missing output is generated below.
+  }
+  const reusable =
+    previousAudioManifest.version === audioEncodingVersion &&
+    previous?.hash === sourceHash &&
+    previous.size === output?.size;
+  if (!reusable) {
+    await runFile(
+      ffmpeg.path,
+      [
+        '-hide_banner',
+        '-loglevel',
+        'error',
+        '-i',
+        src,
+        '-map_metadata',
+        '-1',
+        '-ac',
+        '1',
+        '-c:a',
+        'libmp3lame',
+        '-b:a',
+        '64k',
+        '-y',
+        dest,
+      ],
+      { timeout: 180_000, maxBuffer: 4 * 1024 * 1024 },
+    );
+  }
+  const { size } = await stat(dest);
+  nextAudioManifest.sources[file] = { hash: sourceHash, size };
+  audioTotal += size;
+  console.log(`  ${reusable ? '↻' : '✓'} ${file} → ${Math.round(size / 1024)} KB`);
+}
+await writeFile(audioManifestPath, `${JSON.stringify(nextAudioManifest, null, 2)}\n`);
+console.log(`  Total compressed audio: ${(audioTotal / 1024 / 1024).toFixed(1)} MB\n`);
+
+// ──────────────── Workers ────────────────
 await mkdir('public/workers', { recursive: true });
 await build({
   entryPoints: ['src/workers/storage.worker.ts', 'src/workers/image.worker.ts'],
@@ -120,12 +243,15 @@ await build({
 
 // Development must also replace stale build-specific precache manifests.
 if (process.env.npm_lifecycle_event === 'dev') {
-  await writeFile('public/sw.js', `// Development Service Worker: satisfies PWA installability with a pass-through fetch handler.
+  await writeFile(
+    'public/sw.js',
+    `// Development Service Worker: satisfies PWA installability with a pass-through fetch handler.
 self.addEventListener('install', () => self.skipWaiting());
 self.addEventListener('activate', (event) => event.waitUntil(self.clients.claim()));
 self.addEventListener('fetch', (event) => {
   // Pass-through fetch handler ensures Chrome identifies the PWA as installable in dev
   event.respondWith(fetch(event.request));
 });
-`);
+`,
+  );
 }

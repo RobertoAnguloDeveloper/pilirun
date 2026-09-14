@@ -1,4 +1,4 @@
-import { audioRecords, audioBlob, mutateAudio } from './music-store';
+import { audioBlob, mutateAudio, seedBuiltinTracks } from './music-store';
 import sqlite3InitModule from '@sqlite.org/sqlite-wasm';
 import type { Database, Sqlite3Static } from '@sqlite.org/sqlite-wasm';
 import {
@@ -142,7 +142,16 @@ async function readAll() {
       draftScenario: collection('scenario-drafts')[0],
       runs: collection('runs'),
       preferences: { ...DEFAULT_PREFERENCES, ...((collection('preferences')[0] as object) ?? {}) },
-      music: [...new Map([...db.selectObjects('SELECT json FROM music').map((row) => JSON.parse(String(row.json))), ...await audioRecords()].map((track) => [track.id, track])).values()],
+      music: [
+        ...new Map(
+          [
+            ...db
+              .selectObjects('SELECT json FROM music')
+              .map((row) => JSON.parse(String(row.json))),
+            ...(await seedBuiltinTracks()),
+          ].map((track) => [track.id, track]),
+        ).values(),
+      ],
     },
   };
 }
@@ -150,7 +159,10 @@ async function handle(request: StorageRequest): Promise<unknown> {
   await (initialized ??= init());
   if (request.action === 'init') return readAll();
   if (request.action === 'music-put') {
-    await mutateAudio(request.track, request.blob ?? new Blob([request.bytes!], { type: request.track.mime }));
+    await mutateAudio(
+      request.track,
+      request.blob ?? new Blob([request.bytes!], { type: request.track.mime }),
+    );
     return true;
   }
   if (request.action === 'music-get') {
@@ -158,7 +170,9 @@ async function handle(request: StorageRequest): Promise<unknown> {
     if (blob) return blob;
     const row = db.selectObject('SELECT bytes FROM music WHERE id=?', [request.id]);
     if (!row) throw new Error('La pista de audio ya no existe.');
-    return new Blob([(row.bytes as Uint8Array).slice().buffer], { type: 'application/octet-stream' });
+    return new Blob([(row.bytes as Uint8Array).slice().buffer], {
+      type: 'application/octet-stream',
+    });
   }
   if (request.action === 'scenario-assets-get') {
     return db
@@ -300,9 +314,12 @@ async function handle(request: StorageRequest): Promise<unknown> {
     } else if (request.action === 'storage-details') {
       db.exec('ROLLBACK'); // No mutation needed
       const countFor = (collection: string) =>
-        Number(db.selectValue('SELECT COUNT(*) FROM records WHERE collection=?', [collection]) ?? 0);
+        Number(
+          db.selectValue('SELECT COUNT(*) FROM records WHERE collection=?', [collection]) ?? 0,
+        );
       const musicCount = (await readAll()).data.music.length;
-      const location = backend === 'OPFS' ? 'OPFS (/pilirun.sqlite3)' : 'IndexedDB (pilirun-sqlite -> snapshots)';
+      const location =
+        backend === 'OPFS' ? 'OPFS (/pilirun.sqlite3)' : 'IndexedDB (pilirun-sqlite -> snapshots)';
       let persisted = false;
       try {
         if (typeof navigator !== 'undefined' && navigator.storage?.persisted) {
@@ -314,23 +331,30 @@ async function handle(request: StorageRequest): Promise<unknown> {
 
       // Compute realistic platform-specific absolute filesystem path on disk
       let absolutePath = '';
-      const isWin = typeof navigator !== 'undefined' && /win/i.test(navigator.platform || navigator.userAgent);
-      const isMac = typeof navigator !== 'undefined' && /mac/i.test(navigator.platform || navigator.userAgent);
+      const isWin =
+        typeof navigator !== 'undefined' && /win/i.test(navigator.platform || navigator.userAgent);
+      const isMac =
+        typeof navigator !== 'undefined' && /mac/i.test(navigator.platform || navigator.userAgent);
       if (backend === 'OPFS') {
         if (isWin) {
-          absolutePath = 'C:\\Users\\%USERNAME%\\AppData\\Local\\Google\\Chrome\\User Data\\Default\\File System\\opfs\\pilirun.sqlite3';
+          absolutePath =
+            'C:\\Users\\%USERNAME%\\AppData\\Local\\Google\\Chrome\\User Data\\Default\\File System\\opfs\\pilirun.sqlite3';
         } else if (isMac) {
-          absolutePath = '~/Library/Application Support/Google/Chrome/Default/File System/opfs/pilirun.sqlite3';
+          absolutePath =
+            '~/Library/Application Support/Google/Chrome/Default/File System/opfs/pilirun.sqlite3';
         } else {
           absolutePath = '~/.config/google-chrome/Default/File System/opfs/pilirun.sqlite3';
         }
       } else {
         if (isWin) {
-          absolutePath = 'C:\\Users\\%USERNAME%\\AppData\\Local\\Google\\Chrome\\User Data\\Default\\IndexedDB\\http_localhost_pilirun-sqlite.indexeddb.leveldb\\';
+          absolutePath =
+            'C:\\Users\\%USERNAME%\\AppData\\Local\\Google\\Chrome\\User Data\\Default\\IndexedDB\\http_localhost_pilirun-sqlite.indexeddb.leveldb\\';
         } else if (isMac) {
-          absolutePath = '~/Library/Application Support/Google/Chrome/Default/IndexedDB/http_localhost_pilirun-sqlite.indexeddb.leveldb/';
+          absolutePath =
+            '~/Library/Application Support/Google/Chrome/Default/IndexedDB/http_localhost_pilirun-sqlite.indexeddb.leveldb/';
         } else {
-          absolutePath = '~/.config/google-chrome/Default/IndexedDB/http_localhost_pilirun-sqlite.indexeddb.leveldb/';
+          absolutePath =
+            '~/.config/google-chrome/Default/IndexedDB/http_localhost_pilirun-sqlite.indexeddb.leveldb/';
         }
       }
 
@@ -338,7 +362,10 @@ async function handle(request: StorageRequest): Promise<unknown> {
         backend,
         location: location + ' + IndexedDB (pilirun-audio: archivos musicales)',
         absolutePath,
-        storageType: backend === 'OPFS' ? 'Origin Private File System (OPFS direct block I/O)' : 'IndexedDB LevelDB Virtual Block Device',
+        storageType:
+          backend === 'OPFS'
+            ? 'Origin Private File System (OPFS direct block I/O)'
+            : 'IndexedDB LevelDB Virtual Block Device',
         engine: 'SQLite3 3.49+ (WebAssembly / Wasm)',
         persisted,
         counts: {
@@ -353,10 +380,15 @@ async function handle(request: StorageRequest): Promise<unknown> {
     // Export inside the transaction. If IndexedDB fails, roll back the in-memory mutation too.
     await snapshot();
     db.exec('COMMIT');
-    if (request.action === 'delete' && request.collection === 'music') await mutateAudio(undefined, undefined, request.id);
+    if (request.action === 'delete' && request.collection === 'music')
+      await mutateAudio(undefined, undefined, request.id);
     return true;
   } catch (error) {
-    try { db.exec('ROLLBACK'); } catch { /* A committed SQLite change may precede a Blob-store failure. */ }
+    try {
+      db.exec('ROLLBACK');
+    } catch {
+      /* A committed SQLite change may precede a Blob-store failure. */
+    }
     throw error;
   }
 }

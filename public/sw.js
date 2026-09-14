@@ -1,5 +1,5 @@
 /* Versioned production shell. User data is never stored in this HTTP cache. */
-const CACHE = 'pilirun-shell-xRXfNGQeKF5IqxWUrYeN1';
+const CACHE = 'pilirun-shell-QuLnOn49zLfOeleDtztji';
 const CORE = [
   '/',
   '/manifest.webmanifest',
@@ -17,8 +17,34 @@ const CORE = [
   '/sqlite/index.mjs',
   '/sqlite/sqlite3.wasm',
   '/sqlite/sqlite3-opfs-async-proxy.js',
+  // Compressed background music (64 kbps mono MP3, ~1.2 MB each)
+  '/assets/bmg/A_Window_Facing_West.mp3',
+  '/assets/bmg/Bounding_Through_The_Blooms.mp3',
+  '/assets/bmg/Climbing_the_Spire.mp3',
+  '/assets/bmg/High_Score_Sprint.mp3',
+  '/assets/bmg/Marching_Toward_the_Final_Gate.mp3',
+  '/assets/bmg/Showdown_at_the_Clockwork_Spire.mp3',
+  '/assets/bmg/Sprint_to_the_Final_Gate.mp3',
+  '/assets/bmg/Star_Collector_s_Dash.mp3',
+  '/assets/bmg/The_Crown_s_Last_Round.mp3',
+  '/assets/bmg/The_Grand_Leap_Upwards.mp3',
+  '/assets/bmg/The_Last_Harpsichord.mp3',
+  // Optimized character sprites (WebP)
+  '/assets/character-sprite-1.webp',
+  '/assets/character-sprite-2.webp',
+  '/assets/pili-run-0.webp',
+  '/assets/pili-run-1.webp',
+  '/assets/pili-run-2.webp',
+  '/assets/pili-run-3.webp',
+  '/assets/pili-run-4.webp',
+  '/assets/pili-run-5.webp',
+  '/assets/pili-jump-0.webp',
+  '/assets/pili-jump-1.webp',
+  '/assets/pili-slide-0.webp',
+  '/assets/pili-slide-1.webp',
+  '/assets/pili-idle-0.webp',
 ];
-CORE.push(...["/_next/static/xRXfNGQeKF5IqxWUrYeN1/_buildManifest.js","/_next/static/xRXfNGQeKF5IqxWUrYeN1/_clientMiddlewareManifest.js","/_next/static/xRXfNGQeKF5IqxWUrYeN1/_ssgManifest.js","/_next/static/chunks/093_sugt6qlro.js","/_next/static/chunks/09lgyggnhjlha.js","/_next/static/chunks/0cz1d0mv5g_q7.js","/_next/static/chunks/0kq_8ktf_ngkn.js","/_next/static/chunks/0pmb2a8phctk8.js","/_next/static/chunks/1mh6a-0e61pyc.js","/_next/static/chunks/20ni20s-nhf4_.js","/_next/static/chunks/2dt48d-50kc65.js","/_next/static/chunks/2gw_w_32tj1_y.js","/_next/static/chunks/2l_y_qqi24r7y.js","/_next/static/chunks/2se5octn7wxkx.js","/_next/static/chunks/2x35wqyjr6s_8.js","/_next/static/chunks/3fntmmi971322.js","/_next/static/chunks/3j0mt832twjs2.js","/_next/static/chunks/3o1i_aeg09si9.js","/_next/static/chunks/3p5db865q00w_.js","/_next/static/chunks/3qgfcnpobcjr4.css","/_next/static/chunks/3xftiuqyhp25a.js","/_next/static/chunks/turbopack-3wbyi96ng71ls.js"]);
+CORE.push(...["/_next/static/QuLnOn49zLfOeleDtztji/_buildManifest.js","/_next/static/QuLnOn49zLfOeleDtztji/_clientMiddlewareManifest.js","/_next/static/QuLnOn49zLfOeleDtztji/_ssgManifest.js","/_next/static/chunks/093_sugt6qlro.js","/_next/static/chunks/09lgyggnhjlha.js","/_next/static/chunks/0cz1d0mv5g_q7.js","/_next/static/chunks/0pmb2a8phctk8.js","/_next/static/chunks/0vm1_4nmjbxhz.js","/_next/static/chunks/0v_m6ks4wuc33.css","/_next/static/chunks/0wahkoalavxjp.js","/_next/static/chunks/1aik0izkju3f_.js","/_next/static/chunks/1mh6a-0e61pyc.js","/_next/static/chunks/29gcst95jf-43.js","/_next/static/chunks/2gw_w_32tj1_y.js","/_next/static/chunks/2kywc881yhc58.js","/_next/static/chunks/2l_y_qqi24r7y.js","/_next/static/chunks/2se5octn7wxkx.js","/_next/static/chunks/3a8u13pvgr94r.js","/_next/static/chunks/3c9zzh8pa0347.js","/_next/static/chunks/3fntmmi971322.js","/_next/static/chunks/3zbfj398q9ohs.js","/_next/static/chunks/turbopack-3wbyi96ng71ls.js"]);
 self.addEventListener('install', (event) =>
   event.waitUntil(
     (async () => {

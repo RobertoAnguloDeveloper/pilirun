@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { runInNewContext } from 'node:vm';
 import { expect, it, vi } from 'vitest';
+import { BUILTIN_MUSIC } from '../src/lib/builtin-music';
 
 it('retains successful precache entries when one asset is missing', async () => {
   const listeners: Record<
@@ -36,5 +37,9 @@ it('retains successful precache entries when one asset is missing', async () => 
   expect(stored.has('/workers/storage.worker.js')).toBe(true);
   expect(stored.has('/_next/static/test.js')).toBe(true);
   expect(stored.has('/icon.svg')).toBe(false);
+  for (const track of BUILTIN_MUSIC) {
+    expect(stored.has(`/assets/bmg/${track.file}.mp3`)).toBe(true);
+  }
+  expect(stored.has('/assets/pili-idle-0.webp')).toBe(true);
   expect(warn).toHaveBeenCalledOnce();
 });

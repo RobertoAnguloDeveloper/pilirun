@@ -17,6 +17,32 @@ const CORE = [
   '/sqlite/index.mjs',
   '/sqlite/sqlite3.wasm',
   '/sqlite/sqlite3-opfs-async-proxy.js',
+  // Compressed background music (64 kbps mono MP3, ~1.2 MB each)
+  '/assets/bmg/A_Window_Facing_West.mp3',
+  '/assets/bmg/Bounding_Through_The_Blooms.mp3',
+  '/assets/bmg/Climbing_the_Spire.mp3',
+  '/assets/bmg/High_Score_Sprint.mp3',
+  '/assets/bmg/Marching_Toward_the_Final_Gate.mp3',
+  '/assets/bmg/Showdown_at_the_Clockwork_Spire.mp3',
+  '/assets/bmg/Sprint_to_the_Final_Gate.mp3',
+  '/assets/bmg/Star_Collector_s_Dash.mp3',
+  '/assets/bmg/The_Crown_s_Last_Round.mp3',
+  '/assets/bmg/The_Grand_Leap_Upwards.mp3',
+  '/assets/bmg/The_Last_Harpsichord.mp3',
+  // Optimized character sprites (WebP)
+  '/assets/character-sprite-1.webp',
+  '/assets/character-sprite-2.webp',
+  '/assets/pili-run-0.webp',
+  '/assets/pili-run-1.webp',
+  '/assets/pili-run-2.webp',
+  '/assets/pili-run-3.webp',
+  '/assets/pili-run-4.webp',
+  '/assets/pili-run-5.webp',
+  '/assets/pili-jump-0.webp',
+  '/assets/pili-jump-1.webp',
+  '/assets/pili-slide-0.webp',
+  '/assets/pili-slide-1.webp',
+  '/assets/pili-idle-0.webp',
 ];
 self.addEventListener('install', (event) =>
   event.waitUntil(

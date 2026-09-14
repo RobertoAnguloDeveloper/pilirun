@@ -60,34 +60,34 @@ const COLORS = Array.from(new Set(COLOR_PALETTES.flatMap((p) => p.colors)));
 const ASSET_PRESETS = [
   {
     name: 'Pili Animado (Assets)',
-    src: '/assets/character-sprite-1.png',
+    src: '/assets/character-sprite-1.webp',
     fallbackSrc: '/assets/2.png',
     icon: '🦊',
     frames: {
       run: [
-        '/assets/pili-run-0.png',
-        '/assets/pili-run-1.png',
-        '/assets/pili-run-2.png',
-        '/assets/pili-run-3.png',
-        '/assets/pili-run-4.png',
-        '/assets/pili-run-5.png',
+        '/assets/pili-run-0.webp',
+        '/assets/pili-run-1.webp',
+        '/assets/pili-run-2.webp',
+        '/assets/pili-run-3.webp',
+        '/assets/pili-run-4.webp',
+        '/assets/pili-run-5.webp',
       ],
       jump: [
-        '/assets/pili-jump-0.png',
-        '/assets/pili-jump-1.png',
+        '/assets/pili-jump-0.webp',
+        '/assets/pili-jump-1.webp',
       ],
       slide: [
-        '/assets/pili-slide-0.png',
-        '/assets/pili-slide-1.png',
+        '/assets/pili-slide-0.webp',
+        '/assets/pili-slide-1.webp',
       ],
       idle: [
-        '/assets/pili-idle-0.png',
+        '/assets/pili-idle-0.webp',
       ],
     },
   },
   {
     name: 'Paladín Sprite 2',
-    src: '/assets/character-sprite-2.png',
+    src: '/assets/character-sprite-2.webp',
     fallbackSrc: '/assets/2.png',
     icon: '🛡️',
   },

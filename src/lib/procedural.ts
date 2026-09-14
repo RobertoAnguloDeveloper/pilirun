@@ -35,6 +35,8 @@ export interface LevelConfig {
   minObstacleGap: number;
   allowVerticals: boolean;
   density: number; // 0.6 - 1.2
+  /** ID of the builtin music track assigned to this level. */
+  levelMusicId?: string;
 }
 
 /**
@@ -53,6 +55,7 @@ export const OFFICIAL_LEVELS: LevelConfig[] = [
     minObstacleGap: 620,
     allowVerticals: false,
     density: 0.75,
+    levelMusicId: 'bmg-bounding-through-the-blooms',
   },
   {
     id: 'forest-2',
@@ -65,6 +68,7 @@ export const OFFICIAL_LEVELS: LevelConfig[] = [
     minObstacleGap: 560,
     allowVerticals: false,
     density: 0.85,
+    levelMusicId: 'bmg-a-window-facing-west',
   },
   {
     id: 'forest-3',
@@ -77,6 +81,7 @@ export const OFFICIAL_LEVELS: LevelConfig[] = [
     minObstacleGap: 520,
     allowVerticals: false,
     density: 0.95,
+    levelMusicId: 'bmg-bounding-through-the-blooms',
   },
 
   // World 2: Dunas del Sol (Intermediate)
@@ -91,6 +96,7 @@ export const OFFICIAL_LEVELS: LevelConfig[] = [
     minObstacleGap: 520,
     allowVerticals: false,
     density: 0.9,
+    levelMusicId: 'bmg-star-collectors-dash',
   },
   {
     id: 'sunset-2',
@@ -103,6 +109,7 @@ export const OFFICIAL_LEVELS: LevelConfig[] = [
     minObstacleGap: 490,
     allowVerticals: false,
     density: 1.0,
+    levelMusicId: 'bmg-the-grand-leap-upwards',
   },
   {
     id: 'sunset-3',
@@ -115,6 +122,7 @@ export const OFFICIAL_LEVELS: LevelConfig[] = [
     minObstacleGap: 470,
     allowVerticals: false,
     density: 1.05,
+    levelMusicId: 'bmg-star-collectors-dash',
   },
 
   // World 3: Valle Lunar (Challenging)
@@ -129,6 +137,7 @@ export const OFFICIAL_LEVELS: LevelConfig[] = [
     minObstacleGap: 480,
     allowVerticals: false,
     density: 1.0,
+    levelMusicId: 'bmg-the-last-harpsichord',
   },
   {
     id: 'night-2',
@@ -141,6 +150,7 @@ export const OFFICIAL_LEVELS: LevelConfig[] = [
     minObstacleGap: 460,
     allowVerticals: false,
     density: 1.1,
+    levelMusicId: 'bmg-climbing-the-spire',
   },
   {
     id: 'night-3',
@@ -153,6 +163,7 @@ export const OFFICIAL_LEVELS: LevelConfig[] = [
     minObstacleGap: 450,
     allowVerticals: false,
     density: 1.15,
+    levelMusicId: 'bmg-the-last-harpsichord',
   },
 
   // World 4: Metrópolis Neón (Verticality + Speed)
@@ -167,6 +178,7 @@ export const OFFICIAL_LEVELS: LevelConfig[] = [
     minObstacleGap: 500,
     allowVerticals: true,
     density: 1.0,
+    levelMusicId: 'bmg-high-score-sprint',
   },
   {
     id: 'neon-2',
@@ -179,6 +191,7 @@ export const OFFICIAL_LEVELS: LevelConfig[] = [
     minObstacleGap: 470,
     allowVerticals: true,
     density: 1.1,
+    levelMusicId: 'bmg-sprint-to-the-final-gate',
   },
   {
     id: 'neon-3',
@@ -191,6 +204,7 @@ export const OFFICIAL_LEVELS: LevelConfig[] = [
     minObstacleGap: 450,
     allowVerticals: true,
     density: 1.15,
+    levelMusicId: 'bmg-high-score-sprint',
   },
 
   // World 5: Cumbres Celestes (Extreme Acrobatics)
@@ -205,6 +219,7 @@ export const OFFICIAL_LEVELS: LevelConfig[] = [
     minObstacleGap: 490,
     allowVerticals: true,
     density: 1.05,
+    levelMusicId: 'bmg-the-crowns-last-round',
   },
   {
     id: 'alpine-2',
@@ -217,6 +232,7 @@ export const OFFICIAL_LEVELS: LevelConfig[] = [
     minObstacleGap: 470,
     allowVerticals: true,
     density: 1.1,
+    levelMusicId: 'bmg-marching-toward-the-final-gate',
   },
   {
     id: 'alpine-3',
@@ -229,6 +245,7 @@ export const OFFICIAL_LEVELS: LevelConfig[] = [
     minObstacleGap: 450,
     allowVerticals: true,
     density: 1.2,
+    levelMusicId: 'bmg-the-crowns-last-round',
   },
 
   // World 6: Cráter Ígneo (Maximum Master Challenge)
@@ -243,6 +260,7 @@ export const OFFICIAL_LEVELS: LevelConfig[] = [
     minObstacleGap: 480,
     allowVerticals: true,
     density: 1.1,
+    levelMusicId: 'bmg-showdown-at-the-clockwork-spire',
   },
   {
     id: 'volcano-2',
@@ -255,6 +273,7 @@ export const OFFICIAL_LEVELS: LevelConfig[] = [
     minObstacleGap: 460,
     allowVerticals: true,
     density: 1.15,
+    levelMusicId: 'bmg-showdown-at-the-clockwork-spire',
   },
   {
     id: 'volcano-3',
@@ -267,6 +286,7 @@ export const OFFICIAL_LEVELS: LevelConfig[] = [
     minObstacleGap: 450,
     allowVerticals: true,
     density: 1.2,
+    levelMusicId: 'bmg-showdown-at-the-clockwork-spire',
   },
 ];
 
@@ -286,7 +306,10 @@ export function validateLevelPlayability(track: Track): { valid: boolean; reason
   for (const item of track.items) {
     if (['log', 'rock', 'branch'].includes(item.kind)) {
       if (item.x < 500) {
-        return { valid: false, reason: `Obstáculo demasiado cercano al inicio (${item.x}px < 500px).` };
+        return {
+          valid: false,
+          reason: `Obstáculo demasiado cercano al inicio (${item.x}px < 500px).`,
+        };
       }
       if (item.x > track.length - 350) {
         return { valid: false, reason: `Obstáculo demasiado cercano a la meta (${item.x}px).` };
@@ -425,7 +448,13 @@ function attemptGeneration(config: LevelConfig, seed: number): Track {
     const powerRoll = rng();
     let pKind: ItemKind;
     if (powerRoll < 0.25) {
-      const powers: ItemKind[] = ['power_fire', 'power_water', 'power_leaf', 'power_thunder', 'power_star'];
+      const powers: ItemKind[] = [
+        'power_fire',
+        'power_water',
+        'power_leaf',
+        'power_thunder',
+        'power_star',
+      ];
       pKind = powers[Math.floor(rng() * powers.length)];
     } else {
       pKind = rng() > 0.6 ? 'shield' : rng() > 0.5 ? 'boost' : 'time';
@@ -480,6 +509,7 @@ function attemptGeneration(config: LevelConfig, seed: number): Track {
     world: config.world,
     length: config.length,
     items: items.sort((a, b) => a.x - b.x),
+    levelMusicId: config.levelMusicId,
     boss: {
       id: `boss-${config.id}`,
       name: `Guardián de ${config.title}`,
@@ -527,6 +557,7 @@ function createSafeFallback(config: LevelConfig): Track {
     world: config.world,
     length: config.length,
     items: items.sort((a, b) => a.x - b.x),
+    levelMusicId: config.levelMusicId,
   };
 }
 

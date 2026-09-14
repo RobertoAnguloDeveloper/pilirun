@@ -78,34 +78,26 @@ export const CHARACTERS: Character[] = [
     id: 'pili',
     name: 'Pili (Sprite Dinámico)',
     color: '#ec9565',
-    image: '/assets/character-sprite-1.png',
+    image: '/assets/character-sprite-1.webp',
     frames: {
       run: [
-        '/assets/pili-run-0.png',
-        '/assets/pili-run-1.png',
-        '/assets/pili-run-2.png',
-        '/assets/pili-run-3.png',
-        '/assets/pili-run-4.png',
-        '/assets/pili-run-5.png',
+        '/assets/pili-run-0.webp',
+        '/assets/pili-run-1.webp',
+        '/assets/pili-run-2.webp',
+        '/assets/pili-run-3.webp',
+        '/assets/pili-run-4.webp',
+        '/assets/pili-run-5.webp',
       ],
-      jump: [
-        '/assets/pili-jump-0.png',
-        '/assets/pili-jump-1.png',
-      ],
-      slide: [
-        '/assets/pili-slide-0.png',
-        '/assets/pili-slide-1.png',
-      ],
-      idle: [
-        '/assets/pili-idle-0.png',
-      ],
+      jump: ['/assets/pili-jump-0.webp', '/assets/pili-jump-1.webp'],
+      slide: ['/assets/pili-slide-0.webp', '/assets/pili-slide-1.webp'],
+      idle: ['/assets/pili-idle-0.webp'],
     },
   },
   {
     id: 'menta',
     name: 'Menta',
     color: '#82b79b',
-    image: '/assets/character-sprite-2.png',
+    image: '/assets/character-sprite-2.webp',
   },
   {
     id: 'luna',
@@ -127,11 +119,13 @@ function makeTrack(
     items.push({ id: `${id}-o${i}`, x, kind: obstacles[i % obstacles.length] });
     for (let j = 0; j < 3; j++) {
       const cx = x - 130 + j * 55;
-      if (cx >= 400 && cx <= length - 150) items.push({ id: `${id}-c${i}-${j}`, x: cx, kind: 'coin' });
+      if (cx >= 400 && cx <= length - 150)
+        items.push({ id: `${id}-c${i}-${j}`, x: cx, kind: 'coin' });
     }
     if (i % 5 === 3) {
       const px = x + gap * 0.5;
-      if (px >= 400 && px <= length - 150) items.push({ id: `${id}-p${i}`, x: px, kind: i % 2 ? 'shield' : 'time' });
+      if (px >= 400 && px <= length - 150)
+        items.push({ id: `${id}-p${i}`, x: px, kind: i % 2 ? 'shield' : 'time' });
     }
     if (i % 7 === 5) {
       const bx = x + gap * 0.7;
@@ -139,7 +133,8 @@ function makeTrack(
     }
     if (withVerticals && i % 4 === 2) {
       const sx = x - gap * 0.4;
-      if (sx >= 400 && sx <= length - 150) items.push({ id: `${id}-sp${i}`, x: sx, kind: 'spring' });
+      if (sx >= 400 && sx <= length - 150)
+        items.push({ id: `${id}-sp${i}`, x: sx, kind: 'spring' });
     }
     if (withVerticals && i % 6 === 4) {
       const rx = x + gap * 0.3;
