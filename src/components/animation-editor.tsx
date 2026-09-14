@@ -3,6 +3,7 @@ import { useState } from 'react';
 import type { Character } from '@/lib/types';
 import { frameScale } from '@/lib/sprite-geometry';
 import { Avatar } from './art';
+import { Copy, Paintbrush, Plus } from 'lucide-react';
 
 export type Movement = keyof NonNullable<Character['frames']>;
 const MOVEMENTS: Record<Movement, string> = {
@@ -17,11 +18,13 @@ export function AnimationEditor({
   onChange,
   onSave,
   busy,
+  onEditFrameInCanvas,
 }: {
   character: Character;
   onChange: (character: Character) => void;
   onSave: (movement: Movement) => Promise<void>;
   busy: boolean;
+  onEditFrameInCanvas?: (movement: Movement, frameIndex: number, frameDataUrl?: string) => void;
 }) {
   const [movement, setMovement] = useState<Movement>('run');
   const [selected, setSelected] = useState(0);
@@ -165,13 +168,47 @@ export function AnimationEditor({
           <button
             type="button"
             disabled={!source}
+            title="Duplicar este fotograma para crear variaciones o animación cuadro por cuadro"
+            onClick={() => {
+              if (!source) return;
+              const nextFrames = [...frames.slice(0, index + 1), source, ...frames.slice(index + 1)];
+              const nextScales = [...scales.slice(0, index + 1), scales[index] ?? 1, ...scales.slice(index + 1)];
+              update(nextFrames, nextScales);
+              setSelected(index + 1);
+            }}
+          >
+            <Copy size={14} style={{ marginRight: 4 }} /> Duplicar
+          </button>
+          {onEditFrameInCanvas && source && (
+            <button
+              type="button"
+              className="secondary"
+              title="Abrir este fotograma en el lienzo de dibujo para retocarlo o redibujarlo"
+              onClick={() => onEditFrameInCanvas(movement, index, source)}
+            >
+              <Paintbrush size={14} style={{ marginRight: 4 }} /> Editar en Lienzo
+            </button>
+          )}
+          {onEditFrameInCanvas && (
+            <button
+              type="button"
+              className="secondary"
+              title="Dibujar un fotograma nuevo desde cero en el lienzo"
+              onClick={() => onEditFrameInCanvas(movement, frames.length, undefined)}
+            >
+              <Plus size={14} style={{ marginRight: 4 }} /> Dibujar Nuevo
+            </button>
+          )}
+          <button
+            type="button"
+            disabled={!source}
             onClick={() => update(frames.filter((_, i) => i !== index), scales.filter((_, i) => i !== index))}
           >
             Quitar fotograma
           </button>
         </div>
         <label>
-          Añadir fotograma
+          Añadir fotograma desde archivo
           <input
             type="file"
             accept="image/png,image/webp,image/jpeg,image/svg+xml"

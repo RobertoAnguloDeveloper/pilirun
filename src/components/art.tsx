@@ -76,7 +76,9 @@ export function Avatar({ character, size = 80, movement = 'run', frameIndex, sho
       }
 
       const charScale = character.scale ?? 1.0;
-      const displayHeight = 58 * charScale * (movement === 'slide' ? PLAYER_SLIDE_HEIGHT / PLAYER_HEIGHT : 1);
+      // If using custom image/frames, preserve full proportional height; only generic procedural art shrinks
+      const isCustomGraphic = !!(activeImg || character.pixels);
+      const displayHeight = 58 * charScale * (!isCustomGraphic && movement === 'slide' ? PLAYER_SLIDE_HEIGHT / PLAYER_HEIGHT : 1);
       if (showGround) {
         ctx.fillStyle = '#d8f36a';
         ctx.fillRect(0, 145, 160, 1);

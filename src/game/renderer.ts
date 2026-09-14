@@ -1365,7 +1365,8 @@ export class Renderer {
       this.lastSprite = activeFrameImg;
       this.lastFrameScale = frameScale(this.character, movement, activeIndex);
     } else activeFrameImg = this.lastSprite ?? this.image;
-    const spriteHeight = (isSliding ? PLAYER_SLIDE_HEIGHT : PLAYER_HEIGHT) * scale * charScale;
+    const hasCustomVisual = !!(activeFrameImg?.complete && activeFrameImg.naturalWidth) || !!this.character.pixels;
+    const spriteHeight = (!hasCustomVisual && isSliding ? PLAYER_SLIDE_HEIGHT : PLAYER_HEIGHT) * scale * charScale;
 
     if (activeFrameImg?.complete && activeFrameImg.naturalWidth) {
       ctx.imageSmoothingEnabled = false;

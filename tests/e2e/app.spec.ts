@@ -444,6 +444,61 @@ test.describe('PWA Tablet Installation & Manifest Suite', () => {
     await startBtn.click();
     await expect(modalHeading).not.toBeVisible();
   });
+
+  test('character creator features: clear canvas, freehand mode, palettes, and photo bg removal', async ({ page }) => {
+    await page.goto('/');
+    await expect(page.getByRole('button', { name: playButton })).toBeEnabled({ timeout: 30000 });
+    await page.getByRole('button', { name: 'Mis personajes', exact: true }).click();
+
+    // 1. Verify Clear Canvas button exists
+    const clearBtn = page.getByRole('button', { name: /Limpiar lienzo/i });
+    await expect(clearBtn).toBeVisible();
+    await clearBtn.click();
+
+    // 2. Verify Expanded Color Palettes
+    await expect(page.getByRole('button', { name: 'Neón & Fantasía' })).toBeVisible();
+    await page.getByRole('button', { name: 'Neón & Fantasía' }).click();
+    await expect(page.getByTitle('#d8f36a')).toBeVisible();
+
+    // 3. Verify Freehand Mode toggle & Black brush non-destructive behavior
+    const freehandToggle = page.getByRole('button', { name: /Trazo a mano alzada/i });
+    await expect(freehandToggle).toBeVisible();
+    await freehandToggle.click();
+    const freehandCanvas = page.locator('canvas.freehand-editor');
+    await expect(freehandCanvas).toBeVisible();
+
+    // Select black color from Monocromo & Metales
+    await page.getByRole('button', { name: 'Monocromo & Metales' }).click();
+    await page.getByTitle('#000000').click();
+    const box = await freehandCanvas.boundingBox();
+    if (box) {
+      await page.mouse.move(box.x + 40, box.y + 40);
+      await page.mouse.down();
+      await page.mouse.move(box.x + 80, box.y + 80);
+      await page.mouse.up();
+    }
+    // Verify contour isolation button exists
+    await expect(page.getByRole('button', { name: /Aislar contorno negro/i })).toBeVisible();
+
+    // 4. Verify Sprite Movement Classification shelf in Pixel Art mode
+    const pixelToggle = page.getByRole('button', { name: /Píxel por píxel/i });
+    await pixelToggle.click();
+    await expect(page.getByText('Clasificar para movimiento:')).toBeVisible();
+    await expect(page.getByRole('button', { name: /Carrera/i })).toBeVisible();
+    await expect(page.getByRole('button', { name: /Salto/i })).toBeVisible();
+    await expect(page.getByRole('button', { name: /Agachado/i })).toBeVisible();
+    await expect(page.getByRole('button', { name: /\+ Nuevo sprite/i })).toBeVisible();
+    await expect(page.getByRole('button', { name: /Duplicar/i })).toBeVisible();
+
+    // 5. Verify Photo Mode & Background removal tools
+    await page.getByRole('button', { name: 'Fotografía', exact: true }).click();
+    await page.locator('input[type=file]').setInputFiles('public/icon-192.png');
+    await expect(page.getByRole('button', { name: /Quitar fondo automático/i })).toBeVisible({ timeout: 15000 });
+    await expect(page.getByRole('button', { name: /Varita Mágica/i })).toBeVisible();
+    await expect(page.getByRole('button', { name: /Borrador/i })).toBeVisible();
+    await expect(page.getByRole('button', { name: /Restaurar/i })).toBeVisible();
+  });
 });
+
 
 

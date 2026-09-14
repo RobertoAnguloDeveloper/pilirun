@@ -20,24 +20,41 @@ import {
 import { AnimationEditor, type Movement } from './animation-editor';
 import { Avatar } from './art';
 import type { Character } from '@/lib/types';
+import {
+  Pipette,
+  Scissors,
+  RotateCcw,
+  ZoomIn,
+  Brush,
+  Crosshair,
+  Sliders,
+  Camera,
+  Layers as LayersIcon,
+  MousePointer,
+  HelpCircle,
+  Grid,
+} from 'lucide-react';
 
-const COLORS = [
-  '#ec9565',
-  '#fff3d7',
-  '#243b32',
-  '#315c49',
-  '#82b79b',
-  '#b8a5d0',
-  '#f18c73',
-  '#f3d67d',
-  '#759bbd',
-  '#4a7298',
-  '#ffffff',
-  '#e2e8f0',
-  '#94a3b8',
-  '#475569',
-  '#1c2524',
+export const COLOR_PALETTES: { name: string; colors: string[] }[] = [
+  {
+    name: 'Tierra & Bosque',
+    colors: ['#ec9565', '#d47b4e', '#fff3d7', '#243b32', '#315c49', '#82b79b', '#b8a5d0', '#f18c73', '#f3d67d', '#759bbd', '#4a7298'],
+  },
+  {
+    name: 'Neón & Fantasía',
+    colors: ['#d8f36a', '#00f0ff', '#ff007f', '#a855f7', '#facc15', '#fb923c', '#4ade80', '#38bdf8', '#818cf8', '#f43f5e', '#10b981'],
+  },
+  {
+    name: 'Pieles, Pelajes & Sombras',
+    colors: ['#ffe0bd', '#ffd1a4', '#f1c27d', '#e0ac69', '#c68642', '#8d5524', '#5c3818', '#3a230f', '#2a1a0a', '#ffb6c1', '#c08081'],
+  },
+  {
+    name: 'Monocromo & Metales',
+    colors: ['#000000', '#1c2524', '#334155', '#475569', '#64748b', '#94a3b8', '#cbd5e1', '#e2e8f0', '#f8fafc', '#ffffff', '#ffd700', '#c0c0c0'],
+  },
 ];
+
+const COLORS = Array.from(new Set(COLOR_PALETTES.flatMap((p) => p.colors)));
 
 // Presets from the project's assets folder (/assets/1.png and /assets/2.png)
 const ASSET_PRESETS = [
@@ -181,6 +198,130 @@ function findClosestPaletteColor(r: number, g: number, b: number): string {
     }
   }
   return closest;
+}
+
+/**
+ * Freehand character isolation algorithm:
+ * In freehand drawing mode, the black brush (#000000 or near-black) defines the character's outer boundary/outline.
+ * Any strokes or artifacts outside the shapes enclosed by the black outline are cleared/masked out.
+ */
+function isolateBlackOutlineContour(canvas: HTMLCanvasElement): string {
+  const w = canvas.width;
+  const h = canvas.height;
+  const ctx = canvas.getContext('2d', { willReadFrequently: true });
+  if (!ctx) return canvas.toDataURL('image/png');
+
+  const imgData = ctx.getImageData(0, 0, w, h);
+  const data = imgData.data;
+
+  // Identify black outline pixels (r < 50, g < 50, b < 50, a > 180)
+  const isBlackBarrier = (x: number, y: number): boolean => {
+    const idx = (y * w + x) * 4;
+    const a = data[idx + 3];
+    if (a < 180) return false;
+    const r = data[idx];
+    const g = data[idx + 1];
+    const b = data[idx + 2];
+    return r < 55 && g < 55 && b < 55;
+  };
+
+  // Check if there is any black outline drawn at all
+  let hasBlackOutline = false;
+  for (let i = 0; i < w * h; i++) {
+    const idx = i * 4;
+    if (data[idx + 3] >= 180 && data[idx] < 55 && data[idx + 1] < 55 && data[idx + 2] < 55) {
+      hasBlackOutline = true;
+      break;
+    }
+  }
+
+  // If no black outline was drawn, return as-is
+  if (!hasBlackOutline) {
+    return canvas.toDataURL('image/png');
+  }
+
+  // Flood fill from all 4 borders inward. Any pixel reached without crossing a black barrier is OUTSIDE the character
+  const visited = new Uint8Array(w * h);
+  const queue: number[] = [];
+
+  // Seed with all border coordinates that are not black barriers
+  for (let x = 0; x < w; x++) {
+    const topIdx = 0 * w + x;
+    if (!isBlackBarrier(x, 0)) {
+      visited[topIdx] = 1;
+      queue.push(topIdx);
+    }
+    const bottomIdx = (h - 1) * w + x;
+    if (!isBlackBarrier(x, h - 1)) {
+      visited[bottomIdx] = 1;
+      queue.push(bottomIdx);
+    }
+  }
+
+  for (let y = 0; y < h; y++) {
+    const leftIdx = y * w + 0;
+    if (!visited[leftIdx] && !isBlackBarrier(0, y)) {
+      visited[leftIdx] = 1;
+      queue.push(leftIdx);
+    }
+    const rightIdx = y * w + (w - 1);
+    if (!visited[rightIdx] && !isBlackBarrier(w - 1, y)) {
+      visited[rightIdx] = 1;
+      queue.push(rightIdx);
+    }
+  }
+
+  let head = 0;
+  while (head < queue.length) {
+    const curr = queue[head++];
+    const cx = curr % w;
+    const cy = Math.floor(curr / w);
+
+    const neighbors = [
+      cx > 0 ? curr - 1 : -1,
+      cx < w - 1 ? curr + 1 : -1,
+      cy > 0 ? curr - w : -1,
+      cy < h - 1 ? curr + w : -1,
+    ];
+
+    for (const n of neighbors) {
+      if (n === -1 || visited[n]) continue;
+      const nx = n % w;
+      const ny = Math.floor(n / w);
+      if (!isBlackBarrier(nx, ny)) {
+        visited[n] = 1;
+        queue.push(n);
+      }
+    }
+  }
+
+  // Check if flood fill reaches the entire canvas or if a protected closed interior exists
+  let reachedCount = 0;
+  for (let i = 0; i < w * h; i++) {
+    if (visited[i]) reachedCount++;
+  }
+
+  // If flood-fill reached practically the whole canvas (unclosed loop or open strokes),
+  // DO NOT destructively erase the user's drawing!
+  // Only isolate if there is an actual enclosed non-barrier region.
+  const totalPixels = w * h;
+  if (reachedCount > totalPixels * 0.985) {
+    return canvas.toDataURL('image/png');
+  }
+
+  // Clear every pixel that was reached by the exterior flood fill
+  for (let i = 0; i < w * h; i++) {
+    if (visited[i]) {
+      data[i * 4 + 3] = 0; // Transparent (outside the enclosed shape)
+    }
+  }
+
+  const resultCanvas = document.createElement('canvas');
+  resultCanvas.width = w;
+  resultCanvas.height = h;
+  const rCtx = resultCanvas.getContext('2d')!;
+  rCtx.putImageData(imgData, 0, 0);
+  return resultCanvas.toDataURL('image/png');
 }
 
 /**
@@ -474,20 +615,164 @@ export function CharacterEditor({
     [busy, setBusy] = useState(false),
     [message, setMessage] = useState('');
   const [mode, setMode] = useState<'pixel' | 'auto_sprite' | 'photo'>('pixel');
+  const [drawType, setDrawType] = useState<'pixel' | 'freehand'>('pixel');
+  const [brushSize, setBrushSize] = useState(8);
+  const [paletteTab, setPaletteTab] = useState(0);
+  const [spriteMovement, setSpriteMovement] = useState<Movement>('run');
+  const [activeFrameIdx, setActiveFrameIdx] = useState<number>(0);
+
+  // Photo editing state
   const [photo, setPhoto] = useState<File>(),
     [zoom, setZoom] = useState(1),
     [cropX, setCropX] = useState(0.5),
     [cropY, setCropY] = useState(0.5),
     [processing, setProcessing] = useState(false);
+  const [photoTool, setPhotoTool] = useState<'wand' | 'eraser' | 'restore'>('wand');
+  const [wandTolerance, setWandTolerance] = useState(32);
+  const [eraserRadius, setEraserRadius] = useState(16);
   const [showPrompt, setShowPrompt] = useState(false);
   const [copiedPrompt, setCopiedPrompt] = useState(false);
 
   const ref = useRef<HTMLCanvasElement>(null),
+    freehandRef = useRef<HTMLCanvasElement>(null),
+    photoCanvasRef = useRef<HTMLCanvasElement>(null),
+    originalPhotoImg = useRef<HTMLImageElement | null>(null),
+    photoDrawing = useRef(false),
+    freehandDrawing = useRef(false),
+    freehandUndo = useRef<ImageData[]>([]),
     drawing = useRef(false),
     undo = useRef<string[][]>([]),
     pixels = useRef(editing.pixels!),
     imageWorker = useRef<Worker | null>(null),
     requestId = useRef(0);
+
+  // Helper to convert 16x16 pixels array to a crisp PNG Data URL
+  const pixelsToDataUrl = (pxs: string[]): string => {
+    const c = document.createElement('canvas');
+    c.width = 16;
+    c.height = 16;
+    const ctx = c.getContext('2d');
+    if (!ctx) return '';
+    ctx.clearRect(0, 0, 16, 16);
+    pxs.forEach((col, i) => {
+      if (col !== 'transparent') {
+        ctx.fillStyle = col;
+        ctx.fillRect(i % 16, Math.floor(i / 16), 1, 1);
+      }
+    });
+    return c.toDataURL('image/png');
+  };
+
+  // Switch to or edit a specific frame in the active movement
+  const selectSpriteFrame = (idx: number, mov: Movement = spriteMovement) => {
+    const movFrames = editing.frames?.[mov] ?? [];
+    setActiveFrameIdx(idx);
+    const targetUrl = movFrames[idx];
+    if (targetUrl) {
+      if (drawType === 'pixel') {
+        const img = new Image();
+        img.onload = () => {
+          const cvs = document.createElement('canvas');
+          cvs.width = 16;
+          cvs.height = 16;
+          const ctx = cvs.getContext('2d');
+          if (ctx) {
+            ctx.drawImage(img, 0, 0, 16, 16);
+            const pData = ctx.getImageData(0, 0, 16, 16).data;
+            const newPxs: string[] = [];
+            for (let i = 0; i < 256; i++) {
+              const a = pData[i * 4 + 3];
+              if (a < 50) newPxs.push('transparent');
+              else newPxs.push(findClosestPaletteColor(pData[i * 4], pData[i * 4 + 1], pData[i * 4 + 2]));
+            }
+            pixels.current = newPxs;
+            setEditing((c) => ({ ...c, pixels: newPxs, image: targetUrl }));
+          }
+        };
+        img.src = targetUrl;
+      } else {
+        setEditing((c) => ({ ...c, image: targetUrl }));
+        if (freehandRef.current) {
+          const img = new Image();
+          img.onload = () => {
+            const ctx = freehandRef.current?.getContext('2d');
+            if (ctx) {
+              ctx.clearRect(0, 0, 320, 320);
+              ctx.drawImage(img, 0, 0, 320, 320);
+            }
+          };
+          img.src = targetUrl;
+        }
+      }
+    }
+  };
+
+  // Add a new blank frame or duplicate frame to the current movement
+  const addSpriteFrame = (duplicate: boolean = false) => {
+    const movFrames = [...(editing.frames?.[spriteMovement] ?? [])];
+    let newFrameUrl = '';
+    if (duplicate && movFrames[activeFrameIdx]) {
+      newFrameUrl = movFrames[activeFrameIdx];
+    } else if (drawType === 'pixel') {
+      newFrameUrl = pixelsToDataUrl(pixels.current);
+    } else if (freehandRef.current) {
+      newFrameUrl = freehandRef.current.toDataURL('image/png');
+    }
+    if (!newFrameUrl) {
+      newFrameUrl = pixelsToDataUrl(defaultPixels());
+    }
+    const updated = [...movFrames, newFrameUrl];
+    const newIdx = updated.length - 1;
+    const nextFrames = { ...(editing.frames ?? {}), [spriteMovement]: updated };
+    setEditing((c) => ({ ...c, frames: nextFrames }));
+    setActiveFrameIdx(newIdx);
+    setMessage(`Sprite añadido a ${spriteMovement} (fotograma #${newIdx + 1}). Disponible en el Generador SVG/PNG.`);
+  };
+
+  // Remove a sprite frame from the current movement
+  const deleteSpriteFrame = (idx: number) => {
+    const movFrames = [...(editing.frames?.[spriteMovement] ?? [])];
+    if (movFrames.length <= 1) {
+      setMessage('El movimiento debe conservar al menos un fotograma.');
+      return;
+    }
+    movFrames.splice(idx, 1);
+    const nextFrames = { ...(editing.frames ?? {}), [spriteMovement]: movFrames };
+    setEditing((c) => ({ ...c, frames: nextFrames }));
+    const nextIdx = Math.max(0, Math.min(idx, movFrames.length - 1));
+    setActiveFrameIdx(nextIdx);
+    selectSpriteFrame(nextIdx, spriteMovement);
+  };
+
+
+  // Clear Canvas handler with undo
+  const clearCanvas = () => {
+    if (drawType === 'pixel') {
+      undo.current = [...undo.current.slice(-19), [...pixels.current]];
+      const empty = Array<string>(256).fill('transparent');
+      pixels.current = empty;
+      setEditing((c) => ({ ...c, pixels: empty }));
+    } else {
+      const fCanvas = freehandRef.current;
+      if (fCanvas) {
+        const ctx = fCanvas.getContext('2d')!;
+        freehandUndo.current = [...freehandUndo.current.slice(-19), ctx.getImageData(0, 0, fCanvas.width, fCanvas.height)];
+        ctx.clearRect(0, 0, fCanvas.width, fCanvas.height);
+        const dataUrl = isolateBlackOutlineContour(fCanvas);
+        setEditing((c) => ({ ...c, image: dataUrl }));
+      }
+    }
+  };
+
+  // Sync freehand canvas when switching or loading image
+  useEffect(() => {
+    if (drawType === 'freehand' && freehandRef.current) {
+      const ctx = freehandRef.current.getContext('2d')!;
+      if (!editing.image) {
+        ctx.clearRect(0, 0, 320, 320);
+      }
+    }
+  }, [drawType, editing.image]);
 
   useEffect(() => {
     pixels.current = editing.pixels ?? defaultPixels();
@@ -532,11 +817,21 @@ export function CharacterEditor({
       reader.readAsDataURL(event.data.blob!);
     };
     imageWorker.current.onerror = () => {
-      setMessage('Este navegador no pudo procesar la foto.');
-      setProcessing(false);
+      // Fallback for browsers without full OffscreenCanvas / Worker createImageBitmap support
+      if (photo) {
+        const reader = new FileReader();
+        reader.onload = () => {
+          setEditing((c) => ({ ...c, image: String(reader.result) }));
+          setProcessing(false);
+        };
+        reader.readAsDataURL(photo);
+      } else {
+        setMessage('Este navegador no pudo procesar la foto.');
+        setProcessing(false);
+      }
     };
     return () => imageWorker.current?.terminate();
-  }, []);
+  }, [photo]);
 
   useEffect(() => {
     const id = ++requestId.current;
@@ -545,12 +840,38 @@ export function CharacterEditor({
       return;
     }
     setProcessing(true);
+    // Also synchronously read initial dataUrl so image tools appear immediately
+    const reader = new FileReader();
+    reader.onload = () => {
+      setEditing((c) => ({ ...c, image: String(reader.result) }));
+    };
+    reader.readAsDataURL(photo);
+
     const timer = setTimeout(
       () => imageWorker.current?.postMessage({ id, file: photo, zoom, x: cropX, y: cropY }),
       120,
     );
     return () => clearTimeout(timer);
   }, [photo, zoom, cropX, cropY]);
+
+  // Sync photoCanvas when editing.image is generated or changed
+  useEffect(() => {
+    if (mode === 'photo' && editing.image) {
+      const img = new Image();
+      img.onload = () => {
+        if (!originalPhotoImg.current) {
+          originalPhotoImg.current = img;
+        }
+        const canvas = photoCanvasRef.current;
+        if (canvas) {
+          const ctx = canvas.getContext('2d')!;
+          ctx.clearRect(0, 0, 260, 260);
+          ctx.drawImage(img, 0, 0, 260, 260);
+        }
+      };
+      img.src = editing.image;
+    }
+  }, [mode, editing.image]);
 
   // SVG / PNG Sprite Auto-Generation Handler
   const handleAutoSpriteUpload = (file: File) => {
@@ -605,7 +926,20 @@ export function CharacterEditor({
     const updated = [...pixels.current];
     updated[y * 16 + x] = color;
     pixels.current = updated;
-    setEditing((c) => ({ ...c, pixels: updated }));
+    const frameUrl = pixelsToDataUrl(updated);
+    setEditing((c) => {
+      const curFrames = c.frames?.[spriteMovement] ? [...c.frames[spriteMovement]] : [];
+      if (curFrames.length > 0) {
+        const safeIdx = Math.min(activeFrameIdx, curFrames.length - 1);
+        curFrames[safeIdx] = frameUrl;
+      }
+      return {
+        ...c,
+        pixels: updated,
+        image: frameUrl,
+        frames: curFrames.length > 0 ? { ...c.frames, [spriteMovement]: curFrames } : c.frames,
+      };
+    });
   };
 
   const save = async () => {
@@ -617,20 +951,28 @@ export function CharacterEditor({
       setMessage('Elige una foto primero.');
       return;
     }
-    if (mode === 'pixel' && pixels.current.every((p) => p === 'transparent')) {
-      setMessage('Dibuja al menos un píxel.');
+    const hasPixels = pixels.current.some((p) => p !== 'transparent');
+    const hasImage = Boolean(editing.image);
+    if (mode === 'pixel' && !hasPixels && !hasImage) {
+      setMessage('Dibuja al menos un trazo o un píxel en tu personaje.');
       return;
     }
     setBusy(true);
     setMessage('');
     try {
+      // If in freehand mode, ensure canvas contour is freshly captured
+      let finalImage = editing.image;
+      if (mode === 'pixel' && drawType === 'freehand' && freehandRef.current) {
+        finalImage = isolateBlackOutlineContour(freehandRef.current);
+      }
+
       const character: Character = {
         ...editing,
         id: editing.id || crypto.randomUUID(),
         name: editing.name.trim(),
         scale: editing.scale ?? 1.0,
-        pixels: pixels.current.some((p) => p !== 'transparent') ? pixels.current : undefined,
-        image: editing.image || undefined,
+        pixels: hasPixels ? pixels.current : undefined,
+        image: finalImage || undefined,
         frames: editing.frames,
       };
       await onSave(character);
@@ -900,30 +1242,338 @@ export function CharacterEditor({
 
           {mode === 'pixel' && (
             <>
-              <canvas
-                ref={ref}
-                width={320}
-                height={320}
-                className="pixel-editor"
-                aria-label="Lienzo de dibujo de 16 por 16 píxeles"
-                onPointerDown={(e) => {
-                  drawing.current = true;
-                  undo.current = [...undo.current.slice(-19), [...pixels.current]];
-                  e.currentTarget.setPointerCapture(e.pointerId);
-                  paint(e);
+              {/* Movement Classification & Sprite-by-Sprite Shelf */}
+              <div
+                className="sprite-movement-shelf"
+                style={{
+                  background: 'var(--panel)',
+                  border: '1px solid var(--border)',
+                  borderRadius: '12px',
+                  padding: '10px 14px',
+                  marginBottom: '14px',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: '10px',
                 }}
-                onPointerMove={(e) => {
-                  if (drawing.current) paint(e);
-                }}
-                onPointerUp={() => {
-                  drawing.current = false;
-                }}
-                onPointerCancel={() => {
-                  drawing.current = false;
-                }}
-              />
-              <div className="palette">
-                {COLORS.map((c) => (
+              >
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                    <Layers size={15} style={{ color: 'var(--lime)' }} />
+                    <strong style={{ fontSize: '0.85rem', color: 'var(--ink)' }}>Clasificar para movimiento:</strong>
+                  </div>
+                  <div className="segmented" style={{ width: 'fit-content' }}>
+                    {(['idle', 'run', 'jump', 'slide'] as Movement[]).map((mov) => {
+                      const labels: Record<Movement, string> = {
+                        idle: 'Reposo',
+                        run: 'Carrera',
+                        jump: 'Salto',
+                        slide: 'Agachado',
+                      };
+                      const count = editing.frames?.[mov]?.length ?? (mov === 'idle' ? 1 : 0);
+                      return (
+                        <button
+                          key={mov}
+                          type="button"
+                          className={spriteMovement === mov ? 'active' : ''}
+                          onClick={() => {
+                            setSpriteMovement(mov);
+                            setActiveFrameIdx(0);
+                            selectSpriteFrame(0, mov);
+                          }}
+                          style={{ fontSize: '0.75rem', padding: '4px 8px' }}
+                        >
+                          {labels[mov]} ({count})
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {/* Sprite Frames Carousel for selected movement */}
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', overflowX: 'auto', paddingBottom: '4px' }}>
+                  {(() => {
+                    const curFrames = editing.frames?.[spriteMovement] ?? [];
+                    if (curFrames.length === 0) {
+                      return (
+                        <div style={{ fontSize: '0.75rem', color: 'var(--subtle)', padding: '4px 0' }}>
+                          Sin sprites en este movimiento. El sprite actual del lienzo se guardará aquí.
+                        </div>
+                      );
+                    }
+                    return curFrames.map((fUrl, fIdx) => (
+                      <div
+                        key={fIdx}
+                        onClick={() => selectSpriteFrame(fIdx, spriteMovement)}
+                        style={{
+                          display: 'flex',
+                          flexDirection: 'column',
+                          alignItems: 'center',
+                          padding: '4px',
+                          borderRadius: '8px',
+                          border: activeFrameIdx === fIdx ? '2px solid var(--lime)' : '1px solid var(--border)',
+                          background: activeFrameIdx === fIdx ? 'rgba(216, 243, 106, 0.15)' : 'var(--bg)',
+                          cursor: 'pointer',
+                          minWidth: '52px',
+                          position: 'relative',
+                        }}
+                        title={`Fotograma #${fIdx + 1}`}
+                      >
+                        <img
+                          src={fUrl}
+                          alt={`Frame ${fIdx + 1}`}
+                          style={{ width: '36px', height: '36px', objectFit: 'contain', imageRendering: 'pixelated' }}
+                        />
+                        <span style={{ fontSize: '0.65rem', color: 'var(--ink)', marginTop: '2px', fontWeight: activeFrameIdx === fIdx ? 700 : 400 }}>
+                          #{fIdx + 1}
+                        </span>
+                        {curFrames.length > 1 && (
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              deleteSpriteFrame(fIdx);
+                            }}
+                            title="Eliminar este sprite"
+                            style={{
+                              position: 'absolute',
+                              top: '-4px',
+                              right: '-4px',
+                              background: '#ef4444',
+                              color: '#ffffff',
+                              border: 'none',
+                              borderRadius: '50%',
+                              width: '15px',
+                              height: '15px',
+                              fontSize: '10px',
+                              display: 'grid',
+                              placeItems: 'center',
+                              cursor: 'pointer',
+                              padding: 0,
+                            }}
+                          >
+                            ×
+                          </button>
+                        )}
+                      </div>
+                    ));
+                  })()}
+
+                  <div style={{ display: 'flex', gap: '6px', marginLeft: '6px' }}>
+                    <button
+                      type="button"
+                      className="template-pill-btn"
+                      onClick={() => addSpriteFrame(false)}
+                      title="Guardar el sprite actual como nuevo fotograma en este movimiento"
+                      style={{ fontSize: '0.75rem', padding: '5px 10px', display: 'inline-flex', alignItems: 'center', gap: '4px' }}
+                    >
+                      <Plus size={13} /> + Nuevo sprite
+                    </button>
+                    <button
+                      type="button"
+                      className="template-pill-btn"
+                      onClick={() => addSpriteFrame(true)}
+                      title="Duplicar el fotograma seleccionado para variar la animación"
+                      style={{ fontSize: '0.75rem', padding: '5px 10px', display: 'inline-flex', alignItems: 'center', gap: '4px' }}
+                    >
+                      <Copy size={13} /> Duplicar
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              {/* Draw Type Selector: Pixel-by-Pixel vs Freehand */}
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', margin: '10px 0 14px', flexWrap: 'wrap', gap: '10px' }}>
+                <div className="segmented" style={{ width: 'fit-content' }}>
+                  <button
+                    type="button"
+                    className={drawType === 'pixel' ? 'active' : ''}
+                    onClick={() => setDrawType('pixel')}
+                  >
+                    <Grid size={13} style={{ marginRight: 4 }} /> Píxel por píxel (16x16)
+                  </button>
+                  <button
+                    type="button"
+                    className={drawType === 'freehand' ? 'active' : ''}
+                    onClick={() => setDrawType('freehand')}
+                  >
+                    <Brush size={13} style={{ marginRight: 4 }} /> Trazo a mano alzada
+                  </button>
+                </div>
+
+                <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                  {drawType === 'freehand' && (
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.8rem', color: 'var(--ink)' }}>
+                      <span>Grosor:</span>
+                      <input
+                        type="range"
+                        min="2"
+                        max="28"
+                        value={brushSize}
+                        onChange={(e) => setBrushSize(Number(e.target.value))}
+                        style={{ width: '70px', accentColor: 'var(--lime)' }}
+                      />
+                      <span>{brushSize}px</span>
+                    </div>
+                  )}
+
+                  {/* Clear Canvas Button */}
+                  <button
+                    type="button"
+                    className="template-pill-btn"
+                    onClick={clearCanvas}
+                    title="Limpiar completamente el lienzo para comenzar desde cero"
+                    style={{ background: 'rgba(239, 68, 68, 0.12)', color: '#ef4444', borderColor: '#ef4444', padding: '6px 12px', fontSize: '0.8rem', display: 'inline-flex', alignItems: 'center', gap: '5px' }}
+                  >
+                    <RotateCcw size={13} /> Limpiar lienzo
+                  </button>
+
+                  {drawType === 'freehand' && (
+                    <button
+                      type="button"
+                      className="template-pill-btn"
+                      onClick={() => {
+                        const canvas = freehandRef.current;
+                        if (canvas) {
+                          const isolated = isolateBlackOutlineContour(canvas);
+                          setEditing((prev) => ({ ...prev, image: isolated }));
+                          setMessage('Silueta exterior aislada siguiendo el contorno negro.');
+                        }
+                      }}
+                      title="Descarta cualquier trazo o fondo que esté fuera del contorno negro cerrado"
+                      style={{ background: 'var(--panel)', color: 'var(--ink)', borderColor: 'var(--border)', padding: '6px 12px', fontSize: '0.8rem', display: 'inline-flex', alignItems: 'center', gap: '5px' }}
+                    >
+                      <Scissors size={13} /> Aislar contorno negro
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              {drawType === 'pixel' ? (
+                <canvas
+                  ref={ref}
+                  width={320}
+                  height={320}
+                  className="pixel-editor"
+                  aria-label="Lienzo de dibujo de 16 por 16 píxeles"
+                  onPointerDown={(e) => {
+                    drawing.current = true;
+                    undo.current = [...undo.current.slice(-19), [...pixels.current]];
+                    e.currentTarget.setPointerCapture(e.pointerId);
+                    paint(e);
+                  }}
+                  onPointerMove={(e) => {
+                    if (drawing.current) paint(e);
+                  }}
+                  onPointerUp={() => {
+                    drawing.current = false;
+                  }}
+                  onPointerCancel={() => {
+                    drawing.current = false;
+                  }}
+                />
+              ) : (
+                <div style={{ textAlign: 'center' }}>
+                  <canvas
+                    ref={freehandRef}
+                    width={320}
+                    height={320}
+                    className="freehand-editor"
+                    aria-label="Lienzo de dibujo libre a mano alzada"
+                    style={{
+                      display: 'block',
+                      width: 'min(100%, 320px)',
+                      aspectRatio: '1',
+                      margin: '10px auto',
+                      border: '2px dashed var(--border)',
+                      borderRadius: '12px',
+                      background: '#ffffff',
+                      touchAction: 'none',
+                      cursor: color === 'transparent' ? 'crosshair' : 'default',
+                    }}
+                    onPointerDown={(e) => {
+                      const canvas = freehandRef.current;
+                      if (!canvas) return;
+                      const ctx = canvas.getContext('2d')!;
+                      freehandDrawing.current = true;
+                      freehandUndo.current = [...freehandUndo.current.slice(-19), ctx.getImageData(0, 0, 320, 320)];
+                      canvas.setPointerCapture(e.pointerId);
+
+                      const rect = canvas.getBoundingClientRect();
+                      const x = ((e.clientX - rect.left) / rect.width) * 320;
+                      const y = ((e.clientY - rect.top) / rect.height) * 320;
+
+                      ctx.lineWidth = brushSize;
+                      ctx.lineCap = 'round';
+                      ctx.lineJoin = 'round';
+                      if (color === 'transparent') {
+                        ctx.globalCompositeOperation = 'destination-out';
+                      } else {
+                        ctx.globalCompositeOperation = 'source-over';
+                        ctx.strokeStyle = color;
+                      }
+                      ctx.beginPath();
+                      ctx.moveTo(x, y);
+                      ctx.lineTo(x, y);
+                      ctx.stroke();
+                    }}
+                    onPointerMove={(e) => {
+                      if (!freehandDrawing.current) return;
+                      const canvas = freehandRef.current;
+                      if (!canvas) return;
+                      const ctx = canvas.getContext('2d')!;
+                      const rect = canvas.getBoundingClientRect();
+                      const x = ((e.clientX - rect.left) / rect.width) * 320;
+                      const y = ((e.clientY - rect.top) / rect.height) * 320;
+                      ctx.lineTo(x, y);
+                      ctx.stroke();
+                    }}
+                    onPointerUp={() => {
+                      if (!freehandDrawing.current) return;
+                      freehandDrawing.current = false;
+                      const canvas = freehandRef.current;
+                      if (canvas) {
+                        const isolated = isolateBlackOutlineContour(canvas);
+                        setEditing((prev) => ({
+                          ...prev,
+                          image: isolated,
+                        }));
+                      }
+                    }}
+                    onPointerCancel={() => {
+                      freehandDrawing.current = false;
+                    }}
+                  />
+                  <small style={{ color: 'var(--subtle)', fontSize: '0.75rem', display: 'block', marginBottom: '8px' }}>
+                    Tip: El pincel negro define el contorno exterior del personaje. Lo que quede fuera de las formas cerradas se descartará automáticamente.
+                  </small>
+                </div>
+              )}
+
+              {/* Palette Category Selector Tabs */}
+              <div style={{ display: 'flex', gap: '6px', justifyContent: 'center', marginTop: '12px', flexWrap: 'wrap' }}>
+                {COLOR_PALETTES.map((pal, idx) => (
+                  <button
+                    key={pal.name}
+                    type="button"
+                    className={`template-pill-btn ${paletteTab === idx ? 'selected' : ''}`}
+                    onClick={() => setPaletteTab(idx)}
+                    style={{
+                      fontSize: '0.75rem',
+                      padding: '4px 10px',
+                      background: paletteTab === idx ? 'var(--lime)' : 'var(--panel)',
+                      color: paletteTab === idx ? '#183f35' : 'var(--ink)',
+                      borderColor: paletteTab === idx ? 'var(--lime)' : 'var(--border)',
+                      fontWeight: paletteTab === idx ? 700 : 500,
+                    }}
+                  >
+                    {pal.name}
+                  </button>
+                ))}
+              </div>
+
+              {/* Swatches for Selected Category */}
+              <div className="palette" style={{ marginTop: '10px' }}>
+                {COLOR_PALETTES[paletteTab].colors.map((c) => (
                   <button
                     key={c}
                     title={c}
@@ -934,20 +1584,60 @@ export function CharacterEditor({
                     onClick={() => setColor(c)}
                   />
                 ))}
+
+                {/* Custom Color Picker Input */}
+                <label
+                  title="Color personalizado"
+                  style={{
+                    width: '27px',
+                    height: '27px',
+                    borderRadius: '50%',
+                    border: '1px solid #bac5ae',
+                    display: 'grid',
+                    placeItems: 'center',
+                    cursor: 'pointer',
+                    overflow: 'hidden',
+                    background: color.startsWith('#') ? color : '#ffffff',
+                  }}
+                >
+                  <input
+                    type="color"
+                    value={color.startsWith('#') ? color : '#000000'}
+                    onChange={(e) => setColor(e.target.value)}
+                    style={{ opacity: 0, width: 0, height: 0, position: 'absolute' }}
+                  />
+                  <Pipette size={14} color={color === '#000000' || color === '#243b32' ? '#ffffff' : '#183f35'} />
+                </label>
+
+                {/* Eraser */}
                 <button
                   aria-label="Borrador"
                   className={color === 'transparent' ? 'active' : ''}
                   onClick={() => setColor('transparent')}
+                  title="Borrador"
                 >
                   <Eraser size={17} />
                 </button>
+
+                {/* Undo */}
                 <button
                   aria-label="Deshacer trazo"
+                  title="Deshacer"
                   onClick={() => {
-                    const previous = undo.current.pop();
-                    if (previous) {
-                      setEditing((c) => ({ ...c, pixels: previous }));
-                      pixels.current = previous;
+                    if (drawType === 'pixel') {
+                      const previous = undo.current.pop();
+                      if (previous) {
+                        setEditing((c) => ({ ...c, pixels: previous }));
+                        pixels.current = previous;
+                      }
+                    } else if (freehandRef.current) {
+                      const prevImg = freehandUndo.current.pop();
+                      if (prevImg) {
+                        const ctx = freehandRef.current.getContext('2d')!;
+                        ctx.putImageData(prevImg, 0, 0);
+                        const isolated = isolateBlackOutlineContour(freehandRef.current);
+                        setEditing((c) => ({ ...c, image: isolated }));
+                      }
                     }
                   }}
                 >
@@ -990,8 +1680,29 @@ export function CharacterEditor({
             </div>
           )}
 
-          {mode === 'auto_sprite' && <AnimationEditor key={editing.id || 'new'} character={editing}
-            onChange={setEditing} onSave={saveMovement} busy={busy || processing} />}
+          {mode === 'auto_sprite' && (
+            <AnimationEditor
+              key={editing.id || 'new'}
+              character={editing}
+              onChange={setEditing}
+              onSave={saveMovement}
+              busy={busy || processing}
+              onEditFrameInCanvas={(targetMovement, frameIdx, frameDataUrl) => {
+                if (frameDataUrl) {
+                  // Switch to drawing mode and load frame
+                  setMode('pixel');
+                  setDrawType('freehand');
+                  setEditing((prev) => ({ ...prev, image: frameDataUrl }));
+                  setMessage(`Editando fotograma #${frameIdx + 1} de ${targetMovement} en el lienzo. Al guardar, se sincroniza.`);
+                } else {
+                  // Blank frame to draw new
+                  setMode('pixel');
+                  clearCanvas();
+                  setMessage(`Dibuja un nuevo fotograma para ${targetMovement}.`);
+                }
+              }}
+            />
+          )}
 
           {mode === 'photo' && (
             <div className="photo-editor">
@@ -1013,42 +1724,240 @@ export function CharacterEditor({
                   }}
                 />
               </label>
+
               {photo && (
-                <div className="crop-sliders">
-                  <label>
-                    Acercamiento
-                    <input
-                      type="range"
-                      min="1"
-                      max="4"
-                      step="0.05"
-                      value={zoom}
-                      onChange={(e) => setZoom(Number(e.target.value))}
-                    />
-                  </label>
-                  <label>
-                    Posición horizontal
-                    <input
-                      type="range"
-                      min="0"
-                      max="1"
-                      step="0.01"
-                      value={cropX}
-                      onChange={(e) => setCropX(Number(e.target.value))}
-                    />
-                  </label>
-                  <label>
-                    Posición vertical
-                    <input
-                      type="range"
-                      min="0"
-                      max="1"
-                      step="0.01"
-                      value={cropY}
-                      onChange={(e) => setCropY(Number(e.target.value))}
-                    />
-                  </label>
-                </div>
+                <>
+                  <div className="crop-sliders">
+                    <label>
+                      Acercamiento
+                      <input
+                        type="range"
+                        min="1"
+                        max="4"
+                        step="0.05"
+                        value={zoom}
+                        onChange={(e) => setZoom(Number(e.target.value))}
+                      />
+                    </label>
+                    <label>
+                      Posición horizontal
+                      <input
+                        type="range"
+                        min="0"
+                        max="1"
+                        step="0.01"
+                        value={cropX}
+                        onChange={(e) => setCropX(Number(e.target.value))}
+                      />
+                    </label>
+                    <label>
+                      Posición vertical
+                      <input
+                        type="range"
+                        min="0"
+                        max="1"
+                        step="0.01"
+                        value={cropY}
+                        onChange={(e) => setCropY(Number(e.target.value))}
+                      />
+                    </label>
+                  </div>
+
+                  {/* Photo Edit & Background Removal Suite */}
+                  {editing.image && (
+                    <div style={{ marginTop: '16px', padding: '12px', background: 'var(--panel)', border: '1px solid var(--border)', borderRadius: '14px' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px', flexWrap: 'wrap', gap: '8px' }}>
+                        <span style={{ fontSize: '0.85rem', fontWeight: 700, color: 'var(--ink)' }}>
+                          Herramientas de Recorte y Eliminación de Fondo
+                        </span>
+                        <button
+                          type="button"
+                          className="template-pill-btn"
+                          style={{ borderColor: 'var(--lime)', color: '#183f35', background: 'var(--lime)', fontWeight: 600, fontSize: '0.8rem' }}
+                          onClick={() => {
+                            const pCanvas = photoCanvasRef.current;
+                            if (!pCanvas) return;
+                            const ctx = pCanvas.getContext('2d')!;
+                            const w = pCanvas.width;
+                            const h = pCanvas.height;
+                            const imgData = ctx.getImageData(0, 0, w, h);
+                            const data = imgData.data;
+
+                            // Sample corner colors as background references
+                            const corners = [
+                              { r: data[0], g: data[1], b: data[2] },
+                              { r: data[(w - 1) * 4], g: data[(w - 1) * 4 + 1], b: data[(w - 1) * 4 + 2] },
+                              { r: data[((h - 1) * w) * 4], g: data[((h - 1) * w) * 4 + 1], b: data[((h - 1) * w) * 4 + 2] },
+                              { r: data[(w * h - 1) * 4], g: data[(w * h - 1) * 4 + 1], b: data[(w * h - 1) * 4 + 2] },
+                            ];
+
+                            for (let i = 0; i < w * h; i++) {
+                              const idx = i * 4;
+                              if (data[idx + 3] === 0) continue;
+                              const r = data[idx], g = data[idx + 1], b = data[idx + 2];
+                              for (const c of corners) {
+                                const diff = Math.hypot(r - c.r, g - c.g, b - c.b);
+                                if (diff < wandTolerance) {
+                                  data[idx + 3] = 0;
+                                  break;
+                                }
+                              }
+                            }
+                            ctx.putImageData(imgData, 0, 0);
+                            const updatedUrl = pCanvas.toDataURL('image/png');
+                            setEditing((prev) => ({ ...prev, image: updatedUrl }));
+                            setMessage('Fondo eliminado automáticamente.');
+                          }}
+                        >
+                          <Sparkles size={14} style={{ marginRight: 4 }} /> Quitar fondo automático
+                        </button>
+                      </div>
+
+                      {/* Tool selector */}
+                      <div className="segmented" style={{ width: 'fit-content', marginBottom: '12px' }}>
+                        <button
+                          type="button"
+                          className={photoTool === 'wand' ? 'active' : ''}
+                          onClick={() => setPhotoTool('wand')}
+                          title="Varita: Haz clic en cualquier color del fondo para borrarlo"
+                        >
+                          <Wand2 size={13} style={{ marginRight: 4 }} /> Varita Mágica
+                        </button>
+                        <button
+                          type="button"
+                          className={photoTool === 'eraser' ? 'active' : ''}
+                          onClick={() => setPhotoTool('eraser')}
+                          title="Borrador manual: Pasa el pincel para limpiar bordes"
+                        >
+                          <Eraser size={13} style={{ marginRight: 4 }} /> Borrador
+                        </button>
+                        <button
+                          type="button"
+                          className={photoTool === 'restore' ? 'active' : ''}
+                          onClick={() => setPhotoTool('restore')}
+                          title="Restaurar: Recupera partes borradas de la foto original"
+                        >
+                          <RotateCcw size={13} style={{ marginRight: 4 }} /> Restaurar
+                        </button>
+                      </div>
+
+                      <div style={{ display: 'flex', gap: '16px', alignItems: 'center', marginBottom: '10px', fontSize: '0.8rem', color: 'var(--ink)' }}>
+                        {photoTool === 'wand' ? (
+                          <label style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                            Tolerancia de color: {wandTolerance}
+                            <input
+                              type="range"
+                              min="10"
+                              max="90"
+                              value={wandTolerance}
+                              onChange={(e) => setWandTolerance(Number(e.target.value))}
+                              style={{ width: '100px', accentColor: 'var(--lime)' }}
+                            />
+                          </label>
+                        ) : (
+                          <label style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                            Radio del pincel: {eraserRadius}px
+                            <input
+                              type="range"
+                              min="4"
+                              max="40"
+                              value={eraserRadius}
+                              onChange={(e) => setEraserRadius(Number(e.target.value))}
+                              style={{ width: '100px', accentColor: 'var(--lime)' }}
+                            />
+                          </label>
+                        )}
+                      </div>
+
+                      {/* Interactive Photo Canvas */}
+                      <div style={{ position: 'relative', width: '260px', height: '260px', margin: '0 auto', border: '1px solid var(--border)', borderRadius: '10px', overflow: 'hidden', background: "url('data:image/svg+xml;utf8,<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"16\" height=\"16\"><rect width=\"8\" height=\"8\" fill=\"%23e5e9df\"/><rect x=\"8\" y=\"8\" width=\"8\" height=\"8\" fill=\"%23e5e9df\"/><rect x=\"8\" width=\"8\" height=\"8\" fill=\"%23ffffff\"/><rect y=\"8\" width=\"8\" height=\"8\" fill=\"%23ffffff\"/></svg>')" }}>
+                        <canvas
+                          ref={photoCanvasRef}
+                          width={260}
+                          height={260}
+                          style={{ display: 'block', width: '100%', height: '100%', cursor: photoTool === 'wand' ? 'crosshair' : 'default', touchAction: 'none' }}
+                          onPointerDown={(e) => {
+                            const canvas = photoCanvasRef.current;
+                            if (!canvas) return;
+                            const ctx = canvas.getContext('2d')!;
+                            const rect = canvas.getBoundingClientRect();
+                            const x = Math.floor(((e.clientX - rect.left) / rect.width) * 260);
+                            const y = Math.floor(((e.clientY - rect.top) / rect.height) * 260);
+
+                            if (photoTool === 'wand') {
+                              const imgData = ctx.getImageData(0, 0, 260, 260);
+                              const data = imgData.data;
+                              const targetIdx = (y * 260 + x) * 4;
+                              const tr = data[targetIdx], tg = data[targetIdx + 1], tb = data[targetIdx + 2], ta = data[targetIdx + 3];
+                              if (ta < 20) return;
+
+                              // Flood-fill or color distance erase
+                              for (let i = 0; i < 260 * 260; i++) {
+                                const idx = i * 4;
+                                if (data[idx + 3] === 0) continue;
+                                const diff = Math.hypot(data[idx] - tr, data[idx + 1] - tg, data[idx + 2] - tb);
+                                if (diff < wandTolerance) {
+                                  data[idx + 3] = 0;
+                                }
+                              }
+                              ctx.putImageData(imgData, 0, 0);
+                              setEditing((prev) => ({ ...prev, image: canvas.toDataURL('image/png') }));
+                            } else {
+                              photoDrawing.current = true;
+                              canvas.setPointerCapture(e.pointerId);
+                              ctx.save();
+                              ctx.beginPath();
+                              ctx.arc(x, y, eraserRadius, 0, Math.PI * 2);
+                              if (photoTool === 'eraser') {
+                                ctx.globalCompositeOperation = 'destination-out';
+                                ctx.fill();
+                              } else if (photoTool === 'restore' && originalPhotoImg.current) {
+                                ctx.clip();
+                                ctx.drawImage(originalPhotoImg.current, 0, 0, 260, 260);
+                              }
+                              ctx.restore();
+                            }
+                          }}
+                          onPointerMove={(e) => {
+                            if (!photoDrawing.current) return;
+                            const canvas = photoCanvasRef.current;
+                            if (!canvas) return;
+                            const ctx = canvas.getContext('2d')!;
+                            const rect = canvas.getBoundingClientRect();
+                            const x = Math.floor(((e.clientX - rect.left) / rect.width) * 260);
+                            const y = Math.floor(((e.clientY - rect.top) / rect.height) * 260);
+
+                            ctx.save();
+                            ctx.beginPath();
+                            ctx.arc(x, y, eraserRadius, 0, Math.PI * 2);
+                            if (photoTool === 'eraser') {
+                              ctx.globalCompositeOperation = 'destination-out';
+                              ctx.fill();
+                            } else if (photoTool === 'restore' && originalPhotoImg.current) {
+                              ctx.clip();
+                              ctx.drawImage(originalPhotoImg.current, 0, 0, 260, 260);
+                            }
+                            ctx.restore();
+                          }}
+                          onPointerUp={() => {
+                            if (!photoDrawing.current) return;
+                            photoDrawing.current = false;
+                            const canvas = photoCanvasRef.current;
+                            if (canvas) {
+                              setEditing((prev) => ({ ...prev, image: canvas.toDataURL('image/png') }));
+                            }
+                          }}
+                          onPointerCancel={() => {
+                            photoDrawing.current = false;
+                          }}
+                        />
+                      </div>
+                      <small style={{ color: 'var(--subtle)', fontSize: '0.75rem', display: 'block', textAlign: 'center', marginTop: '6px' }}>
+                        Toca con la Varita para borrar áreas enteras de color, o usa el Borrador y Restaurador para detalles precisos.
+                      </small>
+                    </div>
+                  )}
+                </>
               )}
             </div>
           )}

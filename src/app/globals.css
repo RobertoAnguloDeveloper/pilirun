@@ -1209,6 +1209,16 @@ kbd {
   border-radius: 4px;
   touch-action: none;
 }
+.freehand-editor {
+  display: block;
+  width: min(100%, 320px);
+  aspect-ratio: 1;
+  margin: 10px auto;
+  border: 2px dashed #bac5ae;
+  border-radius: 12px;
+  background: #ffffff;
+  touch-action: none;
+}
 .palette {
   display: flex;
   justify-content: center;
