@@ -25,7 +25,7 @@ import {
   ZoomOut,
   ChevronRight,
 } from 'lucide-react';
-import { resolveLevelMusic } from '@/lib/music';
+import { resolveBossMusic, resolveLevelMusic } from '@/lib/music';
 import { GameEngine } from '@/game/engine';
 import { audioEngine } from '@/lib/audio';
 import {
@@ -230,9 +230,9 @@ export function GameView({
 
     const setupEngine = async () => {
       const levelMusicBuffer = resolveLevelMusic(track, musicLibrary, preferences, sequenceIndex);
-      const bossMusicBuffer = musicLibrary.find((music) => music.id === track.bossMusicId);
+      const bossMusicBuffer = resolveBossMusic(track, musicLibrary);
       if (track.levelMusicId && !levelMusicBuffer) setAudioMessage('La música asignada al nivel ya no está disponible. Se usará la música de respaldo.');
-      if (track.bossMusicId && !bossMusicBuffer) setAudioMessage('La música asignada al jefe ya no está disponible. Se conservará la música del nivel.');
+      if (track.bossMusicId && bossMusicBuffer?.id !== track.bossMusicId) setAudioMessage('La música asignada al jefe ya no está disponible. Se usará The Last Harpsichord.');
 
       if (isDisposed) return;
 

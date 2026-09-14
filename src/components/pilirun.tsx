@@ -47,10 +47,11 @@ import {
   CheckCircle2,
   Info,
   Share2,
+  Swords,
 } from 'lucide-react';
 import { Avatar, Landscape } from './art';
 import { BackgroundRunner } from './background-runner';
-import { CHARACTERS, TRACKS, WORLDS } from '@/lib/worlds';
+import { CHARACTERS, TRACKS, WORLDS, mergeCharacters } from '@/lib/worlds';
 import { OFFICIAL_LEVELS, type LevelConfig } from '@/lib/procedural';
 import {
   DEFAULT_PREFERENCES,
@@ -65,12 +66,15 @@ import {
   type ScenarioAsset,
   type DatabaseSection,
   type StorageDetails,
+  type BossConfig,
 } from '@/lib/types';
 import { localStore } from '@/lib/storage';
 import { audioEngine } from '@/lib/audio';
 import { scenarioToTrack } from '@/lib/scenario';
 import { calculateCharacterStats } from '@/lib/combat';
+import { applyBossDifficulty, createDefaultBoss, validateBoss, type BossDifficulty } from '@/lib/boss';
 const APP_VERSION = process.env.NEXT_PUBLIC_APP_VERSION ?? '1.0.0';
+export const HOME_MUSIC_ID = 'bmg-a-window-facing-west';
 const loading = () => (
   <div className="loading-state">
     <LoaderCircle className="spin" /> Preparando tu aventura…
@@ -124,6 +128,9 @@ export default function PiliRun() {
   const [musicAssignTrack, setMusicAssignTrack] = useState<Track | null>(null);
   const [musicAssignBusy, setMusicAssignBusy] = useState(false);
   const [musicAssignError, setMusicAssignError] = useState('');
+  const [bossAssignTrack, setBossAssignTrack] = useState<Track | null>(null);
+  const [bossAssignBusy, setBossAssignBusy] = useState(false);
+  const [bossAssignError, setBossAssignError] = useState('');
   const startTicket = useRef(0);
   const [cumulativePowers, setCumulativePowers] = useState<import('../lib/combat').PowerId[]>([]);
   const [playing, setPlaying] = useState<{
@@ -203,6 +210,55 @@ export default function PiliRun() {
     };
   }, []);
   useEffect(() => {
+    if (!ready || playing) return;
+    const track = data.music.find((item) => item.id === HOME_MUSIC_ID);
+    if (!track) return;
+
+    let disposed = false;
+    let loading = false;
+    let armed = false;
+    const disarm = () => {
+      if (!armed) return;
+      armed = false;
+      window.removeEventListener('pointerdown', activate, true);
+      window.removeEventListener('keydown', activate, true);
+    };
+    const play = async (activation?: Promise<void>) => {
+      if (disposed || loading) return;
+      loading = true;
+      disarm();
+      try {
+        // AudioContext.resume() must be invoked in the original gesture stack.
+        // Waiting for IndexedDB/fetch first consumes the transient activation.
+        await (activation ?? audioEngine.unlock());
+        const blob = await localStore.request<Blob>({ action: 'music-get', id: track.id });
+        if (disposed) return;
+        await audioEngine.play({ track, blob });
+      } catch {
+        loading = false;
+        if (!disposed) arm();
+      }
+    };
+    const activate = () => {
+      const activation = audioEngine.unlock();
+      void play(activation);
+    };
+    const arm = () => {
+      if (armed || disposed) return;
+      armed = true;
+      window.addEventListener('pointerdown', activate, { once: true, capture: true });
+      window.addEventListener('keydown', activate, { once: true, capture: true });
+    };
+
+    if (navigator.userActivation?.hasBeenActive) void play();
+    else arm();
+    return () => {
+      disposed = true;
+      disarm();
+      audioEngine.stop();
+    };
+  }, [ready, playing, data.music]);
+  useEffect(() => {
     // Detect standalone mode (already installed or running as PWA)
     const checkStandalone = () => {
       const isStandaloneMode =
@@ -274,7 +330,10 @@ export default function PiliRun() {
       document.removeEventListener('visibilitychange', hidden);
     };
   }, []);
-  const characters = [...CHARACTERS, ...data.characters],
+  const characters = useMemo(
+      () => mergeCharacters(CHARACTERS, data.characters),
+      [data.characters],
+    ),
     tracks = mergeTracks(TRACKS, data.tracks, data.scenarios.map(scenarioToTrack));
   const character = characters.find((c) => c.id === data.preferences.characterId) ?? CHARACTERS[0],
     selectedTrack = tracks.find((t) => t.id === data.preferences.trackId) ?? tracks[0] ?? TRACKS[0];
@@ -808,6 +867,13 @@ export default function PiliRun() {
                                 void start(track);
                               }}
                               onConfigureMusic={() => { setMusicAssignError(''); setMusicAssignTrack(track); }}
+                              onConfigureBoss={() => {
+                                setBossAssignError('');
+                                setBossAssignTrack({
+                                  ...track,
+                                  boss: track.boss ?? createDefaultBoss(`Guardián de ${track.name}`),
+                                });
+                              }}
                             />
                           ))}
                         </div>
@@ -1422,6 +1488,35 @@ export default function PiliRun() {
           </div>
         </div>
       )}
+      {bossAssignTrack?.boss && (
+        <BossEditorModal
+          track={bossAssignTrack}
+          busy={bossAssignBusy}
+          error={bossAssignError}
+          onChange={(boss) => setBossAssignTrack((current) => current ? { ...current, boss } : current)}
+          onClose={() => { if (!bossAssignBusy) setBossAssignTrack(null); }}
+          onSave={() => {
+            if (bossAssignBusy || !bossAssignTrack.boss) return;
+            const validationError = validateBoss(bossAssignTrack.boss);
+            if (validationError) { setBossAssignError(validationError); return; }
+            setBossAssignBusy(true); setBossAssignError('');
+            void (async () => {
+              try {
+                if (bossAssignTrack.scenarioId) {
+                  const scenario = data.scenarios.find((item) => item.id === bossAssignTrack.scenarioId);
+                  if (!scenario) throw new Error('El escenario ya no existe.');
+                  const assets = await localStore.request<ScenarioAsset[]>({ action: 'scenario-assets-get', scenarioId: scenario.id });
+                  await saveScenario({ ...scenario, boss: bossAssignTrack.boss }, assets);
+                } else await saveTrack(bossAssignTrack);
+                setToast('Configuración del jefe guardada.');
+                setBossAssignTrack(null);
+              } catch (saveError) {
+                setBossAssignError(saveError instanceof Error ? saveError.message : 'No se pudo guardar el jefe.');
+              } finally { setBossAssignBusy(false); }
+            })();
+          }}
+        />
+      )}
       {/* Modal: Music Assignment for Level & Boss */}
       {musicAssignTrack && (
         <div className="modal-backdrop" onClick={() => { if (!musicAssignBusy) setMusicAssignTrack(null); }}>
@@ -1508,7 +1603,7 @@ export default function PiliRun() {
                     border: '1px solid rgba(255, 255, 255, 0.2)',
                   }}
                 >
-                  <option value="">Música de jefe predeterminada</option>
+                  <option value="">The Last Harpsichord (predeterminada)</option>
                   {data.music.map((m) => (
                     <option key={m.id} value={m.id}>
                       {m.name} ({m.category || 'general'} · {Math.floor(m.duration)}s)
@@ -1666,12 +1761,14 @@ function WorldCard({
   selected,
   onClick,
   onConfigureMusic,
+  onConfigureBoss,
 }: {
   track: Track;
   index: number;
   selected: boolean;
   onClick: () => void;
   onConfigureMusic?: () => void;
+  onConfigureBoss?: () => void;
 }) {
   const levelInfo = OFFICIAL_LEVELS.find((lvl) => lvl.id === track.id);
   return (
@@ -1719,6 +1816,24 @@ function WorldCard({
             <span>{track.levelMusicId || track.bossMusicId ? 'MÚSICA ACTIVA' : 'MÚSICA'}</span>
           </button>
         )}
+        {onConfigureBoss && (
+          <button
+            type="button"
+            className="world-music-badge-btn"
+            title="Editar personaje y dificultad del jefe"
+            aria-label={`Editar jefe de ${track.name}`}
+            onClick={(event) => { event.stopPropagation(); onConfigureBoss(); }}
+            style={{
+              position: 'absolute', bottom: '8px', right: '10px', zIndex: 3,
+              display: 'flex', alignItems: 'center', gap: '4px',
+              background: 'rgba(15, 32, 25, 0.9)', color: '#fff',
+              border: '1px solid rgba(255,255,255,.3)', borderRadius: '6px',
+              padding: '3px 7px', fontSize: '10px', fontWeight: 700, cursor: 'pointer',
+            }}
+          >
+            <Swords size={12} /><span>EDITAR JEFE</span>
+          </button>
+        )}
       </div>
       <div className="world-info">
         <div>
@@ -1747,6 +1862,90 @@ function WorldCard({
       </div>
     </article>
   );
+}
+
+const BOSS_ELEMENTS: Array<{ value: BossConfig['element']; label: string }> = [
+  { value: 'fire', label: 'Fuego' }, { value: 'water', label: 'Agua' },
+  { value: 'nature', label: 'Naturaleza' }, { value: 'electric', label: 'Rayo' },
+  { value: 'cosmic', label: 'Cósmico' }, { value: 'light', label: 'Luz' },
+];
+const BOSS_PROJECTILES: Array<{ value: BossConfig['projectileType']; label: string }> = [
+  { value: 'fireball', label: 'Bola de fuego' }, { value: 'ice_spike', label: 'Espina de hielo' },
+  { value: 'boulder', label: 'Roca' }, { value: 'lightning_orb', label: 'Orbe eléctrico' },
+  { value: 'star_beam', label: 'Rayo estelar' },
+];
+
+function BossEditorModal({ track, busy, error, onChange, onClose, onSave }: {
+  track: Track;
+  busy: boolean;
+  error: string;
+  onChange: (boss: BossConfig) => void;
+  onClose: () => void;
+  onSave: () => void;
+}) {
+  const boss = track.boss!;
+  const update = <K extends keyof BossConfig>(key: K, value: BossConfig[K]) =>
+    onChange({ ...boss, [key]: value, difficulty: key === 'difficulty' ? value as BossDifficulty : 'custom' });
+  return (
+    <div className="modal-backdrop" onClick={onClose}>
+      <div className="modal-card surface-dark" role="dialog" aria-modal="true" aria-labelledby="boss-editor-heading"
+        onClick={(event) => event.stopPropagation()} style={{ maxWidth: '680px', maxHeight: '90vh', overflowY: 'auto' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', gap: '12px', alignItems: 'center' }}>
+          <div><p className="eyebrow">PERSONAJE DEL JEFE</p><h3 id="boss-editor-heading">Editar jefe de {track.name}</h3></div>
+          <button className="icon-button" aria-label="Cerrar editor del jefe" disabled={busy} onClick={onClose}><X /></button>
+        </div>
+        <label>Nombre del jefe<input aria-label="Nombre del jefe" value={boss.name} maxLength={64} disabled={busy}
+          onChange={(event) => update('name', event.target.value)} /></label>
+        <fieldset disabled={busy} style={{ marginTop: '14px' }}>
+          <legend>Dificultad</legend>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
+            {(['easy', 'normal', 'hard', 'legendary'] as const).map((difficulty) => (
+              <button key={difficulty} type="button" className={boss.difficulty === difficulty ? 'primary' : 'secondary'}
+                aria-pressed={boss.difficulty === difficulty}
+                onClick={() => onChange(applyBossDifficulty(boss, difficulty))}>
+                {{ easy: 'Fácil', normal: 'Normal', hard: 'Difícil', legendary: 'Legendario' }[difficulty]}
+              </button>
+            ))}
+          </div>
+        </fieldset>
+        <div className="form-grid" style={{ marginTop: '14px' }}>
+          <label>Elemento / poder<select aria-label="Poder del jefe" value={boss.element} disabled={busy}
+            onChange={(event) => update('element', event.target.value as BossConfig['element'])}>
+            {BOSS_ELEMENTS.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}
+          </select></label>
+          <label>Tipo de disparo<select aria-label="Tipo de disparo del jefe" value={boss.projectileType} disabled={busy}
+            onChange={(event) => update('projectileType', event.target.value as BossConfig['projectileType'])}>
+            {BOSS_PROJECTILES.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}
+          </select></label>
+          <BossNumber label="Vida (HP)" value={boss.maxHealth} min={60} max={1000} step={10} disabled={busy}
+            onChange={(value) => onChange({ ...boss, health: value, maxHealth: value, difficulty: 'custom' })} />
+          <BossNumber label="Daño (corazones)" value={boss.damage} min={1} max={3} step={1} disabled={busy} onChange={(value) => update('damage', value)} />
+          <BossNumber label="Tamaño" value={boss.size} min={0.5} max={3} step={0.1} disabled={busy} onChange={(value) => update('size', value)} />
+          <BossNumber label="Velocidad de movimiento" value={boss.speed} min={45} max={320} step={5} disabled={busy} onChange={(value) => update('speed', value)} />
+          <BossNumber label="Dispara cada (segundos)" value={boss.attackFrequency} min={1.6} max={6} step={0.1} disabled={busy} onChange={(value) => update('attackFrequency', value)} />
+          <BossNumber label="Velocidad del proyectil" value={boss.projectileSpeed} min={180} max={800} step={10} disabled={busy} onChange={(value) => update('projectileSpeed', value)} />
+          <label>Debilidad<select value={boss.weakness} disabled={busy} onChange={(event) => update('weakness', event.target.value as BossConfig['weakness'])}>
+            {BOSS_ELEMENTS.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}
+          </select></label>
+          <label>Resistencia<select value={boss.resistance} disabled={busy} onChange={(event) => update('resistance', event.target.value as BossConfig['resistance'])}>
+            {BOSS_ELEMENTS.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}
+          </select></label>
+        </div>
+        <p role="status" className={error ? 'error-banner' : ''}>{busy ? 'Guardando…' : error}</p>
+        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px' }}>
+          <button className="secondary" disabled={busy} onClick={onClose}>Cancelar</button>
+          <button className="primary" disabled={busy} onClick={onSave}>Guardar jefe</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function BossNumber({ label, value, min, max, step, disabled, onChange }: {
+  label: string; value: number; min: number; max: number; step: number; disabled: boolean; onChange: (value: number) => void;
+}) {
+  return <label>{label}<input aria-label={label} type="number" value={value} min={min} max={max} step={step} disabled={disabled}
+    onChange={(event) => onChange(Number(event.target.value))} /></label>;
 }
 function Stat({ icon, value, label }: { icon: React.ReactNode; value: string; label: string }) {
   return (

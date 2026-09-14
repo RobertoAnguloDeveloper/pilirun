@@ -1,4 +1,5 @@
 import type { Character, ItemKind, Track, WorldId } from './types';
+import { validateBoss } from './boss';
 export const WORLDS: Record<
   WorldId,
   {
@@ -105,6 +106,21 @@ export const CHARACTERS: Character[] = [
     color: '#b8a5d0',
   },
 ];
+
+export function mergeCharacters(
+  builtins: readonly Character[],
+  saved: readonly Character[],
+): Character[] {
+  const savedById = new Map(saved.map((character) => [character.id, character]));
+  const builtinIds = new Set(builtins.map((character) => character.id));
+  return [
+    ...builtins.map((character) => ({
+      ...character,
+      ...savedById.get(character.id),
+    })),
+    ...saved.filter((character) => !builtinIds.has(character.id)),
+  ];
+}
 function makeTrack(
   id: string,
   name: string,
@@ -153,6 +169,10 @@ export function validateTrack(track: Track): string | null {
   if (!Number.isFinite(track.length) || track.length < 3000 || track.length > 30000)
     return 'La longitud debe estar entre 300 y 3.000 metros.';
   if (!(track.world in WORLDS)) return 'Selecciona un mundo válido.';
+  if (track.boss) {
+    const bossError = validateBoss(track.boss);
+    if (bossError) return bossError;
+  }
   if (track.items.length > 200) return 'Usa un máximo de 200 elementos.';
   const kinds: ItemKind[] = [
     'log',

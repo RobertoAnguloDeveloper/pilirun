@@ -1,4 +1,5 @@
 import type { AudioTrack, Preferences, Track } from './types';
+import { DEFAULT_BOSS_MUSIC_ID } from './builtin-music';
 export const MAX_AUDIO_BYTES = 100 * 1024 * 1024;
 export interface MusicSource { track: AudioTrack; blob: Blob }
 export function resolveLevelMusic(track: Track, library: AudioTrack[], preferences?: Preferences, sequence = 0, random = Math.random()): AudioTrack | undefined {
@@ -6,6 +7,12 @@ export function resolveLevelMusic(track: Track, library: AudioTrack[], preferenc
   const pool = library.filter((audio) => !preferences?.jukeboxCategory || preferences.jukeboxCategory === 'all' || audio.category === preferences.jukeboxCategory);
   if (!pool.length || !preferences?.jukeboxMode || preferences.jukeboxMode === 'assigned') return undefined;
   return pool[preferences.jukeboxMode === 'shuffle' ? Math.min(pool.length - 1, Math.floor(random * pool.length)) : sequence % pool.length];
+}
+export function resolveBossMusic(track: Track, library: AudioTrack[]): AudioTrack | undefined {
+  const assigned = track.bossMusicId
+    ? library.find((audio) => audio.id === track.bossMusicId)
+    : undefined;
+  return assigned ?? library.find((audio) => audio.id === DEFAULT_BOSS_MUSIC_ID);
 }
 export function mergeTracks(builtins: Track[], saved: Track[], scenarios: Track[]): Track[] {
   const merged = new Map(builtins.map((track) => [track.id, track]));

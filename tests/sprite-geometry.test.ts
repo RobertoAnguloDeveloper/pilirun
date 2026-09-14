@@ -1,5 +1,12 @@
 import { describe, expect, it } from 'vitest';
-import { alphaBounds, pixelBounds } from '../src/lib/sprite-geometry';
+import {
+  alphaBounds,
+  pixelBounds,
+  playerVisualHeight,
+  proportionalSpriteHeight,
+  PLAYER_HEIGHT,
+  PLAYER_SLIDE_HEIGHT,
+} from '../src/lib/sprite-geometry';
 
 describe('sprite feet bounds', () => {
   it('excludes bottom padding and translucent shadows without discarding opaque feet', () => {
@@ -18,5 +25,15 @@ describe('sprite feet bounds', () => {
   });
   it('keeps an empty frame finite', () => {
     expect(alphaBounds(new Uint8Array(64), 4, 4)).toEqual({ x: 0, y: 0, width: 4, height: 4 });
+  });
+  it('uses crouching height for every visual type without changing aspect ratio', () => {
+    expect(playerVisualHeight(false)).toBe(PLAYER_HEIGHT);
+    expect(playerVisualHeight(true)).toBe(PLAYER_SLIDE_HEIGHT);
+    expect(playerVisualHeight(true)).toBeLessThan(playerVisualHeight(false));
+  });
+  it('keeps authored crouch frames at the standing frame pixel scale', () => {
+    expect(proportionalSpriteHeight(184, 221)).toBeCloseTo(48.29, 2);
+    expect(proportionalSpriteHeight(228, 221)).toBeCloseTo(59.84, 2);
+    expect(proportionalSpriteHeight(0, 221)).toBe(PLAYER_HEIGHT);
   });
 });

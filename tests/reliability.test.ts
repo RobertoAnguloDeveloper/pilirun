@@ -1,10 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import { POWERS, type PowerId } from '../src/lib/combat';
 import { obstacleDamage, segmentHit } from '../src/lib/obstacles';
-import { mergeTracks, resolveLevelMusic, validateAudio, MAX_AUDIO_BYTES } from '../src/lib/music';
+import { mergeTracks, resolveBossMusic, resolveLevelMusic, validateAudio, MAX_AUDIO_BYTES } from '../src/lib/music';
 import { frameScale } from '../src/lib/sprite-geometry';
 import { Simulation, STEP } from '../src/game/simulation';
 import { DEFAULT_PREFERENCES, type Track, type AudioTrack, type TrackItem } from '../src/lib/types';
+import { applyBossDifficulty, createDefaultBoss, validateBoss } from '../src/lib/boss';
 const track: Track = { id: 'test', name: 'Test', world: 'forest', length: 9000, items: [] };
 const song = (id: string): AudioTrack => ({ id, name: id, mime: 'audio/wav', size: 10, duration: 3600, loopStart: 0, loopEnd: 3600 });
 const bossTrack = (): Track => ({ ...track, boss: { id: 'boss', name: 'Boss', health: 1000, maxHealth: 1000, damage: 20, element: 'fire', size: 1, attackFrequency: 1, projectileSpeed: 300, projectileType: 'fireball', speed: 145, weakness: 'water', resistance: 'fire' } });
@@ -17,6 +18,12 @@ describe('music selection and compatibility', () => {
     expect(resolveLevelMusic(track, library, { ...DEFAULT_PREFERENCES, jukeboxMode: 'sequential' }, 1)?.id).toBe('random');
     expect(resolveLevelMusic({ ...track, levelMusicId: 'missing' }, library)).toBeUndefined();
   });
+  it('defaults every boss to The Last Harpsichord while preserving per-level overrides', () => {
+    const library = [song('bmg-the-last-harpsichord'), song('custom-boss')];
+    expect(resolveBossMusic(track, library)?.id).toBe('bmg-the-last-harpsichord');
+    expect(resolveBossMusic({ ...track, bossMusicId: 'custom-boss' }, library)?.id).toBe('custom-boss');
+    expect(resolveBossMusic({ ...track, bossMusicId: 'deleted-track' }, library)?.id).toBe('bmg-the-last-harpsichord');
+  });
   it('accepts long audio without a duration cap and rejects invalid loops and excessive file size', () => {
     expect(() => validateAudio(song('hour'), new Blob(['test']))).not.toThrow();
     expect(() => validateAudio({ ...song('invalid'), loopEnd: 3601 }, new Blob(['test']))).toThrow();
@@ -24,6 +31,24 @@ describe('music selection and compatibility', () => {
   });
 });
 describe('boss arena and obstacle combat', () => {
+  it('applies validated difficulty presets while preserving the boss identity and power', () => {
+    const original = { ...createDefaultBoss('Centinela'), element: 'electric' as const, projectileType: 'lightning_orb' as const };
+    const hard = applyBossDifficulty(original, 'hard');
+    expect(hard).toMatchObject({ name: 'Centinela', element: 'electric', projectileType: 'lightning_orb', difficulty: 'hard', speed: 195, attackFrequency: 1.8 });
+    expect(validateBoss(hard)).toBeNull();
+    expect(validateBoss({ ...hard, attackFrequency: 0.2 })).toContain('intervalo');
+  });
+  it('visibly ricochets a powerless projectile instead of consuming it', () => {
+    const obstacle: TrackItem = { id: 'stone', kind: 'rock', x: 400, width: 40 };
+    const game = new Simulation({ ...track, items: [obstacle] }); game.start();
+    game.projectiles.push({ id: 'water-shot', sender: 'player', x: 200, y: 20, vx: 50000, vy: 0, damage: 25, element: 'water', type: 'aqua_shield', size: 16, color: '#0ff', life: 2 });
+    game.update(STEP);
+    expect(game.projectiles).toHaveLength(1);
+    expect(game.projectiles[0]).toMatchObject({ ignoredObstacleId: 'stone' });
+    expect(game.projectiles[0].vx).toBeLessThan(0);
+    expect(game.projectiles[0].ricochetTime).toBeGreaterThan(0);
+    expect(game.events).toContain('ricochet');
+  });
   it('allows both directions, latches pursuit on retreat, stops on release and protects checkpoint rewards', () => {
     const game = new Simulation(bossTrack()); game.start(); game.distance = 8300; game.update(STEP);
     const entry = game.distance; const time = game.time; const checkpoint = game.checkpoint;

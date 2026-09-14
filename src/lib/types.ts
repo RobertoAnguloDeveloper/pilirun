@@ -126,6 +126,7 @@ export interface BossConfig {
   weakness: 'fire' | 'water' | 'nature' | 'electric' | 'cosmic' | 'light';
   resistance: 'fire' | 'water' | 'nature' | 'electric' | 'cosmic' | 'light';
   customSpriteUrl?: string;
+  difficulty?: 'easy' | 'normal' | 'hard' | 'legendary' | 'custom';
 }
 
 export interface Projectile {
@@ -141,6 +142,11 @@ export interface Projectile {
   size: number;
   color: string;
   life: number;
+  /** Brief deterministic impact state used for ricochet feedback. */
+  ricochetTime?: number;
+  /** Prevents a reflected shot from colliding with the same obstacle every fixed step. */
+  ignoredObstacleId?: string;
+  ignoreObstacleTime?: number;
 }
 
 export interface Character {

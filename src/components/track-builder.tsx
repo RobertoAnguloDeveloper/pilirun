@@ -146,7 +146,7 @@ export function TrackBuilder({
               value={draft.bossMusicId || ''}
               onChange={(e) => setDraft((t) => ({ ...t, bossMusicId: e.target.value || undefined }))}
             >
-              <option value="">Sintetizador por defecto</option>
+              <option value="">The Last Harpsichord (predeterminada)</option>
               {musicLibrary.map((m) => (
                 <option key={m.id} value={m.id}>
                   {m.name} ({(m.mime || 'audio').split('/')[1]?.toUpperCase() || 'AUDIO'})

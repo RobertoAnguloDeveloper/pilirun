@@ -12,6 +12,8 @@ export interface BuiltinTrack extends AudioTrack {
   builtin: true;
 }
 
+export const DEFAULT_BOSS_MUSIC_ID = 'bmg-the-last-harpsichord';
+
 export const BUILTIN_MUSIC: BuiltinTrack[] = [
   {
     id: 'bmg-bounding-through-the-blooms',

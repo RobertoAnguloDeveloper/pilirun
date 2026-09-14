@@ -3,6 +3,24 @@ export const PLAYER_HEIGHT = 58;
 export const PLAYER_SLIDE_HEIGHT = 32;
 export const PLAYER_HALF_WIDTH = 24;
 
+export function playerVisualHeight(sliding: boolean): number {
+  return sliding ? PLAYER_SLIDE_HEIGHT : PLAYER_HEIGHT;
+}
+
+export function proportionalSpriteHeight(
+  activeBoundsHeight: number,
+  standingBoundsHeight: number,
+): number {
+  if (
+    !Number.isFinite(activeBoundsHeight) ||
+    !Number.isFinite(standingBoundsHeight) ||
+    activeBoundsHeight <= 0 ||
+    standingBoundsHeight <= 0
+  )
+    return PLAYER_HEIGHT;
+  return PLAYER_HEIGHT * (activeBoundsHeight / standingBoundsHeight);
+}
+
 export interface SpriteBounds {
   x: number;
   y: number;

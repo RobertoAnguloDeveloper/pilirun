@@ -1,4 +1,4 @@
-import { frameScale, drawGroundedSprite, measureSprite, pixelBounds, PLAYER_HEIGHT, PLAYER_SLIDE_HEIGHT } from '../lib/sprite-geometry';
+import { frameScale, drawGroundedSprite, measureSprite, pixelBounds, playerVisualHeight, proportionalSpriteHeight } from '../lib/sprite-geometry';
 import { WORLDS } from '../lib/worlds';
 import { TIME_PERIODS, type TimeOfDay } from '../lib/environment';
 import type {
@@ -163,6 +163,7 @@ export function drawLandscape(
   distance: number,
   reduced = false,
   timeOfDay: TimeOfDay = 'morning',
+  elapsed = distance / 290,
 ) {
   const palette = WORLDS[world] || WORLDS.forest;
   const env = TIME_PERIODS[timeOfDay] || TIME_PERIODS.morning;
@@ -243,9 +244,9 @@ export function drawLandscape(
     const emberLoop = Math.max(width, 800);
     for (let i = 0; i < 45; i++) {
       const baseX = i * 67.3;
-      const emberX = (((baseX - distance * 0.25) % emberLoop) + emberLoop) % emberLoop;
-      if (emberX <= width + 5) {
-        const emberY = (i * 37.1) % (height * 0.7);
+        const emberX = (((baseX - distance * 0.25 + (reduced ? 0 : elapsed * 18)) % emberLoop) + emberLoop) % emberLoop;
+        if (emberX <= width + 5) {
+        const emberY = ((i * 37.1 - (reduced ? 0 : elapsed * (18 + i % 4))) % (height * 0.7) + height * 0.7) % (height * 0.7);
         ctx.fillRect(emberX, emberY, 2.5, 2.5);
       }
     }
@@ -255,9 +256,9 @@ export function drawLandscape(
     const snowLoop = Math.max(width, 800);
     for (let i = 0; i < 40; i++) {
       const baseX = i * 73.7;
-      const flakeX = (((baseX - distance * 0.35) % snowLoop) + snowLoop) % snowLoop;
+        const flakeX = (((baseX - distance * 0.35 + (reduced ? 0 : Math.sin(elapsed + i) * 18)) % snowLoop) + snowLoop) % snowLoop;
       if (flakeX <= width + 5) {
-        const flakeY = (i * 47) % (height * 0.75);
+        const flakeY = ((i * 47 + (reduced ? 0 : elapsed * (22 + i % 5))) % (height * 0.75));
         ctx.fillRect(flakeX, flakeY, 3, 3);
       }
     }
@@ -268,7 +269,7 @@ export function drawLandscape(
     const cloudSpeed = reduced ? 0 : 0.06;
     for (let i = 0; i < 5; i++) {
       const originX = i * (cloudSpan / 5);
-      const cx = ((((originX - distance * cloudSpeed) % cloudSpan) + cloudSpan) % cloudSpan) - 130;
+      const cx = ((((originX - distance * cloudSpeed + (reduced ? 0 : elapsed * 3.5)) % cloudSpan) + cloudSpan) % cloudSpan) - 130;
       ctx.beginPath();
       ctx.ellipse(cx, height * (0.16 + (i % 3) * 0.08), 56, 12, 0, 0, Math.PI * 2);
       ctx.fill();
@@ -339,21 +340,44 @@ export function drawLandscape(
     const norm = hash - Math.floor(hash);
     const treeHeight = height * (0.24 + norm * 0.12);
 
+    const sway = reduced ? 0 : Math.sin(elapsed * 1.35 + idx * 1.71) * 0.018;
+    ctx.save();
+    ctx.translate(x, ground);
+    ctx.rotate(sway);
     if (world === 'sunset' || world === 'neon') {
-      ctx.fillRect(x, ground - treeHeight * 0.6, 9, treeHeight * 0.6);
+      ctx.fillRect(0, -treeHeight * 0.6, 9, treeHeight * 0.6);
       ctx.beginPath();
-      ctx.ellipse(x + 4.5, ground - treeHeight * 0.6, 30, 16, 0, 0, Math.PI * 2);
+      ctx.ellipse(4.5, -treeHeight * 0.6, 30, 16, sway * 8, 0, Math.PI * 2);
       ctx.fill();
     } else {
-      ctx.fillRect(x - 3.5, ground - treeHeight, 7, treeHeight);
+      ctx.fillRect(-3.5, -treeHeight, 7, treeHeight);
       for (let j = 0; j < 3; j++) {
-        const y = ground - treeHeight + j * treeHeight * 0.22;
+        const y = -treeHeight + j * treeHeight * 0.22;
         ctx.beginPath();
-        ctx.moveTo(x, y - treeHeight * 0.22);
-        ctx.lineTo(x - treeHeight * (0.18 + j * 0.05), y + treeHeight * 0.32);
-        ctx.lineTo(x + treeHeight * (0.18 + j * 0.05), y + treeHeight * 0.32);
+        ctx.moveTo(0, y - treeHeight * 0.22);
+        ctx.lineTo(-treeHeight * (0.18 + j * 0.05), y + treeHeight * 0.32);
+        ctx.lineTo(treeHeight * (0.18 + j * 0.05), y + treeHeight * 0.32);
         ctx.closePath();
         ctx.fill();
+      }
+    }
+    ctx.restore();
+  }
+
+  // Deterministic ambient particles continue moving even while the player is still.
+  if (!reduced) {
+    const atmosphericColor = world === 'volcano' ? '#ffb34799' : world === 'alpine' ? '#ffffffaa' : world === 'neon' ? '#38bdf877' : world === 'night' ? '#d8f36aaa' : '#f4f0b066';
+    ctx.fillStyle = atmosphericColor;
+    ctx.strokeStyle = atmosphericColor;
+    for (let i = 0; i < 28; i++) {
+      const phase = elapsed * (12 + i % 6) + i * 71.3;
+      const x = ((i * 97.7 + phase * (world === 'neon' ? -2 : 0.35)) % (width + 40) + width + 40) % (width + 40) - 20;
+      const y = ((i * 43.1 + phase * (world === 'volcano' ? -0.7 : 0.55)) % ground + ground) % ground;
+      if (world === 'neon') {
+        ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(x - 7, y + 18); ctx.stroke();
+      } else {
+        const radius = 1 + (i % 3);
+        ctx.beginPath(); ctx.arc(x, y, radius, 0, Math.PI * 2); ctx.fill();
       }
     }
   }
@@ -408,6 +432,7 @@ export class Renderer {
   private particles: ShatterParticle[] = [];
   private lastSprite?: HTMLImageElement;
   private lastFrameScale = 1;
+  private standingBoundsHeight = 0;
   private particleTime = 0;
   private processedDestroyedIds = new Set<string>();
   private customImages = new Map<string, HTMLImageElement>();
@@ -473,6 +498,17 @@ export class Renderer {
     for (const url of this.customImageUrls) URL.revokeObjectURL(url);
     this.customImageUrls.length = 0;
     this.customImages.clear();
+  }
+
+  private getStandingBoundsHeight(): number {
+    if (this.standingBoundsHeight > 0) return this.standingBoundsHeight;
+    const reference = [this.runFrames[0], this.idleFrames[0], this.image].find(
+      (candidate) => candidate?.complete && candidate.naturalWidth,
+    );
+    if (reference?.complete && reference.naturalWidth) {
+      this.standingBoundsHeight = measureSprite(reference).height;
+    }
+    return this.standingBoundsHeight;
   }
 
   render(game: Simulation, width: number, height: number, reduced: boolean) {
@@ -697,6 +733,15 @@ export class Renderer {
     ctx.closePath();
     ctx.fill();
 
+    if (!reduced) {
+      ctx.fillStyle = game.track.world === 'night' ? '#d8f36a99' : '#ffffff55';
+      for (let mote = 0; mote < 20; mote++) {
+        const x = ((mote * 83 + game.elapsed * (4 + mote % 4)) % (width + 20)) - 10;
+        const y = (mote * 37 + game.elapsed * (9 + mote % 3)) % Math.max(1, horizon);
+        ctx.beginPath(); ctx.arc(x, y, 1 + mote % 2, 0, Math.PI * 2); ctx.fill();
+      }
+    }
+
     const ground = ctx.createLinearGradient(0, horizon, 0, height);
     ground.addColorStop(0, palette.trees);
     ground.addColorStop(1, palette.ground);
@@ -749,7 +794,8 @@ export class Renderer {
       const point = project(depth);
       if (point.scale < 0.015) continue;
       for (const side of [-1, 1]) {
-        const x = point.center + side * point.roadWidth * 0.72;
+        const sway = reduced ? 0 : Math.sin(game.elapsed * 1.4 + depth * 0.01) * 3 * point.scale;
+        const x = point.center + side * point.roadWidth * 0.72 + sway;
         const propHeight = 110 * point.scale;
         ctx.fillStyle = game.track.world === 'neon' ? '#19cfed' : palette.trees;
         ctx.fillRect(x - 5 * point.scale, point.y - propHeight, 10 * point.scale, propHeight);
@@ -1047,7 +1093,7 @@ export class Renderer {
       charScale = game.characterScale,
       px = width * 0.23;
 
-    drawLandscape(ctx, width, height, game.track.world, game.distance, reduced, game.timeOfDay);
+    drawLandscape(ctx, width, height, game.track.world, game.distance, reduced, game.timeOfDay, game.elapsed);
     this.renderScenarioSide(game, width, height, false);
     ctx.save();
 
@@ -1059,6 +1105,10 @@ export class Renderer {
       ctx.save();
       ctx.translate(x, ground);
       ctx.scale(scale, scale);
+      ctx.fillStyle = 'rgba(4, 12, 9, 0.28)';
+      ctx.beginPath();
+      ctx.ellipse(0, 2, item.kind === 'branch' ? 34 : 28, 7, 0, 0, Math.PI * 2);
+      ctx.fill();
 
       if (item.visual?.source === 'custom') {
         const image = this.customImages.get(item.visual.assetId);
@@ -1099,6 +1149,8 @@ export class Renderer {
         ctx.fillText(orb.icon, 0, orbY);
         ctx.restore();
       } else if (item.kind === 'coin') {
+        const coinTurn = Math.max(0.18, Math.abs(Math.cos(game.elapsed * 5 + item.x * 0.01)));
+        ctx.scale(coinTurn, 1);
         ctx.fillStyle = '#ffe08a';
         ctx.beginPath();
         ctx.arc(0, -62, 10, 0, Math.PI * 2);
@@ -1138,6 +1190,12 @@ export class Renderer {
         ctx.fill();
         ctx.strokeStyle = '#533e34';
         ctx.strokeRect(-24, -31, 48, 31);
+        ctx.lineWidth = 2;
+        for (let grain = -14; grain <= 10; grain += 12) {
+          ctx.beginPath(); ctx.moveTo(grain, -27); ctx.quadraticCurveTo(grain + 6, -17, grain, -5); ctx.stroke();
+        }
+        ctx.beginPath(); ctx.arc(22, -15, 8, 0, Math.PI * 2); ctx.stroke();
+        ctx.beginPath(); ctx.arc(22, -15, 3, 0, Math.PI * 2); ctx.stroke();
       } else if (item.kind === 'rock') {
         ctx.fillStyle = '#95a49b';
         ctx.beginPath();
@@ -1154,13 +1212,20 @@ export class Renderer {
         ctx.lineTo(1, -47);
         ctx.lineTo(8, -25);
         ctx.fill();
+        ctx.fillStyle = '#66756e';
+        ctx.beginPath(); ctx.moveTo(8, -25); ctx.lineTo(22, -32); ctx.lineTo(29, 0); ctx.lineTo(12, -8); ctx.closePath(); ctx.fill();
+        ctx.fillStyle = '#9fcf83';
+        ctx.beginPath(); ctx.ellipse(-10, -31, 8, 3, -0.3, 0, Math.PI * 2); ctx.fill();
       } else if (item.kind === 'branch') {
         ctx.fillStyle = '#70533e';
         ctx.fillRect(-26, -85, 52, 38);
         ctx.fillStyle = '#76a565';
         ctx.beginPath();
-        ctx.ellipse(0, -86, 36, 11, 0, 0, Math.PI * 2);
+        const leafSway = Math.sin(game.elapsed * 2.2 + item.x * 0.03) * 4;
+        ctx.ellipse(leafSway, -86, 36, 11, leafSway * 0.012, 0, Math.PI * 2);
         ctx.fill();
+        ctx.fillStyle = '#9ac27c';
+        ctx.beginPath(); ctx.ellipse(-15 + leafSway, -90, 13, 5, -0.35, 0, Math.PI * 2); ctx.fill();
       } else {
         ctx.fillStyle =
           item.kind === 'shield' ? '#afdbef' : item.kind === 'boost' ? '#e5bafa' : '#d8f36a';
@@ -1281,8 +1346,8 @@ export class Renderer {
       const zAngle = (game.elapsed * 12) % (Math.PI * 2);
       const zx1 = Math.cos(zAngle) * baseRadius * 0.9;
       const zy1 = -28 * scale * charScale + Math.sin(zAngle) * baseRadius * 0.9;
-      const zx2 = zx1 + (Math.random() - 0.5) * 18 * scale;
-      const zy2 = zy1 + (Math.random() - 0.5) * 18 * scale;
+      const zx2 = zx1 + Math.sin(game.elapsed * 91) * 9 * scale;
+      const zy2 = zy1 + Math.cos(game.elapsed * 77) * 9 * scale;
       ctx.moveTo(zx1, zy1);
       ctx.lineTo(zx2, zy2);
       ctx.stroke();
@@ -1365,8 +1430,22 @@ export class Renderer {
       this.lastSprite = activeFrameImg;
       this.lastFrameScale = frameScale(this.character, movement, activeIndex);
     } else activeFrameImg = this.lastSprite ?? this.image;
-    const hasCustomVisual = !!(activeFrameImg?.complete && activeFrameImg.naturalWidth) || !!this.character.pixels;
-    const spriteHeight = (!hasCustomVisual && isSliding ? PLAYER_SLIDE_HEIGHT : PLAYER_HEIGHT) * scale * charScale;
+    let visualHeight = playerVisualHeight(isSliding);
+    if (
+      isSliding &&
+      this.slideFrames.length > 0 &&
+      activeFrameImg?.complete &&
+      activeFrameImg.naturalWidth
+    ) {
+      const standingBoundsHeight = this.getStandingBoundsHeight();
+      if (standingBoundsHeight > 0) {
+        visualHeight = proportionalSpriteHeight(
+          measureSprite(activeFrameImg).height,
+          standingBoundsHeight,
+        );
+      }
+    }
+    const spriteHeight = visualHeight * scale * charScale;
 
     if (activeFrameImg?.complete && activeFrameImg.naturalWidth) {
       ctx.imageSmoothingEnabled = false;
@@ -1410,29 +1489,50 @@ export class Renderer {
       const pX = px + (p.x - game.distance) * scale;
       const pY = ground - p.y * scale;
       const isCharged = p.sender === 'player' && p.size > 20;
+      const ricochet = Math.min(1, (p.ricochetTime ?? 0) / 0.22);
+
+      if (ricochet > 0) {
+        ctx.strokeStyle = `rgba(255,255,255,${ricochet})`;
+        ctx.lineWidth = 2 * scale;
+        for (let spark = 0; spark < 6; spark++) {
+          const angle = spark * Math.PI / 3 + p.id.length * 0.17;
+          const inner = p.size * scale * 0.7;
+          const outer = inner + 18 * scale * ricochet;
+          ctx.beginPath();
+          ctx.moveTo(pX + Math.cos(angle) * inner, pY + Math.sin(angle) * inner);
+          ctx.lineTo(pX + Math.cos(angle) * outer, pY + Math.sin(angle) * outer);
+          ctx.stroke();
+        }
+      }
+
+      ctx.save();
+      ctx.translate(pX, pY);
+      ctx.rotate(Math.atan2(-p.vy, p.vx));
+      ctx.scale(1 + ricochet * 0.5, 1 - ricochet * 0.35);
 
       if (isCharged) {
         // Outer energy aura for charged Mega Buster shot
-        const chargedGrad = ctx.createRadialGradient(pX, pY, p.size * scale * 0.2, pX, pY, p.size * scale * 0.95);
+        const chargedGrad = ctx.createRadialGradient(0, 0, p.size * scale * 0.2, 0, 0, p.size * scale * 0.95);
         chargedGrad.addColorStop(0, '#ffffff');
         chargedGrad.addColorStop(0.4, p.color);
         chargedGrad.addColorStop(1, 'rgba(255, 255, 255, 0)');
         ctx.fillStyle = chargedGrad;
         ctx.beginPath();
-        ctx.arc(pX, pY, p.size * scale * 0.95, 0, Math.PI * 2);
+        ctx.arc(0, 0, p.size * scale * 0.95, 0, Math.PI * 2);
         ctx.fill();
       }
 
       ctx.fillStyle = p.color;
       ctx.beginPath();
-      ctx.arc(pX, pY, p.size * scale * 0.65, 0, Math.PI * 2);
+      ctx.arc(0, 0, p.size * scale * 0.65, 0, Math.PI * 2);
       ctx.fill();
 
       // Bright core
       ctx.fillStyle = '#ffffff';
       ctx.beginPath();
-      ctx.arc(pX, pY, p.size * scale * 0.28, 0, Math.PI * 2);
+      ctx.arc(0, 0, p.size * scale * 0.28, 0, Math.PI * 2);
       ctx.fill();
+      ctx.restore();
     }
     ctx.restore();
 
@@ -1451,6 +1551,20 @@ export class Renderer {
 
       ctx.save();
       ctx.translate(bx, by);
+
+      // Layered elemental aura and orbiting shards make the generic boss feel alive.
+      const aura = ctx.createRadialGradient(0, 0, bossSize * 0.35, 0, 0, bossSize * 0.85);
+      aura.addColorStop(0, 'rgba(255,255,255,0)');
+      aura.addColorStop(1, boss.element === 'fire' ? 'rgba(249,115,22,.25)' : boss.element === 'water' ? 'rgba(14,165,233,.25)' : boss.element === 'electric' ? 'rgba(250,204,21,.25)' : 'rgba(168,85,247,.22)');
+      ctx.fillStyle = aura;
+      ctx.beginPath(); ctx.arc(0, 0, bossSize * 0.9, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = 'rgba(255,255,255,.75)';
+      for (let shard = 0; shard < 5; shard++) {
+        const angle = game.elapsed * (0.8 + shard * 0.06) + shard * Math.PI * 0.4;
+        const radius = bossSize * (0.62 + (shard % 2) * 0.12);
+        ctx.save(); ctx.translate(Math.cos(angle) * radius, Math.sin(angle) * radius * 0.55);
+        ctx.rotate(angle); ctx.fillRect(-2 * scale, -5 * scale, 4 * scale, 10 * scale); ctx.restore();
+      }
 
       // Telegraph warning indicator
       if (game.bossEntity.isTelegraphing) {
@@ -1530,9 +1644,14 @@ export class Renderer {
       ctx.fill();
       ctx.fillStyle = eyeGlow;
       ctx.beginPath();
-      ctx.arc(-bossSize * 0.18, -bossSize * 0.12, bossSize * 0.07, 0, Math.PI * 2);
-      ctx.arc(bossSize * 0.18, -bossSize * 0.12, bossSize * 0.07, 0, Math.PI * 2);
+      const eyeDirection = Math.sign(game.distance - game.bossEntity.x) * bossSize * 0.025;
+      ctx.arc(-bossSize * 0.18 + eyeDirection, -bossSize * 0.12, bossSize * 0.07, 0, Math.PI * 2);
+      ctx.arc(bossSize * 0.18 + eyeDirection, -bossSize * 0.12, bossSize * 0.07, 0, Math.PI * 2);
       ctx.fill();
+
+      ctx.strokeStyle = 'rgba(255,255,255,.55)';
+      ctx.lineWidth = Math.max(1.5, bossSize * 0.035);
+      ctx.beginPath(); ctx.arc(0, bossSize * 0.16, bossSize * 0.17, 0.15, Math.PI - 0.15); ctx.stroke();
 
       // Boss Health Bar
       const barWidth = 140 * scale;

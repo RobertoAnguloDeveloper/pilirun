@@ -55,6 +55,7 @@ export const COLOR_PALETTES: { name: string; colors: string[] }[] = [
 ];
 
 const COLORS = Array.from(new Set(COLOR_PALETTES.flatMap((p) => p.colors)));
+const BUILTIN_CHARACTER_IDS = new Set(['pili', 'menta', 'luna']);
 
 // Presets from the project's assets folder (/assets/1.png and /assets/2.png)
 const ASSET_PRESETS = [
@@ -1111,28 +1112,28 @@ export function CharacterEditor({
                 )}
               </small>
             </button>
-            {!['pili', 'menta', 'luna'].includes(c.id) && (
-              <div className="card-actions">
-                <button
-                  aria-label={`Editar ${c.name}`}
-                  onClick={() => {
-                    setEditing(c);
-                    setMode(c.image || c.frames ? 'auto_sprite' : 'pixel');
-                    setPhoto(undefined);
-                    undo.current = [];
-                    setMessage('');
-                  }}
-                >
-                  <Paintbrush size={15} />
-                </button>
+            <div className="card-actions">
+              <button
+                aria-label={`Editar ${c.name}`}
+                onClick={() => {
+                  setEditing(c);
+                  setMode(c.image || c.frames ? 'auto_sprite' : 'pixel');
+                  setPhoto(undefined);
+                  undo.current = [];
+                  setMessage('');
+                }}
+              >
+                <Paintbrush size={15} />
+              </button>
+              {!BUILTIN_CHARACTER_IDS.has(c.id) && (
                 <button
                   aria-label={`Eliminar ${c.name}`}
                   onClick={() => void onDelete(c.id).catch((e) => setMessage(String(e)))}
                 >
                   <Trash2 size={15} />
                 </button>
-              </div>
-            )}
+              )}
+            </div>
           </article>
         ))}
         <button

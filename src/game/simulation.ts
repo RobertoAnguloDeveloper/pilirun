@@ -19,7 +19,7 @@ export const GRAVITY = 1900;
 export const JUMP = 720;
 export const SPEED = 290;
 export const CHECKPOINT = 3000;
-export type GameEvent = 'jump' | 'coin' | 'hit' | 'power' | 'win' | 'destroy-shield';
+export type GameEvent = 'jump' | 'coin' | 'hit' | 'power' | 'win' | 'destroy-shield' | 'ricochet';
 
 export class Simulation {
   phase: GamePhase = 'MENU';
@@ -483,8 +483,8 @@ export class Simulation {
         // Begin telegraphed warning with 0.7s reaction window
         this.bossEntity.isTelegraphing = true;
         this.bossEntity.telegraphTimer = 0.7;
-        // Fair alternation: 50% high (slide under) / 50% low (jump over)
-        this.bossEntity.nextAttackType = Math.random() > 0.5 ? 'high' : 'low';
+        // Deterministic fair alternation: slide-under and jump-over attacks take turns.
+        this.bossEntity.nextAttackType = this.bossEntity.nextAttackType === 'high' ? 'low' : 'high';
       }
     }
   }
@@ -494,6 +494,9 @@ export class Simulation {
       const p = this.projectiles[i];
       const previousX = p.x, previousY = p.y;
       p.life -= dt;
+      p.ricochetTime = Math.max(0, (p.ricochetTime ?? 0) - dt);
+      p.ignoreObstacleTime = Math.max(0, (p.ignoreObstacleTime ?? 0) - dt);
+      if (p.ignoreObstacleTime === 0) p.ignoredObstacleId = undefined;
       p.x += p.vx * dt;
       p.y += p.vy * dt;
 
@@ -513,21 +516,33 @@ export class Simulation {
         }
         for (const item of this.track.items) {
           if (!['log', 'branch', 'rock'].includes(item.kind) || this.destroyed.has(item.id)) continue;
+          if (item.id === p.ignoredObstacleId && (p.ignoreObstacleTime ?? 0) > 0) continue;
           const y = item.y ?? (item.kind === 'branch' ? 47 : 0);
           const half = (item.width ?? 40) / 2 + p.size / 2;
           const hit = segmentHit(previousX, previousY, p.x, p.y, item.x - half, item.x + half, y - p.size / 2, y + (item.height ?? 40) + p.size / 2);
           if (hit < nearest) { nearest = hit; target = item; hitBoss = false; }
         }
         if (nearest !== Infinity) {
-          this.projectiles.splice(i, 1);
           if (target) {
             const damage = obstacleDamage(target, p.type);
             if (damage > 0) {
+              this.projectiles.splice(i, 1);
               const remaining = Math.max(0, (this.obstacleDurability.get(target.id) ?? obstacleHealth(target)) - damage);
               this.obstacleDurability.set(target.id, remaining);
               if (remaining === 0) this.destroyObstacle(target);
+            } else {
+              p.x = previousX + (p.x - previousX) * Math.max(0, nearest - 0.02);
+              p.y = previousY + (p.y - previousY) * Math.max(0, nearest - 0.02);
+              p.vx *= -0.62;
+              p.vy = Math.max(110, Math.abs(p.vx) * 0.22);
+              p.life = Math.min(p.life, 0.9);
+              p.ricochetTime = 0.22;
+              p.ignoredObstacleId = target.id;
+              p.ignoreObstacleTime = 0.16;
+              this.events.push('ricochet');
             }
           } else if (hitBoss && this.bossEntity) {
+            this.projectiles.splice(i, 1);
             this.bossEntity.health = Math.max(0, this.bossEntity.health - p.damage);
             this.events.push('hit'); this.shake = Math.max(this.shake, 0.4);
             if (this.bossEntity.health === 0) {

@@ -1,6 +1,63 @@
 import { test, expect } from '@playwright/test';
 import AxeBuilder from '@axe-core/playwright';
 const playButton = /Vamos a correr|JUGAR AHORA/i;
+test('home music starts after a gesture and built-in characters remain editable', async ({ page }) => {
+  const requestedUrls: string[] = [];
+  page.on('request', (request) => requestedUrls.push(request.url()));
+  await page.addInitScript(() => {
+    const media = HTMLMediaElement.prototype;
+    const nativePlay = media.play;
+    const nativePause = media.pause;
+    const state = window as unknown as { __successfulMediaPlays: number; __mediaPauses: number };
+    state.__successfulMediaPlays = 0;
+    state.__mediaPauses = 0;
+    media.play = function () {
+      const result = nativePlay.call(this);
+      void result.then(() => {
+        (window as unknown as { __successfulMediaPlays: number }).__successfulMediaPlays++;
+      });
+      return result;
+    };
+    media.pause = function () {
+      state.__mediaPauses++;
+      return nativePause.call(this);
+    };
+  });
+  await page.goto('/');
+  await expect(page.getByRole('button', { name: playButton })).toBeEnabled({ timeout: 30000 });
+
+  await page.locator('.arcade-title-box').click();
+  await expect
+    .poll(() => requestedUrls.some((url) => url.endsWith('/assets/bmg/A_Window_Facing_West.mp3')))
+    .toBe(true);
+  await expect
+    .poll(() =>
+      page.evaluate(
+        () => (window as unknown as { __successfulMediaPlays: number }).__successfulMediaPlays,
+      ),
+    )
+    .toBeGreaterThan(0);
+
+  await page.getByRole('button', { name: 'Mis personajes', exact: true }).click();
+  expect(
+    await page.evaluate(() => ({
+      plays: (window as unknown as { __successfulMediaPlays: number }).__successfulMediaPlays,
+      pauses: (window as unknown as { __mediaPauses: number }).__mediaPauses,
+    })),
+  ).toEqual({ plays: 1, pauses: 0 });
+  await expect(page.getByRole('button', { name: /Editar Pili/ })).toBeVisible();
+  await expect(page.getByRole('button', { name: /Editar Menta/ })).toBeVisible();
+  await expect(page.getByRole('button', { name: /Editar Luna/ })).toBeVisible();
+  await page.getByRole('button', { name: /Editar Pili/ }).click();
+  await page.getByLabel('Nombre del personaje').fill('Pili editable');
+  await page.getByRole('button', { name: 'Guardar personaje' }).click();
+  await expect(page.getByRole('button', { name: /Pili editable.*En tu equipo/ })).toHaveCount(1);
+
+  await page.reload();
+  await expect(page.getByRole('button', { name: playButton })).toBeEnabled({ timeout: 30000 });
+  await page.getByRole('button', { name: 'Mis personajes', exact: true }).click();
+  await expect(page.getByRole('button', { name: /Pili editable.*En tu equipo/ })).toHaveCount(1);
+});
 test('camp, game controls, character and track persistence', async ({ page }) => {
   const errors: string[] = [];
   page.on('pageerror', (e) => errors.push(e.message));
@@ -40,6 +97,30 @@ test('camp, game controls, character and track persistence', async ({ page }) =>
   await page.getByRole('button', { name: /Crear una pista/ }).click();
   await expect(page.getByRole('heading', { name: 'Sendero QA', exact: true })).toBeVisible();
   expect(errors).toEqual([]);
+});
+test('official bosses are editable and persist their combat settings', async ({ page }) => {
+  await page.goto('/');
+  await expect(page.getByRole('button', { name: playButton })).toBeEnabled({ timeout: 30000 });
+  await page.getByRole('button', { name: 'Explorar mundos', exact: true }).click();
+  await page.getByRole('button', { name: /Editar jefe de/ }).first().click();
+  await page.getByRole('button', { name: 'Difícil', exact: true }).click();
+  await page.getByLabel('Nombre del jefe').fill('Guardián QA');
+  await page.getByLabel('Velocidad de movimiento').fill('210');
+  await page.getByLabel('Dispara cada (segundos)').fill('2.1');
+  await page.getByLabel('Poder del jefe').selectOption('electric');
+  await page.getByLabel('Tipo de disparo del jefe').selectOption('lightning_orb');
+  await page.getByRole('button', { name: 'Guardar jefe', exact: true }).click();
+  await expect(page.getByText('Configuración del jefe guardada.')).toBeVisible();
+
+  await page.reload();
+  await expect(page.getByRole('button', { name: playButton })).toBeEnabled({ timeout: 30000 });
+  await page.getByRole('button', { name: 'Explorar mundos', exact: true }).click();
+  await page.getByRole('button', { name: /Editar jefe de/ }).first().click();
+  await expect(page.getByLabel('Nombre del jefe')).toHaveValue('Guardián QA');
+  await expect(page.getByLabel('Velocidad de movimiento')).toHaveValue('210');
+  await expect(page.getByLabel('Dispara cada (segundos)')).toHaveValue('2.1');
+  await expect(page.getByLabel('Poder del jefe')).toHaveValue('electric');
+  await expect(page.getByLabel('Tipo de disparo del jefe')).toHaveValue('lightning_orb');
 });
 test('photo crop and audio BLOB survive reload', async ({ page }) => {
   await page.goto('/');

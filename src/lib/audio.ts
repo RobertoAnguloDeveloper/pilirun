@@ -261,12 +261,12 @@ class AudioEngine {
     return buffer;
   }
 
-  effect(kind: 'jump' | 'coin' | 'hit' | 'power' | 'win' | 'destroy-shield') {
+  effect(kind: 'jump' | 'coin' | 'hit' | 'power' | 'win' | 'destroy-shield' | 'ricochet') {
     if (!this.context || this.preferences.muted || this.preferences.sfxVolume <= 0) return;
     const ctx = this.context,
       oscillator = ctx.createOscillator(),
       gain = ctx.createGain();
-    const notes = { jump: 420, coin: 1000, hit: 110, power: 700, win: 880, 'destroy-shield': 520 };
+    const notes = { jump: 420, coin: 1000, hit: 110, power: 700, win: 880, 'destroy-shield': 520, ricochet: 1320 };
     oscillator.type = kind === 'destroy-shield' ? 'sawtooth' : kind === 'hit' ? 'triangle' : 'sine';
     oscillator.frequency.setValueAtTime(notes[kind] * this.preferences.sfxPitch, ctx.currentTime);
     oscillator.frequency.exponentialRampToValueAtTime(
