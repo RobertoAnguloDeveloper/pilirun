@@ -80,6 +80,7 @@ export class Simulation {
     nextAttackType: 'high' | 'low' | 'homing';
     isTelegraphing: boolean;
     defeated: boolean;
+    defeatTimer: number;
     animFrame: number;
     hoverAngle: number;
     chargeTimer: number;
@@ -142,6 +143,7 @@ export class Simulation {
         nextAttackType: 'low',
         isTelegraphing: false,
         defeated: false,
+        defeatTimer: 0,
         animFrame: 0,
         hoverAngle: 0,
         chargeTimer: 0,
@@ -308,6 +310,8 @@ export class Simulation {
     }
 
     this.elapsed += dt;
+    if (this.bossEntity?.defeated)
+      this.bossEntity.defeatTimer = Math.max(0, this.bossEntity.defeatTimer - dt);
     this.animationElapsed += dt;
     this.time = Math.max(0, this.time - dt);
     this.shield = Math.max(0, this.shield - dt);
@@ -546,7 +550,7 @@ export class Simulation {
             this.bossEntity.health = Math.max(0, this.bossEntity.health - p.damage);
             this.events.push('hit'); this.shake = Math.max(this.shake, 0.4);
             if (this.bossEntity.health === 0) {
-              this.bossEntity.defeated = true; this.bossEntity.isTelegraphing = false;
+              this.bossEntity.defeated = true; this.bossEntity.defeatTimer = 1.2; this.bossEntity.isTelegraphing = false;
               this.bossEntity.vx = 0; this.bossEntity.vy = 0;
               this.time += 15; this.streak += 5; this.events.push('power');
               for (const projectile of this.projectiles) if (projectile.sender === 'boss') projectile.life = 0;

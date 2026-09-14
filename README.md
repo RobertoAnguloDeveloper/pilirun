@@ -51,5 +51,6 @@ La aplicación no necesita cuentas ni una base de datos externa. El modo offline
 - Un poder que no pueda dañar el material impactado rebota visiblemente con destello y sonido, en vez de desaparecer. Los ataques alto/bajo del jefe se alternan de forma determinista.
 - Cada nivel permite editar y guardar su jefe: nombre, dificultad, elemento, proyectil, vida, daño, tamaño, velocidad, cadencia, velocidad de disparo, debilidad y resistencia. Los niveles oficiales reciben overrides locales sin modificar sus datos base.
 - El entorno mantiene vida aun al detenerse: árboles y follaje reaccionan al viento, el clima avanza con el tiempo y cada mundo incorpora partículas atmosféricas. Movimiento reducido desactiva estos desplazamientos ambientales.
+- Los obstáculos y elementos principales del parallax usan arte WebP original generado para PiliRun, precargado una vez por sesión y disponible offline. Al derrotar un jefe, su cuerpo colapsa y libera anillos de energía y fragmentos antes de desaparecer.
 
 La música nueva se guarda como metadatos y Blob en una transacción de IndexedDB. La música antigua en SQLite sigue disponible sin importarla otra vez. Borrar una pista o restablecer los datos incluye ambos almacenes. Para conservar creaciones, no borres los datos del sitio.

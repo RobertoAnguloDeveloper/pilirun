@@ -240,6 +240,30 @@ describe('runner physics and progression', () => {
     expect(game.hurt).toBeGreaterThan(0);
   });
 
+  it('keeps a defeated boss visible long enough for its destruction animation', () => {
+    const track = {
+      ...empty(),
+      boss: {
+        id: 'destructible-boss', name: 'Boss', element: 'fire' as const, size: 1,
+        health: 1, maxHealth: 1, damage: 1, speed: 45, attackFrequency: 6,
+        projectileType: 'fireball' as const, projectileSpeed: 180,
+        weakness: 'water' as const, resistance: 'fire' as const,
+      },
+    };
+    const game = new Simulation(track); game.start();
+    game.distance = track.length - 800; game.update(STEP);
+    const boss = game.bossEntity!;
+    game.projectiles.push({ id: 'finisher', sender: 'player', x: boss.x - 100, y: boss.y,
+      vx: 20000, vy: 0, damage: 10, element: 'water', type: 'aqua_shield', size: 16,
+      color: '#0ff', life: 2 });
+    game.update(STEP);
+    expect(boss.defeated).toBe(true);
+    expect(boss.defeatTimer).toBe(1.2);
+    game.update(STEP);
+    expect(boss.defeatTimer).toBeLessThan(1.2);
+    expect(boss.defeatTimer).toBeGreaterThan(0);
+  });
+
   it('charges Mega Man Buster power attack over time and unleashes scaled projectile', () => {
     const track = {
       ...empty(),

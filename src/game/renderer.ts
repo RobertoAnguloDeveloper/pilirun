@@ -422,6 +422,16 @@ interface ShatterParticle {
   vrot: number;
 }
 
+const GENERATED_VISUALS = {
+  log: '/assets/generated/obstacle-log.webp',
+  rock: '/assets/generated/obstacle-rock.webp',
+  branch: '/assets/generated/obstacle-branch.webp',
+  pine: '/assets/generated/environment-pine.webp',
+  oak: '/assets/generated/environment-oak.webp',
+  foliage: '/assets/generated/environment-foliage.webp',
+  spire: '/assets/generated/environment-spire.webp',
+} as const;
+
 export class Renderer {
   private pixelContentBounds?: ReturnType<typeof pixelBounds>;
   private image?: HTMLImageElement;
@@ -438,6 +448,7 @@ export class Renderer {
   private customImages = new Map<string, HTMLImageElement>();
   private customImageUrls: string[] = [];
   private visibleItems: TrackItem[] = [];
+  private generatedVisuals = new Map<keyof typeof GENERATED_VISUALS, HTMLImageElement>();
 
   constructor(
     private ctx: CanvasRenderingContext2D,
@@ -445,6 +456,13 @@ export class Renderer {
     private scenario?: Scenario,
     scenarioAssets: ScenarioAsset[] = [],
   ) {
+    for (const [key, source] of Object.entries(GENERATED_VISUALS) as Array<
+      [keyof typeof GENERATED_VISUALS, string]
+    >) {
+      const image = new Image();
+      image.src = source;
+      this.generatedVisuals.set(key, image);
+    }
     if (character.pixels) this.pixelContentBounds = pixelBounds(character.pixels);
     if (character.image) {
       this.image = new Image();
@@ -567,10 +585,12 @@ export class Renderer {
     ctx.restore();
   }
 
-  private spawnShatterParticles(worldX: number, kind: string) {
+  private spawnShatterParticles(worldX: number, kind: string, originY = -30) {
     // Determine debris colors based on obstacle material
     let palette: string[];
-    if (kind === 'rock') {
+    if (kind === 'boss') {
+      palette = ['#ffffff', '#fde047', '#c084fc', '#38bdf8', '#ef4444'];
+    } else if (kind === 'rock') {
       palette = ['#95a49b', '#c3ccc0', '#5a6860', '#748076', '#bfe8fa'];
     } else if (kind === 'branch') {
       palette = ['#70533e', '#76a565', '#8a654c', '#537d45', '#bfe8fa'];
@@ -585,13 +605,13 @@ export class Renderer {
       const speed = 120 + Math.random() * 320;
       this.particles.push({
         worldX: worldX + (Math.random() - 0.5) * 24,
-        worldY: -15 - Math.random() * 45, // Elevation off ground
+        worldY: originY - Math.random() * (kind === 'boss' ? 80 : 45),
         vx: Math.cos(angle) * speed + 80, // Slight forward momentum from shield impact
         vy: Math.sin(angle) * speed - 100, // Upward explosion blast
         color: palette[Math.floor(Math.random() * palette.length)],
-        size: 3 + Math.random() * 7,
-        life: 0.65 + Math.random() * 0.35,
-        maxLife: 1.0,
+        size: (kind === 'boss' ? 5 : 3) + Math.random() * (kind === 'boss' ? 10 : 7),
+        life: (kind === 'boss' ? 1 : 0.65) + Math.random() * 0.35,
+        maxLife: kind === 'boss' ? 1.35 : 1.0,
         rot: Math.random() * Math.PI * 2,
         vrot: (Math.random() - 0.5) * 16,
       });
@@ -603,7 +623,7 @@ export class Renderer {
       const speed = 200 + Math.random() * 260;
       this.particles.push({
         worldX: worldX,
-        worldY: -30,
+        worldY: originY,
         vx: Math.cos(angle) * speed,
         vy: Math.sin(angle) * speed - 60,
         color: '#bfe8fa',
@@ -741,6 +761,13 @@ export class Renderer {
         ctx.beginPath(); ctx.arc(x, y, 1 + mote % 2, 0, Math.PI * 2); ctx.fill();
       }
     }
+    if (game.bossEntity?.defeated && game.bossEntity.defeatTimer > 0 && game.boss) {
+      const key = `boss:${game.boss.id}`;
+      if (!this.processedDestroyedIds.has(key)) {
+        this.processedDestroyedIds.add(key);
+        this.spawnShatterParticles(game.bossEntity.x, 'boss', -game.bossEntity.y);
+      }
+    }
 
     const ground = ctx.createLinearGradient(0, horizon, 0, height);
     ground.addColorStop(0, palette.trees);
@@ -810,7 +837,12 @@ export class Renderer {
     this.visibleItems.length = 0;
     for (const item of game.track.items) {
       const distance = item.x - game.distance;
-      if (distance >= -40 && distance <= 2600 && !game.consumed.has(item.id))
+      if (
+        distance >= -40 &&
+        distance <= 2600 &&
+        !game.consumed.has(item.id) &&
+        !game.destroyed.has(item.id)
+      )
         this.visibleItems.push(item);
     }
     this.visibleItems.sort((a, b) => b.x - a.x);
@@ -840,7 +872,7 @@ export class Renderer {
     fog.addColorStop(1, 'rgba(255,255,255,0)');
     ctx.fillStyle = fog;
     ctx.fillRect(0, horizon - 20, width, height * 0.3);
-    if (game.bossEntity && game.inBossFight) {
+    if (game.bossEntity && (game.inBossFight || game.bossEntity.defeatTimer > 0)) {
       const depth = game.bossEntity.x - game.distance;
       const point = project(Math.max(120, depth));
       this.drawBoss(game, depth < -40 ? width * 0.1 : point.center, point.y - game.bossEntity.y * point.scale, point.scale);
@@ -951,10 +983,96 @@ export class Renderer {
     }
   }
 
+  private renderGeneratedEnvironmentSide(
+    game: Simulation,
+    width: number,
+    height: number,
+    scale: number,
+    playerX: number,
+    reduced: boolean,
+  ) {
+    const ctx = this.ctx;
+    const ground = height * 0.79;
+    const spire = this.generatedVisuals.get('spire');
+    if (spire?.complete && spire.naturalWidth) {
+      const drift = game.distance * 0.13;
+      const start = Math.floor((drift - 520) / 520);
+      const end = Math.ceil((drift + width + 520) / 520);
+      ctx.save();
+      ctx.globalAlpha = game.track.world === 'volcano' ? 0.42 : 0.28;
+      for (let index = start; index <= end; index++) {
+        const x = index * 520 - drift;
+        const h = (170 + Math.abs(index % 3) * 28) * scale;
+        ctx.drawImage(spire, x - h * 0.42, ground - h, h * 0.84, h);
+      }
+      ctx.restore();
+    }
+
+    if (game.track.world === 'neon' || game.track.world === 'volcano') return;
+    const pine = this.generatedVisuals.get('pine');
+    const oak = this.generatedVisuals.get('oak');
+    const foliage = this.generatedVisuals.get('foliage');
+    const drift = game.distance * 0.43;
+    const start = Math.floor((drift - 300) / 300);
+    const end = Math.ceil((drift + width + 300) / 300);
+    for (let index = start; index <= end; index++) {
+      const image = index % 3 === 0 ? oak : pine;
+      if (!image?.complete || !image.naturalWidth) continue;
+      const x = playerX + index * 300 - drift;
+      const treeHeight = (145 + Math.abs(index % 4) * 17) * scale;
+      const sway = reduced ? 0 : Math.sin(game.elapsed * 1.15 + index * 1.7) * 0.018;
+      ctx.save();
+      ctx.globalAlpha = 0.72;
+      ctx.translate(x, ground);
+      ctx.rotate(sway);
+      ctx.drawImage(image, -treeHeight * 0.42, -treeHeight, treeHeight * 0.84, treeHeight);
+      ctx.restore();
+    }
+    if (foliage?.complete && foliage.naturalWidth) {
+      const foregroundDrift = game.distance * 0.62;
+      const foregroundStart = Math.floor((foregroundDrift - 190) / 190);
+      const foregroundEnd = Math.ceil((foregroundDrift + width + 190) / 190);
+      ctx.save();
+      ctx.globalAlpha = 0.82;
+      for (let index = foregroundStart; index <= foregroundEnd; index++) {
+        const x = playerX + index * 190 - foregroundDrift;
+        const bob = reduced ? 0 : Math.sin(game.elapsed * 1.8 + index) * 1.5;
+        ctx.drawImage(foliage, x - 48 * scale, ground - 52 * scale + bob, 96 * scale, 54 * scale);
+      }
+      ctx.restore();
+    }
+  }
+
+  private drawGeneratedObstacle(
+    ctx: CanvasRenderingContext2D,
+    kind: 'log' | 'rock' | 'branch',
+    elapsed: number,
+    seed: number,
+  ): boolean {
+    const image = this.generatedVisuals.get(kind);
+    if (!image?.complete || !image.naturalWidth) return false;
+    ctx.save();
+    if (kind === 'branch') ctx.rotate(Math.sin(elapsed * 2 + seed * 0.01) * 0.012);
+    if (kind === 'log') ctx.drawImage(image, -43, -45, 86, 45);
+    else if (kind === 'rock') ctx.drawImage(image, -34, -61, 68, 61);
+    else ctx.drawImage(image, -49, -116, 98, 76);
+    ctx.restore();
+    return true;
+  }
+
   /**
    * Render individual items for First-Person 3D mode
    */
   private drawItem3D(ctx: CanvasRenderingContext2D, kind: string, size: number) {
+    if (kind === 'log' || kind === 'rock' || kind === 'branch') {
+      const image = this.generatedVisuals.get(kind);
+      if (image?.complete && image.naturalWidth) {
+        if (kind === 'log') ctx.drawImage(image, -size * 0.62, -size * 0.48, size * 1.24, size * 0.48);
+        else if (kind === 'rock') ctx.drawImage(image, -size * 0.48, -size * 0.78, size * 0.96, size * 0.78);
+        else ctx.drawImage(image, -size * 0.65, -size * 1.18, size * 1.3, size * 0.72);
+        return;
+      }
+    }
     if (kind === 'coin') {
       ctx.fillStyle = '#ffe08a';
       ctx.beginPath();
@@ -1094,13 +1212,19 @@ export class Renderer {
       px = width * 0.23;
 
     drawLandscape(ctx, width, height, game.track.world, game.distance, reduced, game.timeOfDay, game.elapsed);
+    this.renderGeneratedEnvironmentSide(game, width, height, scale, px, reduced);
     this.renderScenarioSide(game, width, height, false);
     ctx.save();
 
     // 1. Draw Track Items (Obstacles, Collectibles, Springs, Rings, Power Orbs)
     for (const item of game.track.items) {
       const x = px + (item.x - game.distance) * scale;
-      if (x < -120 || x > width + 120 || game.consumed.has(item.id)) continue;
+      if (
+        x < -120 ||
+        x > width + 120 ||
+        game.consumed.has(item.id) ||
+        game.destroyed.has(item.id)
+      ) continue;
 
       ctx.save();
       ctx.translate(x, ground);
@@ -1117,6 +1241,11 @@ export class Renderer {
           const itemH = item.height ?? 60;
           ctx.drawImage(image, -itemW / 2, -itemH, itemW, itemH);
         } else this.drawItemSide(ctx, item.kind);
+      } else if (
+        (item.kind === 'log' || item.kind === 'rock' || item.kind === 'branch') &&
+        this.drawGeneratedObstacle(ctx, item.kind, game.elapsed, item.x)
+      ) {
+        // Generated production art is already drawn; procedural branches below are fallbacks.
       } else if (item.kind.startsWith('power_')) {
         // Magical Elemental Power Orb Pickup
         const orbColors: Record<string, { main: string; glow: string; icon: string }> = {
@@ -1544,13 +1673,38 @@ export class Renderer {
   private drawBoss(game: Simulation, bx: number, by: number, scale: number) {
     const ctx = this.ctx;
     // 7. Render Boss Entity with multi-frame animated features
-    if (game.bossEntity && !game.bossEntity.defeated && game.boss) {
+    if (
+      game.bossEntity &&
+      (!game.bossEntity.defeated || game.bossEntity.defeatTimer > 0) &&
+      game.boss
+    ) {
       const boss = game.boss;
       const bossSize = 65 * boss.size * scale;
       const flap = Math.sin(game.elapsed * 9) * 0.35;
 
       ctx.save();
       ctx.translate(bx, by);
+      const destruction = game.bossEntity.defeated
+        ? Math.max(0, Math.min(1, 1 - game.bossEntity.defeatTimer / 1.2))
+        : 0;
+      if (destruction > 0) {
+        ctx.globalAlpha = Math.max(0, 1 - destruction * destruction);
+        ctx.rotate(Math.sin(destruction * Math.PI * 5) * 0.18 + destruction * 0.5);
+        ctx.scale(1 + destruction * 0.35, Math.max(0.08, 1 - destruction * 0.82));
+        ctx.strokeStyle = `rgba(255,255,255,${1 - destruction})`;
+        ctx.lineWidth = Math.max(2, 6 * scale * (1 - destruction));
+        for (let ring = 0; ring < 3; ring++) {
+          ctx.beginPath();
+          ctx.arc(
+            0,
+            0,
+            bossSize * (0.45 + destruction * (1.2 + ring * 0.35)),
+            0,
+            Math.PI * 2,
+          );
+          ctx.stroke();
+        }
+      }
 
       // Layered elemental aura and orbiting shards make the generic boss feel alive.
       const aura = ctx.createRadialGradient(0, 0, bossSize * 0.35, 0, 0, bossSize * 0.85);

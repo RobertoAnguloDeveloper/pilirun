@@ -43,6 +43,14 @@ const CORE = [
   '/assets/pili-slide-0.webp',
   '/assets/pili-slide-1.webp',
   '/assets/pili-idle-0.webp',
+  // AI-generated, optimized production environment and obstacle sprites
+  '/assets/generated/obstacle-log.webp',
+  '/assets/generated/obstacle-rock.webp',
+  '/assets/generated/obstacle-branch.webp',
+  '/assets/generated/environment-pine.webp',
+  '/assets/generated/environment-oak.webp',
+  '/assets/generated/environment-foliage.webp',
+  '/assets/generated/environment-spire.webp',
 ];
 self.addEventListener('install', (event) =>
   event.waitUntil(

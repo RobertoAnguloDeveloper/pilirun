@@ -1,4 +1,4 @@
-import { readFileSync } from 'node:fs';
+import { readFileSync, statSync } from 'node:fs';
 import { runInNewContext } from 'node:vm';
 import { expect, it, vi } from 'vitest';
 import { BUILTIN_MUSIC } from '../src/lib/builtin-music';
@@ -41,5 +41,12 @@ it('retains successful precache entries when one asset is missing', async () => 
     expect(stored.has(`/assets/bmg/${track.file}.mp3`)).toBe(true);
   }
   expect(stored.has('/assets/pili-idle-0.webp')).toBe(true);
+  for (const asset of [
+    'obstacle-log', 'obstacle-rock', 'obstacle-branch',
+    'environment-pine', 'environment-oak', 'environment-foliage', 'environment-spire',
+  ]) {
+    expect(stored.has(`/assets/generated/${asset}.webp`)).toBe(true);
+    expect(statSync(`public/assets/generated/${asset}.webp`).size).toBeLessThan(150_000);
+  }
   expect(warn).toHaveBeenCalledOnce();
 });

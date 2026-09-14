@@ -1,5 +1,5 @@
 /* Versioned production shell. User data is never stored in this HTTP cache. */
-const CACHE = 'pilirun-shell-zfio1ug0kRucna26K-igX';
+const CACHE = 'pilirun-shell-_8v--P33_ogPeJRVmU2LU';
 const CORE = [
   '/',
   '/manifest.webmanifest',
@@ -43,8 +43,16 @@ const CORE = [
   '/assets/pili-slide-0.webp',
   '/assets/pili-slide-1.webp',
   '/assets/pili-idle-0.webp',
+  // AI-generated, optimized production environment and obstacle sprites
+  '/assets/generated/obstacle-log.webp',
+  '/assets/generated/obstacle-rock.webp',
+  '/assets/generated/obstacle-branch.webp',
+  '/assets/generated/environment-pine.webp',
+  '/assets/generated/environment-oak.webp',
+  '/assets/generated/environment-foliage.webp',
+  '/assets/generated/environment-spire.webp',
 ];
-CORE.push(...["/_next/static/zfio1ug0kRucna26K-igX/_buildManifest.js","/_next/static/zfio1ug0kRucna26K-igX/_clientMiddlewareManifest.js","/_next/static/zfio1ug0kRucna26K-igX/_ssgManifest.js","/_next/static/chunks/07h5dwvthz9k9.js","/_next/static/chunks/093_sugt6qlro.js","/_next/static/chunks/09lgyggnhjlha.js","/_next/static/chunks/0cz1d0mv5g_q7.js","/_next/static/chunks/0vm1_4nmjbxhz.js","/_next/static/chunks/0v_m6ks4wuc33.css","/_next/static/chunks/1mh6a-0e61pyc.js","/_next/static/chunks/25o5x2gi_btt9.js","/_next/static/chunks/26io9omxuy1me.js","/_next/static/chunks/2abfs_k7qau8y.js","/_next/static/chunks/2gw_w_32tj1_y.js","/_next/static/chunks/2ha3tmg8im23l.js","/_next/static/chunks/2l_y_qqi24r7y.js","/_next/static/chunks/2nq1xvplyp02x.js","/_next/static/chunks/2_b2nxc-tthe9.js","/_next/static/chunks/38_72zlg96wze.js","/_next/static/chunks/3a8u13pvgr94r.js","/_next/static/chunks/3fntmmi971322.js","/_next/static/chunks/3unovf3a7qprl.js","/_next/static/chunks/turbopack-3wbyi96ng71ls.js"]);
+CORE.push(...["/_next/static/_8v--P33_ogPeJRVmU2LU/_buildManifest.js","/_next/static/_8v--P33_ogPeJRVmU2LU/_clientMiddlewareManifest.js","/_next/static/_8v--P33_ogPeJRVmU2LU/_ssgManifest.js","/_next/static/chunks/07h5dwvthz9k9.js","/_next/static/chunks/093_sugt6qlro.js","/_next/static/chunks/09lgyggnhjlha.js","/_next/static/chunks/0cz1d0mv5g_q7.js","/_next/static/chunks/0vm1_4nmjbxhz.js","/_next/static/chunks/0v_m6ks4wuc33.css","/_next/static/chunks/12te9ie9xaas4.js","/_next/static/chunks/187e5c22ikl69.js","/_next/static/chunks/1jb7_qi4zcncl.js","/_next/static/chunks/1mh6a-0e61pyc.js","/_next/static/chunks/2abfs_k7qau8y.js","/_next/static/chunks/2gw_w_32tj1_y.js","/_next/static/chunks/2l_y_qqi24r7y.js","/_next/static/chunks/2nq1xvplyp02x.js","/_next/static/chunks/2_b2nxc-tthe9.js","/_next/static/chunks/38_72zlg96wze.js","/_next/static/chunks/3a8u13pvgr94r.js","/_next/static/chunks/3fntmmi971322.js","/_next/static/chunks/3unovf3a7qprl.js","/_next/static/chunks/turbopack-3wbyi96ng71ls.js"]);
 self.addEventListener('install', (event) =>
   event.waitUntil(
     (async () => {
