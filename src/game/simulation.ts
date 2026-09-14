@@ -63,6 +63,9 @@ export class Simulation {
   stats: CharacterStats;
   activePowerId: PowerId = 'flame_burst';
   powerCooldown = 0;
+  isChargingPower = false;
+  powerChargeTime = 0;
+  powerChargeRatio = 0;
   projectiles: Projectile[] = [];
   boss: BossConfig | null = null;
   bossEntity: {
@@ -186,15 +189,52 @@ export class Simulation {
   }
 
   /**
+   * Start charging equipped power (Mega Man Buster style)
+   */
+  startChargingPower() {
+    if (this.phase !== 'PLAYING') return;
+    if (this.powerCooldown > 0) return;
+    const power = POWERS[this.activePowerId];
+    if (!power || this.energy < power.energyCost) return;
+    this.isChargingPower = true;
+    this.powerChargeTime = 0;
+    this.powerChargeRatio = 0;
+  }
+
+  /**
+   * Release charged attack or cast normal if barely tapped
+   */
+  releaseChargedPower() {
+    if (!this.isChargingPower || this.phase !== 'PLAYING') return;
+    const chargeRatio = Math.max(0, this.powerChargeRatio);
+    this.isChargingPower = false;
+    this.powerChargeTime = 0;
+    this.powerChargeRatio = 0;
+    this.castPower(chargeRatio);
+  }
+
+  /**
+   * Interrupt/cancel power charge without firing (e.g. player is hit by an obstacle/projectile)
+   */
+  cancelChargingPower() {
+    if (!this.isChargingPower) return;
+    this.isChargingPower = false;
+    this.powerChargeTime = 0;
+    this.powerChargeRatio = 0;
+  }
+
+  /**
    * Cast equipped power
    */
-  castPower() {
+  castPower(chargeRatio = 0) {
     if (this.phase !== 'PLAYING') return;
     if (this.powerCooldown > 0) return;
     const power = POWERS[this.activePowerId];
     if (!power || this.energy < power.energyCost) return;
 
-    this.energy = Math.max(0, this.energy - power.energyCost);
+    // Energy cost: scales moderately with charge, but never consumes more than available energy
+    const effectiveCost = Math.min(this.energy, Math.round(power.energyCost * (1 + Math.min(chargeRatio, 2.5) * 0.7)));
+    this.energy = Math.max(0, this.energy - effectiveCost);
     this.powerCooldown = power.cooldown;
     this.events.push('power');
 
@@ -204,24 +244,29 @@ export class Simulation {
     if (power.element === 'fire') envMod *= env.solarModifier;
     if (power.element === 'cosmic') envMod *= env.lunarModifier;
 
+    // Damage multiplier: 1.0x base + 2.2x per charge unit accumulated
+    const chargeDmgMultiplier = 1.0 + chargeRatio * 2.2;
     const baseDmg = this.boss
-      ? calculateDamage(power, this.stats.strength, this.boss, envMod)
-      : power.damage;
+      ? calculateDamage(power, this.stats.strength, this.boss, envMod) * chargeDmgMultiplier
+      : power.damage * chargeDmgMultiplier;
+
+    // Projectile size scales proportionally with charge ratio (16px base, 38px at 1.0, 60px at 2.0, etc.)
+    const projSize = Math.round(16 + chargeRatio * 22);
 
     // Spawn Player Projectile
     this.projectiles.push({
       id: crypto.randomUUID(),
       sender: 'player',
-      x: this.distance + 35 * this.facing,
+      x: this.distance + (35 + Math.min(chargeRatio, 4) * 10) * this.facing,
       y: this.height + 25,
-      vx: power.speed * this.facing,
+      vx: (power.speed + Math.min(chargeRatio, 3) * 150) * this.facing,
       vy: 0,
-      damage: baseDmg,
+      damage: Math.round(baseDmg),
       element: power.element,
       type: power.id,
-      size: 16,
-      color: power.color,
-      life: 2.5,
+      size: projSize,
+      color: chargeRatio > 0.6 ? '#ef4444' : chargeRatio > 0.25 ? '#f97316' : power.color,
+      life: 2.5 + Math.min(chargeRatio, 4) * 0.5,
     });
   }
 
@@ -272,6 +317,16 @@ export class Simulation {
     this.shake = Math.max(0, this.shake - dt * 2.8);
     this.powerCooldown = Math.max(0, this.powerCooldown - dt);
 
+    // Power Charge Accumulation (Mega Man Buster style - unbounded accumulation)
+    // The longer the attack is held, the more power accumulates proportionally
+    if (this.isChargingPower) {
+      this.powerChargeTime += dt;
+      this.powerChargeRatio = this.powerChargeTime / 1.4;
+    } else {
+      this.powerChargeTime = 0;
+      this.powerChargeRatio = 0;
+    }
+
     // Regenerate energy gradually with time-of-day bonus
     if (this.hurt <= 0) {
       const env = TIME_PERIODS[this.timeOfDay] || TIME_PERIODS.morning;
@@ -320,6 +375,7 @@ export class Simulation {
           // Boss bounces back slightly
           this.bossEntity.x = Math.min(this.track.length - 200, this.bossEntity.x + 60);
         } else if (this.hurt <= 0) {
+          this.cancelChargingPower();
           this.lives--;
           this.energy = Math.max(0, this.energy - 35);
           this.hurt = 1.8;
@@ -500,6 +556,7 @@ export class Simulation {
               continue;
             }
             if (this.hurt <= 0) {
+              this.cancelChargingPower();
               this.lives--;
               this.energy = Math.max(0, this.energy - 30);
               this.hurt = 1.6;
@@ -609,6 +666,7 @@ export class Simulation {
         return;
       }
       if (this.hurt > 0) return;
+      this.cancelChargingPower();
       this.lives--;
       this.energy = Math.max(0, this.energy - 35);
       this.streak = 0;
@@ -646,6 +704,8 @@ export class Simulation {
       powerCooldown: Math.max(0, this.powerCooldown),
       activePowerId: this.activePowerId,
       unlockedPowers: Array.from(this.collectedPowers),
+      isChargingPower: this.isChargingPower,
+      powerChargeRatio: this.powerChargeRatio,
       timeOfDay: this.timeOfDay,
     };
   }

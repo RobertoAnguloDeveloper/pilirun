@@ -239,6 +239,152 @@ describe('runner physics and progression', () => {
     expect(game.lives).toBeLessThan(initialLives);
     expect(game.hurt).toBeGreaterThan(0);
   });
+
+  it('charges Mega Man Buster power attack over time and unleashes scaled projectile', () => {
+    const track = {
+      ...empty(),
+      boss: {
+        id: 'test_boss',
+        name: 'Pyra Mega',
+        element: 'fire' as const,
+        size: 1.2,
+        health: 200,
+        maxHealth: 200,
+        damage: 1,
+        speed: 120,
+        attackFrequency: 3,
+        projectileType: 'fireball' as const,
+        projectileSpeed: 280,
+        weakness: 'water' as const,
+        resistance: 'nature' as const,
+      },
+    };
+    const game = new Simulation(track, undefined, 'aqua_shield');
+    game.start();
+
+    // Normal tap shot
+    game.castPower();
+    expect(game.projectiles).toHaveLength(1);
+    const normalProj = game.projectiles[0];
+    expect(normalProj.size).toBe(16);
+    const normalDmg = normalProj.damage;
+    game.projectiles = [];
+    game.powerCooldown = 0;
+
+    // Buster charge
+    game.startChargingPower();
+    expect(game.isChargingPower).toBe(true);
+    expect(game.hud().isChargingPower).toBe(true);
+    advance(game, 1.4); // Full charge duration
+    expect(game.powerChargeRatio).toBeCloseTo(1.0, 1);
+    expect(game.hud().powerChargeRatio).toBeGreaterThanOrEqual(0.99);
+
+    // Release charged attack
+    game.releaseChargedPower();
+    expect(game.isChargingPower).toBe(false);
+    expect(game.projectiles).toHaveLength(1);
+    const chargedProj = game.projectiles[0];
+
+    // Projectile size scales up to 38px
+    expect(chargedProj.size).toBe(38);
+    // Projectile damage scales up significantly
+    expect(chargedProj.damage).toBeGreaterThan(normalDmg * 2.5);
+    // Projectile color reflects fiery charged power
+    expect(chargedProj.color).toBe('#ef4444');
+  });
+
+  it('keeps charging and accumulating power until released or hit by an obstacle/boss', () => {
+    const track = {
+      ...empty(),
+      items: [
+        { id: 'hazard-log', x: 4500, kind: 'log' as const },
+      ],
+    };
+    const game = new Simulation(track, undefined, 'flame_burst');
+    game.start();
+
+    // Start charging
+    game.startChargingPower();
+    expect(game.isChargingPower).toBe(true);
+
+    // Advance 2.8 seconds (2x standard charge duration -> powerChargeRatio reaches ~2.0)
+    advance(game, 2.8);
+    expect(game.isChargingPower).toBe(true);
+    expect(game.powerChargeRatio).toBeCloseTo(2.0, 1);
+    expect(game.powerChargeTime).toBeCloseTo(2.8, 1);
+
+    // Release at 2.0x charge: projectile size scales up proportionally (16 + 2 * 22 = 60px)
+    game.releaseChargedPower();
+    expect(game.isChargingPower).toBe(false);
+    expect(game.projectiles).toHaveLength(1);
+    const megaProj = game.projectiles[0];
+    expect(megaProj.size).toBe(60);
+
+    // Start charging again and advance until hitting an obstacle
+    game.projectiles = [];
+    game.powerCooldown = 0;
+    game.startChargingPower();
+    expect(game.isChargingPower).toBe(true);
+
+    // Collide with obstacle -> Charge is immediately cancelled/lost
+    game.distance = 4500;
+    advance(game, 0.05);
+    expect(game.hurt).toBeGreaterThan(0);
+    expect(game.isChargingPower).toBe(false);
+    expect(game.powerChargeTime).toBe(0);
+    expect(game.powerChargeRatio).toBe(0);
+
+    // Releasing cancelled charge does not fire
+    game.projectiles = [];
+    game.releaseChargedPower();
+    expect(game.projectiles).toHaveLength(0);
+  });
+
+  it('supports tablet swipe bidirectional movement during boss fight', () => {
+    const track = {
+      ...empty(),
+      boss: {
+        id: 'test_boss',
+        name: 'Pyra Mega',
+        element: 'fire' as const,
+        size: 1.2,
+        health: 200,
+        maxHealth: 200,
+        damage: 1,
+        speed: 120,
+        attackFrequency: 3,
+        projectileType: 'fireball' as const,
+        projectileSpeed: 280,
+        weakness: 'water' as const,
+        resistance: 'nature' as const,
+      },
+    };
+    const game = new Simulation(track);
+    game.start();
+    game.distance = track.length - 300;
+    game.encounterStarted = true;
+    expect(game.inBossFight).toBe(true);
+
+    // Swipe left (retreat / move backwards)
+    game.setMoveAxis(-1);
+    expect(game.moveAxis).toBe(-1);
+    expect(game.facing).toBe(-1);
+    const pos1 = game.distance;
+    advance(game, 0.2);
+    expect(game.distance).toBeLessThan(pos1);
+
+    // Swipe right (advance forward)
+    game.setMoveAxis(1);
+    expect(game.moveAxis).toBe(1);
+    expect(game.facing).toBe(1);
+    const pos2 = game.distance;
+    advance(game, 0.2);
+    expect(game.distance).toBeGreaterThan(pos2);
+
+    // Release swipe
+    game.setMoveAxis(0);
+    expect(game.moveAxis).toBe(0);
+  });
 });
 describe('playable track validation', () => {
   it('accepts all 18 built-in official progression levels', () => {

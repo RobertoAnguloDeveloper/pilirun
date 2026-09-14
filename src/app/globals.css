@@ -6094,7 +6094,18 @@ input[type='checkbox'] {
 :is(.help-modal, .result-card, .in-game-drawer-panel, .scenario-editor) :is(input:not([type=range]):not([type=checkbox]), select, textarea) {
   background: var(--surface-bg); color: var(--surface-text); border-color: var(--surface-border);
 }
-:is(.help-modal, .result-card) :is(.secondary, .text-button, .icon-button) { color: var(--surface-text); border-color: var(--surface-border); }
+:is(.help-modal, .result-card) :is(.text-button, .icon-button) { color: var(--surface-text); border-color: var(--surface-border); }
+:is(.help-modal, .result-card, .auto-next-card, .modal-card, .confirm-modal-card) .secondary {
+  background: #ffffff !important;
+  color: #183f35 !important;
+  border: 1px solid #667e6e !important;
+  font-weight: 700;
+}
+:is(.help-modal, .result-card, .auto-next-card, .modal-card, .confirm-modal-card) .secondary:hover {
+  background: #f0f5e7 !important;
+  color: #11281e !important;
+  border-color: #3f5a4e !important;
+}
 :is(.help-modal, .result-card) .primary { background: #d8f36a; color: #11281e; }
 :is(.help-modal, .result-card) .primary:hover { background: #e9ff93; }
 .result-card small { display: block; margin-top: 12px; }

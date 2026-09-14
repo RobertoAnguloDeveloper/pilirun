@@ -100,7 +100,15 @@ export function GameView({
   const canvas = useRef<HTMLCanvasElement>(null),
     engine = useRef<GameEngine | null>(null),
     containerRef = useRef<HTMLDivElement>(null),
-    touch = useRef({ x: 0, y: 0, time: 0 });
+    touch = useRef({
+      x: 0,
+      y: 0,
+      time: 0,
+      pointerId: -1,
+      swipingHorizontal: false,
+      chargeStarted: false,
+      chargeTimer: undefined as ReturnType<typeof setTimeout> | undefined,
+    });
 
   const movementInputs = useRef(new Map<string, -1 | 1>());
   const moveInput = (id: string, direction?: -1 | 1) => {
@@ -334,16 +342,19 @@ export function GameView({
         if (event.stopImmediatePropagation) event.stopImmediatePropagation();
         engine.current?.slide();
       }
-      // Power Attack (E, J, X, or KeyQ)
+      // Power Attack (E, J, X, or KeyQ) - Mega Man Buster charging
       else if (
         ['e', 'E', 'j', 'J', 'x', 'X', 'q', 'Q'].includes(event.key) ||
         event.code === 'KeyE' ||
         event.code === 'KeyJ' ||
-        event.code === 'KeyX'
+        event.code === 'KeyX' ||
+        event.code === 'KeyQ'
       ) {
         event.preventDefault();
         event.stopPropagation();
-        engine.current?.castPower();
+        if (!event.repeat) {
+          engine.current?.startChargePower();
+        }
       }
       // Camera perspective switch: First-person vs 3D side view
       else if (
@@ -388,7 +399,15 @@ export function GameView({
       }
     };
 
-    const keyup = (event: KeyboardEvent) => { if (movementInputs.current.has(event.code)) moveInput(event.code); };
+    const keyup = (event: KeyboardEvent) => {
+      if (movementInputs.current.has(event.code)) moveInput(event.code);
+      if (
+        ['e', 'E', 'j', 'J', 'x', 'X', 'q', 'Q'].includes(event.key) ||
+        ['KeyE', 'KeyJ', 'KeyX', 'KeyQ'].includes(event.code)
+      ) {
+        engine.current?.releaseChargePower();
+      }
+    };
     const hidden = () => {
       if (document.hidden) clearMovement();
       if (document.hidden && engine.current?.simulation.phase === 'PLAYING') engine.current.pause();
@@ -492,14 +511,67 @@ export function GameView({
             tabIndex={0}
             aria-label="Juego: espacio o flecha arriba para saltar; flecha abajo para deslizar; C para cámara; P para pausar"
             onPointerDown={(e) => {
-              touch.current = { x: e.clientX, y: e.clientY, time: Date.now() };
+              clearTimeout(touch.current.chargeTimer);
+              touch.current = {
+                x: e.clientX,
+                y: e.clientY,
+                time: Date.now(),
+                pointerId: e.pointerId,
+                swipingHorizontal: false,
+                chargeStarted: false,
+                chargeTimer: undefined,
+              };
               e.currentTarget.setPointerCapture(e.pointerId);
+
+              // Long press / hold shooting area triggers Buster charging
+              touch.current.chargeTimer = setTimeout(() => {
+                if (!touch.current.swipingHorizontal) {
+                  touch.current.chargeStarted = true;
+                  engine.current?.startChargePower();
+                }
+              }, 200);
+            }}
+            onPointerMove={(e) => {
+              if (touch.current.pointerId !== e.pointerId) return;
+              const dx = e.clientX - touch.current.x;
+              const dy = e.clientY - touch.current.y;
+
+              // When fighting a boss on tablet, prioritize swipe left/right
+              if (hud.isBossFight) {
+                if (Math.abs(dx) > 24 && Math.abs(dx) > Math.abs(dy)) {
+                  if (!touch.current.swipingHorizontal) {
+                    touch.current.swipingHorizontal = true;
+                    clearTimeout(touch.current.chargeTimer);
+                    if (touch.current.chargeStarted) {
+                      touch.current.chargeStarted = false;
+                      engine.current?.releaseChargePower();
+                    }
+                  }
+                  const dir = dx < 0 ? -1 : 1;
+                  moveInput(`swipe:${e.pointerId}`, dir);
+                }
+              }
             }}
             onPointerUp={(e) => {
               void audioEngine.unlock();
+              clearTimeout(touch.current.chargeTimer);
               const dy = e.clientY - touch.current.y;
               const dx = e.clientX - touch.current.x;
               const dt = Date.now() - touch.current.time;
+
+              // Clear boss swipe horizontal movement if active
+              if (touch.current.swipingHorizontal) {
+                moveInput(`swipe:${e.pointerId}`);
+                touch.current.swipingHorizontal = false;
+                return;
+              }
+
+              // If charging was active, release charged attack
+              if (touch.current.chargeStarted) {
+                touch.current.chargeStarted = false;
+                engine.current?.releaseChargePower();
+                return;
+              }
 
               // Swipe Down -> Slide
               if (dy > 30 && Math.abs(dy) > Math.abs(dx)) {
@@ -516,6 +588,17 @@ export function GameView({
               // Standard tap or other gesture -> Jump fallback
               else {
                 engine.current?.jump();
+              }
+            }}
+            onPointerCancel={(e) => {
+              clearTimeout(touch.current.chargeTimer);
+              if (touch.current.swipingHorizontal) {
+                moveInput(`swipe:${e.pointerId}`);
+                touch.current.swipingHorizontal = false;
+              }
+              if (touch.current.chargeStarted) {
+                touch.current.chargeStarted = false;
+                engine.current?.releaseChargePower();
               }
             }}
           />
@@ -876,12 +959,31 @@ export function GameView({
               <ArrowDown /> Deslizar
             </button>
             <button
-              className="attack-touch-btn"
-              style={{ backgroundColor: POWERS[selectedPower].color }}
-              onPointerDown={() => engine.current?.castPower()}
-              title="Disparar poder mágico"
+              className={`attack-touch-btn ${hud.isChargingPower ? 'charging-active' : ''}`}
+              style={{
+                backgroundColor: hud.isChargingPower && (hud.powerChargeRatio ?? 0) > 0.6
+                  ? '#ef4444'
+                  : hud.isChargingPower && (hud.powerChargeRatio ?? 0) > 0.25
+                    ? '#f97316'
+                    : POWERS[selectedPower].color
+              }}
+              onPointerDown={(e) => {
+                e.preventDefault();
+                e.currentTarget.setPointerCapture(e.pointerId);
+                engine.current?.startChargePower();
+              }}
+              onPointerUp={() => {
+                engine.current?.releaseChargePower();
+              }}
+              onPointerCancel={() => {
+                engine.current?.releaseChargePower();
+              }}
+              onLostPointerCapture={() => {
+                engine.current?.releaseChargePower();
+              }}
+              title="Mantén presionado para cargar el disparo mágico (estilo Mega Buster)"
             >
-              <span>{POWERS[selectedPower].icon}</span> Atacar
+              <span>{POWERS[selectedPower].icon}</span> {hud.isChargingPower ? `¡Cargando ${Math.round((hud.powerChargeRatio ?? 0) * 100)}%!` : 'Atacar'}
             </button>
             <button
               className="secondary-touch-btn"
@@ -898,7 +1000,7 @@ export function GameView({
         {/* Video Game Controls & Hotkeys HUD */}
         <div className="game-instructions">
           <p>
-            <kbd>A / D · ← / →</kbd> Moverse contra el jefe · <kbd>Espacio</kbd> Saltar · <kbd>↓</kbd> Deslizarse · <kbd>E</kbd> / <kbd>J</kbd> Usar Poder ({POWERS[selectedPower].name}) ·{' '}
+            <kbd>A / D · ← / →</kbd> Moverse contra el jefe (o desliza la pantalla en tablets) · <kbd>Espacio</kbd> Saltar · <kbd>↓</kbd> Deslizarse · <kbd>E</kbd> / <kbd>J</kbd> (mantener para Cargar Poder Buster) ·{' '}
             <kbd>C</kbd> / <kbd>V</kbd> Cámara 1ª Persona · <kbd>F</kbd> Pantalla Completa · <kbd>P</kbd> Pausa
           </p>
           <span>

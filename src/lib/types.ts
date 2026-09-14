@@ -241,6 +241,8 @@ export interface Hud {
   activePowerId?: string;
   unlockedPowers?: string[];
   collectedPowers?: import('./combat').PowerId[];
+  isChargingPower?: boolean;
+  powerChargeRatio?: number;
   timeOfDay?: string;
 }
 export type MusicTrack = AudioTrack;

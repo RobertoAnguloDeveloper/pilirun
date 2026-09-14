@@ -136,6 +136,14 @@ export class GameEngine {
     this.simulation.castPower();
     this.onHud(this.simulation.hud());
   }
+  startChargePower() {
+    this.simulation.startChargingPower();
+    this.onHud(this.simulation.hud());
+  }
+  releaseChargePower() {
+    this.simulation.releaseChargedPower();
+    this.onHud(this.simulation.hud());
+  }
   private draw() {
     if (this.width <= 0 || this.height <= 0) return;
     this.renderer.render(this.simulation, this.width, this.height, this.reduced);
