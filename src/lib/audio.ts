@@ -1,5 +1,6 @@
 import type { MusicSource } from './music';
 import type { Preferences } from './types';
+
 class AudioEngine {
   private context?: AudioContext;
   private master?: GainNode;
@@ -20,6 +21,7 @@ class AudioEngine {
   private ambientBuffer?: AudioBuffer;
   private paused = false;
   private retiring = new Map<ReturnType<typeof setTimeout>, () => void>();
+
   private ensure(): AudioContext {
     if (!this.context) {
       this.context = new AudioContext({ latencyHint: 'interactive' });
@@ -29,13 +31,57 @@ class AudioEngine {
     }
     return this.context;
   }
+
   get muted(): boolean {
     return this.preferences.muted;
   }
+
+  get isPlaying(): boolean {
+    return !this.paused && (Boolean(this.media && !this.media.audio.paused) || Boolean(this.voice));
+  }
+
+  get currentTrackId(): string | undefined {
+    if (this.selected && typeof this.selected === 'object' && 'track' in this.selected) {
+      return this.selected.track.id;
+    }
+    return undefined;
+  }
+
   async unlock() {
     const ctx = this.ensure();
-    if (ctx.state === 'suspended') await ctx.resume();
+    if (ctx.state === 'suspended' || (ctx.state as string) === 'interrupted') {
+      try {
+        await ctx.resume();
+      } catch {
+        // May wait for direct user interaction
+      }
+    }
+    try {
+      const buffer = ctx.createBuffer(1, 1, 22050);
+      const source = ctx.createBufferSource();
+      source.buffer = buffer;
+      source.connect(ctx.destination);
+      source.start(0);
+    } catch {
+      // Ignore if cannot play micro-buffer yet
+    }
   }
+
+  unlockOnUserGesture(callback?: () => void) {
+    if (typeof window === 'undefined') return () => {};
+    const events = ['pointerdown', 'touchstart', 'mousedown', 'keydown', 'click'] as const;
+    const handler = () => {
+      void this.unlock().then(() => {
+        if (callback) callback();
+      });
+      events.forEach((evt) => window.removeEventListener(evt, handler, true));
+    };
+    events.forEach((evt) => window.addEventListener(evt, handler, { capture: true, once: true, passive: true }));
+    return () => {
+      events.forEach((evt) => window.removeEventListener(evt, handler, true));
+    };
+  }
+
   configure(preferences: Pick<Preferences, 'volume' | 'muted' | 'sfxVolume' | 'sfxPitch'>) {
     this.preferences = preferences;
     if (this.context && this.master)
@@ -45,9 +91,11 @@ class AudioEngine {
         0.03,
       );
   }
+
   async decode(bytes: ArrayBuffer): Promise<AudioBuffer> {
     return this.ensure().decodeAudioData(bytes);
   }
+
   async play(source?: AudioBuffer | MusicSource, loopStart = 0, loopEnd = 0) {
     const ticket = ++this.ticket;
     await this.unlock();
@@ -61,7 +109,8 @@ class AudioEngine {
     if (source && 'blob' in source) {
       const url = URL.createObjectURL(source.blob);
       const audio = new Audio();
-      audio.preload = 'auto'; audio.src = url;
+      audio.preload = 'auto';
+      audio.src = url;
       const node = ctx.createMediaElementSource(audio);
       node.connect(gain);
       audio.currentTime = source.track.loopStart;
@@ -75,25 +124,44 @@ class AudioEngine {
           void audio.play().catch(() => {});
         }
       };
-      try { await audio.play(); } catch (error) {
-        audio.removeAttribute('src'); audio.load(); node.disconnect(); gain.disconnect(); URL.revokeObjectURL(url);
+      try {
+        await audio.play();
+      } catch (error) {
+        audio.removeAttribute('src');
+        audio.load();
+        node.disconnect();
+        gain.disconnect();
+        URL.revokeObjectURL(url);
         throw error;
       }
       if (ticket !== this.ticket) {
-        audio.pause(); audio.removeAttribute('src'); audio.load(); node.disconnect(); gain.disconnect(); URL.revokeObjectURL(url);
+        audio.pause();
+        audio.removeAttribute('src');
+        audio.load();
+        node.disconnect();
+        gain.disconnect();
+        URL.revokeObjectURL(url);
         return;
       }
-      this.media = { audio, node, gain, url }; this.voice = undefined;
+      this.media = { audio, node, gain, url };
+      this.voice = undefined;
     } else {
       const voice = ctx.createBufferSource();
       voice.buffer = source ?? (this.ambientBuffer ??= this.ambient(ctx));
-      voice.loop = true; voice.loopStart = loopStart;
+      voice.loop = true;
+      voice.loopStart = loopStart;
       voice.loopEnd = loopEnd > loopStart ? loopEnd : voice.buffer.duration;
-      voice.connect(gain); voice.start(0, loopStart);
-      this.voice = { source: voice, gain }; this.media = undefined;
+      voice.connect(gain);
+      voice.start(0, loopStart);
+      this.voice = { source: voice, gain };
+      this.media = undefined;
     }
-    this.selected = source; this.offset = loopStart; this.loopStart = loopStart; this.loopEnd = loopEnd;
-    this.startedAt = ctx.currentTime; this.paused = false;
+    this.selected = source;
+    this.offset = loopStart;
+    this.loopStart = loopStart;
+    this.loopEnd = loopEnd;
+    this.startedAt = ctx.currentTime;
+    this.paused = false;
     gain.gain.linearRampToValueAtTime(0.8, ctx.currentTime + 0.7);
     const oldGain = oldMedia?.gain ?? oldVoice?.gain;
     if (oldGain) {
@@ -102,54 +170,103 @@ class AudioEngine {
       oldGain.gain.linearRampToValueAtTime(0, ctx.currentTime + 0.7);
       const release = () => {
         if (oldMedia) this.releaseMedia(oldMedia);
-        if (oldVoice) { try { oldVoice.source.stop(); } catch {} oldVoice.source.disconnect(); oldVoice.gain.disconnect(); }
+        if (oldVoice) {
+          try {
+            oldVoice.source.stop();
+          } catch {}
+          oldVoice.source.disconnect();
+          oldVoice.gain.disconnect();
+        }
       };
-      const timer = setTimeout(() => { this.retiring.delete(timer); release(); }, 750);
+      const timer = setTimeout(() => {
+        this.retiring.delete(timer);
+        release();
+      }, 750);
       this.retiring.set(timer, release);
     }
   }
+
   private releaseMedia(media: NonNullable<AudioEngine['media']>) {
-    media.audio.pause(); media.audio.ontimeupdate = null; media.audio.onended = null;
-    media.audio.removeAttribute('src'); media.audio.load(); media.node.disconnect(); media.gain.disconnect();
+    media.audio.pause();
+    media.audio.ontimeupdate = null;
+    media.audio.onended = null;
+    media.audio.removeAttribute('src');
+    media.audio.load();
+    media.node.disconnect();
+    media.gain.disconnect();
     URL.revokeObjectURL(media.url);
   }
+
   pause() {
     this.clearRetiring();
     this.paused = true;
     if (this.media) this.media.audio.pause();
     if (this.voice && this.context) {
       const duration = this.voice.source.loopEnd - this.voice.source.loopStart;
-      this.offset = this.voice.source.loopStart + ((this.offset - this.voice.source.loopStart + this.context.currentTime - this.startedAt) % duration);
-      this.voice.source.stop(); this.voice.source.disconnect(); this.voice.gain.disconnect(); this.voice = undefined;
+      this.offset =
+        this.voice.source.loopStart +
+        ((this.offset - this.voice.source.loopStart + this.context.currentTime - this.startedAt) % duration);
+      this.voice.source.stop();
+      this.voice.source.disconnect();
+      this.voice.gain.disconnect();
+      this.voice = undefined;
     }
   }
+
   async resume() {
     const ticket = this.ticket;
     await this.unlock();
     if (ticket !== this.ticket) return;
     this.paused = false;
-    if (this.media) { await this.media.audio.play(); return; }
+    if (this.media) {
+      await this.media.audio.play();
+      return;
+    }
     const offset = this.offset;
     await this.play(this.selected, this.loopStart, this.loopEnd);
     if (this.voice && this.context) {
       const old = this.voice.source;
       const source = this.context.createBufferSource();
-      source.buffer = old.buffer; source.loop = true; source.loopStart = old.loopStart; source.loopEnd = old.loopEnd;
-      old.stop(); old.disconnect(); source.connect(this.voice.gain); source.start(0, offset);
-      this.voice.source = source; this.offset = offset; this.startedAt = this.context.currentTime;
+      source.buffer = old.buffer;
+      source.loop = true;
+      source.loopStart = old.loopStart;
+      source.loopEnd = old.loopEnd;
+      old.stop();
+      old.disconnect();
+      source.connect(this.voice.gain);
+      source.start(0, offset);
+      this.voice.source = source;
+      this.offset = offset;
+      this.startedAt = this.context.currentTime;
     }
   }
+
   stop() {
     this.ticket++;
     this.clearRetiring();
     if (this.media) this.releaseMedia(this.media);
-    if (this.voice) { try { this.voice.source.stop(); } catch {} this.voice.source.disconnect(); this.voice.gain.disconnect(); }
-    this.media = undefined; this.voice = undefined; this.paused = false; this.selected = undefined; this.offset = 0;
+    if (this.voice) {
+      try {
+        this.voice.source.stop();
+      } catch {}
+      this.voice.source.disconnect();
+      this.voice.gain.disconnect();
+    }
+    this.media = undefined;
+    this.voice = undefined;
+    this.paused = false;
+    this.selected = undefined;
+    this.offset = 0;
   }
+
   private clearRetiring() {
-    for (const [timer, release] of this.retiring) { clearTimeout(timer); release(); }
+    for (const [timer, release] of this.retiring) {
+      clearTimeout(timer);
+      release();
+    }
     this.retiring.clear();
   }
+
   private ambient(ctx: AudioContext): AudioBuffer {
     // 16-second seamless looping classic platformer chiptune soundtrack (140 BPM)
     const bpm = 140;
@@ -163,9 +280,26 @@ class AudioEngine {
 
     // Note frequencies (Hz)
     const N: Record<string, number> = {
-      C3: 130.81, D3: 146.83, E3: 164.81, F3: 174.61, G3: 196.0, A3: 220.0, B3: 246.94,
-      C4: 261.63, D4: 293.66, E4: 329.63, F4: 349.23, G4: 392.0, A4: 440.0, B4: 493.88,
-      C5: 523.25, D5: 587.33, E5: 659.25, F5: 698.46, G5: 783.99, A5: 880.0,
+      C3: 130.81,
+      D3: 146.83,
+      E3: 164.81,
+      F3: 174.61,
+      G3: 196.0,
+      A3: 220.0,
+      B3: 246.94,
+      C4: 261.63,
+      D4: 293.66,
+      E4: 329.63,
+      F4: 349.23,
+      G4: 392.0,
+      A4: 440.0,
+      B4: 493.88,
+      C5: 523.25,
+      D5: 587.33,
+      E5: 659.25,
+      F5: 698.46,
+      G5: 783.99,
+      A5: 880.0,
     };
 
     // Classic platformer main bouncy melody (32 sixteenth-beat steps repeated across two 16-beat sections)
@@ -219,7 +353,7 @@ class AudioEngine {
       const bassFrac = beatFraction;
       const bassEnv = Math.exp(-bassFrac * 5.5);
       const bassPhase = (t * bassFreq) % 1;
-      const tri = (Math.abs(bassPhase - 0.5) * 4 - 1);
+      const tri = Math.abs(bassPhase - 0.5) * 4 - 1;
       const sub = Math.sin(2 * Math.PI * (bassFreq * 0.5) * t);
       const bass = (tri * 0.7 + sub * 0.3) * bassEnv * 0.22;
 
@@ -254,8 +388,8 @@ class AudioEngine {
       const arp = (Math.sin(2 * Math.PI * arpFreq * t) > 0 ? 0.05 : -0.05) * Math.exp(-arpFrac * 6);
 
       // Mix channels with subtle stereo width
-      left[i] = (lead * 0.85 + bass * 0.9 + perc + arp * 0.7);
-      right[i] = (lead * 0.75 + bass * 0.9 + perc + arp * 0.9);
+      left[i] = lead * 0.85 + bass * 0.9 + perc + arp * 0.7;
+      right[i] = lead * 0.75 + bass * 0.9 + perc + arp * 0.9;
     }
 
     return buffer;
@@ -273,7 +407,10 @@ class AudioEngine {
       notes[kind] * this.preferences.sfxPitch * (kind === 'hit' ? 0.5 : kind === 'destroy-shield' ? 0.35 : 1.5),
       ctx.currentTime + (kind === 'destroy-shield' ? 0.18 : 0.12),
     );
-    gain.gain.setValueAtTime(Math.max(0.001, (kind === 'destroy-shield' ? 0.18 : 0.12) * this.preferences.sfxVolume), ctx.currentTime);
+    gain.gain.setValueAtTime(
+      Math.max(0.001, (kind === 'destroy-shield' ? 0.18 : 0.12) * this.preferences.sfxVolume),
+      ctx.currentTime,
+    );
     gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + (kind === 'destroy-shield' ? 0.25 : 0.2));
     oscillator.connect(gain);
     gain.connect(this.master!);
@@ -285,5 +422,6 @@ class AudioEngine {
     };
   }
 }
+
 // A single graph lives across menu/editor switches. Audio starts only after a user gesture.
 export const audioEngine = new AudioEngine();

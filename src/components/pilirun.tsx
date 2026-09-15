@@ -199,6 +199,20 @@ export default function PiliRun() {
       void navigator.serviceWorker.register('/sw.js').catch(() => {});
     }
   }, []);
+  const homeBlobRef = useRef<Blob | null>(null);
+
+  useEffect(() => {
+    // Eagerly prefetch static fallback audio file so blob is in memory on load
+    if (!homeBlobRef.current) {
+      fetch('/assets/bmg/A_Window_Facing_West.mp3')
+        .then((res) => (res.ok ? res.blob() : null))
+        .then((blob) => {
+          if (blob) homeBlobRef.current = blob;
+        })
+        .catch(() => {});
+    }
+  }, []);
+
   useEffect(() => {
     const update = () => setOnline(navigator.onLine);
     update();
@@ -217,41 +231,66 @@ export default function PiliRun() {
     let disposed = false;
     let loading = false;
     let armed = false;
+    const events = ['pointerdown', 'touchstart', 'mousedown', 'click', 'keydown', 'wheel'] as const;
+
     const disarm = () => {
       if (!armed) return;
       armed = false;
-      window.removeEventListener('pointerdown', activate, true);
-      window.removeEventListener('keydown', activate, true);
+      events.forEach((evt) => window.removeEventListener(evt, activate, true));
     };
-    const play = async (activation?: Promise<void>) => {
+
+    const play = async () => {
       if (disposed || loading) return;
       loading = true;
-      disarm();
       try {
-        // AudioContext.resume() must be invoked in the original gesture stack.
-        // Waiting for IndexedDB/fetch first consumes the transient activation.
-        await (activation ?? audioEngine.unlock());
-        const blob = await localStore.request<Blob>({ action: 'music-get', id: track.id });
-        if (disposed) return;
-        await audioEngine.play({ track, blob });
+        await audioEngine.unlock();
+        let blob = homeBlobRef.current;
+        if (!blob) {
+          try {
+            blob = await localStore.request<Blob>({ action: 'music-get', id: track.id });
+            if (blob) homeBlobRef.current = blob;
+          } catch {
+            const res = await fetch('/assets/bmg/A_Window_Facing_West.mp3');
+            if (res.ok) {
+              blob = await res.blob();
+              homeBlobRef.current = blob;
+            }
+          }
+        }
+        if (disposed) {
+          loading = false;
+          return;
+        }
+        if (blob) {
+          await audioEngine.play({ track, blob });
+        } else {
+          await audioEngine.play();
+        }
+        disarm();
+        loading = false;
       } catch {
         loading = false;
         if (!disposed) arm();
       }
     };
+
     const activate = () => {
-      const activation = audioEngine.unlock();
-      void play(activation);
+      void audioEngine.unlock();
+      void play();
     };
+
     const arm = () => {
       if (armed || disposed) return;
       armed = true;
-      window.addEventListener('pointerdown', activate, { once: true, capture: true });
-      window.addEventListener('keydown', activate, { once: true, capture: true });
+      events.forEach((evt) =>
+        window.addEventListener(evt, activate, { once: true, capture: true, passive: true })
+      );
     };
 
-    if (navigator.userActivation?.hasBeenActive) void play();
-    else arm();
+    // Attempt autoplay immediately, and arm gesture listeners as immediate fallback
+    arm();
+    void play();
+
     return () => {
       disposed = true;
       disarm();
@@ -565,9 +604,11 @@ export default function PiliRun() {
               key={id}
               className={`arcade-pill-btn ${page === id && !playing ? 'active' : ''}`}
               onClick={() => navigate(id)}
+              title={name}
+              aria-label={name}
             >
-              <Icon size={16} />
-              <span>{name}</span>
+              <Icon size={16} className="arcade-pill-icon" />
+              <span className="arcade-pill-text">{name}</span>
             </button>
           ))}
         </nav>
@@ -590,7 +631,7 @@ export default function PiliRun() {
           )}
 
           <button
-            className="arcade-icon-btn"
+            className="arcade-icon-btn arcade-sound-btn"
             aria-label={data.preferences.muted ? 'Activar sonido' : 'Silenciar sonido'}
             onClick={() => preferences({ ...data.preferences, muted: !data.preferences.muted })}
             title={data.preferences.muted ? 'Activar sonido' : 'Silenciar'}
@@ -599,7 +640,7 @@ export default function PiliRun() {
           </button>
 
           <button
-            className="arcade-icon-btn"
+            className="arcade-icon-btn arcade-fullscreen-btn"
             tabIndex={-1}
             onPointerDown={(e) => e.currentTarget.blur()}
             aria-label={isFullscreen ? 'Salir de pantalla completa' : 'Pantalla completa'}
@@ -613,7 +654,7 @@ export default function PiliRun() {
           </button>
 
           <button
-            className="arcade-icon-btn"
+            className="arcade-icon-btn arcade-settings-btn"
             aria-label="Ajustes de juego"
             onClick={() => navigate('settings')}
             title="Ajustes de Juego"
@@ -622,10 +663,10 @@ export default function PiliRun() {
           </button>
 
           <button
-            className="arcade-avatar-chip"
+            className="arcade-avatar-chip arcade-profile-chip"
             aria-label="Elegir personaje"
             onClick={() => navigate('characters')}
-            title="Elegir personaje"
+            title={`Personaje: ${character.name}`}
           >
             <Avatar character={character} size={34} />
           </button>
@@ -704,22 +745,51 @@ export default function PiliRun() {
               <div className="arcade-hero-centerpiece">
                 <div className="arcade-title-box">
                   <div className="arcade-eyebrow">
-                    <Sparkles size={16} /> MODO ARCADE 3D · PILIRUN
+                    <Sparkles size={14} /> MODO ARCADE 3D · PILIRUN
                   </div>
                   <h1 className="arcade-game-title">
                     PILI<span>RUN</span>
                   </h1>
-                  <p className="arcade-game-subtitle">
-                    Mundo actual: <strong>{selectedTrack.name}</strong> (
-                    {WORLDS[selectedTrack.world].difficulty})
-                  </p>
+                </div>
+
+                <div className="arcade-status-container">
+                  <div className="arcade-status-card">
+                    <button
+                      className="status-preview-item"
+                      onClick={() => navigate('worlds')}
+                      title="Cambiar mundo"
+                    >
+                      <span className="status-label">Mundo Activo</span>
+                      <strong className="status-val">
+                        <Map size={14} /> {selectedTrack.name}
+                      </strong>
+                      <span className="status-sub">
+                        {WORLDS[selectedTrack.world]?.difficulty || 'Normal'}
+                      </span>
+                    </button>
+
+                    <div className="status-divider" />
+
+                    <button
+                      className="status-preview-item"
+                      onClick={() => navigate('characters')}
+                      title="Cambiar corredor"
+                    >
+                      <span className="status-label">Corredor</span>
+                      <strong className="status-val">
+                        <Palette size={14} /> {character.name}
+                      </strong>
+                      <span className="status-sub">Nivel {character.stats?.level ?? 1}</span>
+                    </button>
+                  </div>
+
                   {!isStandalone && (
                     <button
                       className="pwa-home-banner-chip"
                       onClick={() => void installApp()}
                       title="Instalar PWA para pantalla completa y experiencia tableta"
                     >
-                      <TabletSmartphone size={16} />
+                      <TabletSmartphone size={15} />
                       <span>Instalar como App en esta Tableta</span>
                     </button>
                   )}
@@ -735,22 +805,63 @@ export default function PiliRun() {
                       e.currentTarget.blur();
                       void start();
                     }}
+                    title="Empezar a correr"
                   >
                     {ready ? (
-                      <Play size={28} fill="currentColor" />
+                      <Play size={26} fill="currentColor" />
                     ) : (
-                      <LoaderCircle size={28} className="spin" />
+                      <LoaderCircle size={26} className="spin" />
                     )}
                     <span>{ready ? 'JUGAR AHORA' : 'PREPARANDO…'}</span>
                   </button>
 
-                  <div className="arcade-quick-dock">
+                  {/* Instructions Bar */}
+                  <div className="arcade-footer-bar">
+                    <button
+                      className="arcade-help-link"
+                      onClick={() => setHelp(true)}
+                      aria-label="Ver instrucciones y controles de juego"
+                    >
+                      <Gamepad2 size={14} />
+                      <span>Instrucciones</span>
+                    </button>
+
+                    <div className="arcade-footer-hints desktop-only-hints">
+                      <span>
+                        <kbd>Espacio</kbd> / <kbd>↑</kbd> Saltar
+                      </span>
+                      <span>
+                        <kbd>↓</kbd> Deslizar
+                      </span>
+                      <span>
+                        <kbd>C</kbd> Cámara 3D
+                      </span>
+                      <span>
+                        <kbd>F</kbd> Pantalla Completa
+                      </span>
+                      <span>
+                        <kbd>P</kbd> Pausa
+                      </span>
+                    </div>
+
+                    <div className="arcade-footer-hints mobile-only-hints">
+                      <span>👆 Arriba: Saltar</span>
+                      <span>👇 Abajo: Deslizar</span>
+                      <span>🕹️ Lados: Moverte</span>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="arcade-bottom-deck">
+                  <div className="arcade-quick-dock" role="navigation" aria-label="Acceso rápido">
                     <button
                       className="arcade-dock-item"
                       onClick={() => navigate('worlds')}
                       title="Explorar todos los mundos"
                     >
-                      <Map size={20} />
+                      <div className="dock-icon-box">
+                        <Map size={18} />
+                      </div>
                       <span>Mundos</span>
                     </button>
                     <button
@@ -758,7 +869,9 @@ export default function PiliRun() {
                       onClick={() => navigate('characters')}
                       title="Personalizar corredores"
                     >
-                      <Palette size={20} />
+                      <div className="dock-icon-box">
+                        <Palette size={18} />
+                      </div>
                       <span>Personajes</span>
                     </button>
                     <button
@@ -766,7 +879,9 @@ export default function PiliRun() {
                       onClick={() => navigate('builder')}
                       title="Crear pistas de carrera"
                     >
-                      <Route size={20} />
+                      <div className="dock-icon-box">
+                        <Route size={18} />
+                      </div>
                       <span>Taller</span>
                     </button>
                     <button
@@ -774,7 +889,9 @@ export default function PiliRun() {
                       onClick={() => navigate('editor')}
                       title="Diseñar escenarios completos"
                     >
-                      <Layers3 size={20} />
+                      <div className="dock-icon-box">
+                        <Layers3 size={18} />
+                      </div>
                       <span>Escenarios</span>
                     </button>
                     <button
@@ -782,7 +899,9 @@ export default function PiliRun() {
                       onClick={() => navigate('music')}
                       title="Música de carrera"
                     >
-                      <Music2 size={20} />
+                      <div className="dock-icon-box">
+                        <Music2 size={18} />
+                      </div>
                       <span>Música</span>
                     </button>
                     <button
@@ -790,33 +909,12 @@ export default function PiliRun() {
                       onClick={() => navigate('stats')}
                       title="Récords y estadísticas"
                     >
-                      <Trophy size={20} />
+                      <div className="dock-icon-box">
+                        <Trophy size={18} />
+                      </div>
                       <span>Récords</span>
                     </button>
                   </div>
-                </div>
-
-                <div className="arcade-footer-bar">
-                  <div className="arcade-footer-hints">
-                    <span>
-                      <kbd>Espacio</kbd> / <kbd>↑</kbd> Saltar
-                    </span>
-                    <span>
-                      <kbd>↓</kbd> Deslizar
-                    </span>
-                    <span>
-                      <kbd>C</kbd> Cambiar Cámara 3D
-                    </span>
-                    <span>
-                      <kbd>F</kbd> Pantalla Completa
-                    </span>
-                    <span>
-                      <kbd>P</kbd> Pausa
-                    </span>
-                  </div>
-                  <button className="arcade-help-link" onClick={() => setHelp(true)}>
-                    <Gamepad2 size={16} /> Instrucciones
-                  </button>
                 </div>
               </div>
             )}

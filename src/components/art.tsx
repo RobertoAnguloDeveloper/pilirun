@@ -1,8 +1,16 @@
 'use client';
-import { frameScale, drawGroundedSprite, measureSprite, pixelBounds, PLAYER_HEIGHT, PLAYER_SLIDE_HEIGHT } from '@/lib/sprite-geometry';
+import {
+  frameScale,
+  drawGroundedSprite,
+  measureSprite,
+  pixelBounds,
+  PLAYER_HEIGHT,
+  PLAYER_SLIDE_HEIGHT,
+} from '@/lib/sprite-geometry';
 import { useEffect, useRef } from 'react';
 import { drawFox, drawLandscape } from '@/game/renderer';
 import type { Character, WorldId } from '@/lib/types';
+
 export function Landscape({
   world = 'forest',
   fox = false,
@@ -32,7 +40,24 @@ export function Landscape({
   }, [world, fox]);
   return <canvas ref={ref} aria-hidden="true" className={`landscape ${className}`} />;
 }
-export function Avatar({ character, size = 80, movement = 'run', frameIndex, showGround = false, previewZoom = 1 }: { character: Character; size?: number; movement?: keyof NonNullable<Character['frames']>; frameIndex?: number; showGround?: boolean; previewZoom?: number }) {
+
+export function Avatar({
+  character,
+  size = 80,
+  movement = 'run',
+  frameIndex,
+  showGround = false,
+  previewZoom = 1,
+  centered = false,
+}: {
+  character: Character;
+  size?: number;
+  movement?: keyof NonNullable<Character['frames']>;
+  frameIndex?: number;
+  showGround?: boolean;
+  previewZoom?: number;
+  centered?: boolean;
+}) {
   const ref = useRef<HTMLCanvasElement>(null);
   useEffect(() => {
     const canvas = ref.current!;
@@ -66,7 +91,10 @@ export function Avatar({ character, size = 80, movement = 'run', frameIndex, sho
       let activeImg = lastValidImage ?? imgElement;
       let activeIndex = lastValidIndex;
       if (runFrames.length > 0) {
-        const idx = frameIndex === undefined ? Math.floor(elapsed * 8) % runFrames.length : Math.min(frameIndex, runFrames.length - 1);
+        const idx =
+          frameIndex === undefined
+            ? Math.floor(elapsed * 8) % runFrames.length
+            : Math.min(frameIndex, runFrames.length - 1);
         if (runFrames[idx]?.complete && runFrames[idx].naturalWidth) {
           activeImg = runFrames[idx];
           activeIndex = idx;
@@ -78,43 +106,57 @@ export function Avatar({ character, size = 80, movement = 'run', frameIndex, sho
       const charScale = character.scale ?? 1.0;
       // If using custom image/frames, preserve full proportional height; only generic procedural art shrinks
       const isCustomGraphic = !!(activeImg || character.pixels);
-      const displayHeight = 58 * charScale * (!isCustomGraphic && movement === 'slide' ? PLAYER_SLIDE_HEIGHT / PLAYER_HEIGHT : 1);
-      if (showGround) {
+      const displayHeight =
+        58 *
+        charScale *
+        (!isCustomGraphic && movement === 'slide' ? PLAYER_SLIDE_HEIGHT / PLAYER_HEIGHT : 1);
+      const anchorY = centered ? Math.round(80 + displayHeight * 0.44) : 145;
+      const effectiveZoom = centered && previewZoom === 1 ? 1.35 : previewZoom;
+
+      if (showGround && !centered) {
         ctx.fillStyle = '#d8f36a';
         ctx.fillRect(0, 145, 160, 1);
       }
       ctx.save();
-      ctx.translate(80, 145);
-      ctx.scale(previewZoom, previewZoom);
-      ctx.translate(-80, -145);
+      ctx.translate(80, anchorY);
+      ctx.scale(effectiveZoom, effectiveZoom);
+      ctx.translate(-80, -anchorY);
 
       if (activeImg) {
         if (activeImg.complete && activeImg.naturalWidth) {
           ctx.save();
-          // Anchor ground at y = 145, bottom of feet touch the baseline
-          ctx.translate(80, 145);
+          // Anchor ground at anchorY, bottom of feet touch baseline
+          ctx.translate(80, anchorY);
           ctx.imageSmoothingEnabled = false;
-          drawGroundedSprite(ctx, activeImg, displayHeight * frameScale(character, movement, activeIndex),
-            character.frameBaselines?.[activeImg.getAttribute('src')!]);
+          drawGroundedSprite(
+            ctx,
+            activeImg,
+            displayHeight * frameScale(character, movement, activeIndex),
+            character.frameBaselines?.[activeImg.getAttribute('src')!],
+          );
           ctx.restore();
         }
       } else if (character.pixels) {
         ctx.save();
-        ctx.translate(80, 145);
+        ctx.translate(80, anchorY);
         const unit = displayHeight / bounds!.height;
         character.pixels.forEach((color, i) => {
           if (color !== 'transparent') {
             ctx.fillStyle = color;
-            ctx.fillRect(((i % 16) - bounds!.x - bounds!.width / 2) * unit,
-              (Math.floor(i / 16) - bounds!.y - bounds!.height) * unit, unit, unit);
+            ctx.fillRect(
+              ((i % 16) - bounds!.x - bounds!.width / 2) * unit,
+              (Math.floor(i / 16) - bounds!.y - bounds!.height) * unit,
+              unit,
+              unit,
+            );
           }
         });
         ctx.restore();
       } else {
         ctx.save();
-        ctx.translate(80, 145);
+        ctx.translate(80, anchorY);
         ctx.scale(charScale, charScale);
-        drawFox(ctx, 0, -32 + breathe, 90, character.color, elapsed * 2);
+        drawFox(ctx, 0, centered ? -35 : -32 + breathe, 90, character.color, elapsed * 2);
         ctx.restore();
       }
 
@@ -128,7 +170,8 @@ export function Avatar({ character, size = 80, movement = 'run', frameIndex, sho
       for (const image of runFrames) image.onload = null;
       if (imgElement) imgElement.onload = null;
     };
-  }, [character, movement, frameIndex, showGround, previewZoom]);
+  }, [character, movement, frameIndex, showGround, previewZoom, centered]);
+
   return (
     <canvas
       ref={ref}

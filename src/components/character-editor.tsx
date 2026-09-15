@@ -7,6 +7,7 @@ import {
   Image as ImageIcon,
   Layers,
   Paintbrush,
+  PaintBucket,
   Plus,
   Save,
   Sparkles,
@@ -326,6 +327,139 @@ function isolateBlackOutlineContour(canvas: HTMLCanvasElement): string {
 }
 
 /**
+ * 4-Way BFS Flood Fill for 16x16 Pixel Art Grid
+ */
+function floodFillPixel(
+  pixels: string[],
+  startX: number,
+  startY: number,
+  fillColor: string,
+): string[] {
+  if (startX < 0 || startX >= 16 || startY < 0 || startY >= 16) return pixels;
+  const targetColor = pixels[startY * 16 + startX];
+  if (targetColor === fillColor) return pixels;
+
+  const nextPixels = [...pixels];
+  const queue: [number, number][] = [[startX, startY]];
+  const visited = new Uint8Array(256);
+  visited[startY * 16 + startX] = 1;
+
+  while (queue.length > 0) {
+    const [cx, cy] = queue.shift()!;
+    const idx = cy * 16 + cx;
+    nextPixels[idx] = fillColor;
+
+    const neighbors: [number, number][] = [
+      [cx + 1, cy],
+      [cx - 1, cy],
+      [cx, cy + 1],
+      [cx, cy - 1],
+    ];
+
+    for (const [nx, ny] of neighbors) {
+      if (nx >= 0 && nx < 16 && ny >= 0 && ny < 16) {
+        const nIdx = ny * 16 + nx;
+        if (!visited[nIdx] && nextPixels[nIdx] === targetColor) {
+          visited[nIdx] = 1;
+          queue.push([nx, ny]);
+        }
+      }
+    }
+  }
+
+  return nextPixels;
+}
+
+/**
+ * Fast Scanline / Queue Flood Fill for Freehand HTML5 Canvas (320x320)
+ */
+function floodFillFreehand(
+  ctx: CanvasRenderingContext2D,
+  startX: number,
+  startY: number,
+  fillColor: string,
+  tolerance = 32,
+): void {
+  const w = ctx.canvas.width;
+  const h = ctx.canvas.height;
+  if (startX < 0 || startX >= w || startY < 0 || startY >= h) return;
+
+  const imgData = ctx.getImageData(0, 0, w, h);
+  const data = imgData.data;
+
+  const startIdx = (startY * w + startX) * 4;
+  const startR = data[startIdx];
+  const startG = data[startIdx + 1];
+  const startB = data[startIdx + 2];
+  const startA = data[startIdx + 3];
+
+  // Parse fill color
+  let fillR = 0, fillG = 0, fillB = 0, fillA = 255;
+  if (fillColor === 'transparent') {
+    fillA = 0;
+  } else if (fillColor.startsWith('#')) {
+    const hex = fillColor.replace('#', '');
+    if (hex.length === 3) {
+      fillR = parseInt(hex[0] + hex[0], 16);
+      fillG = parseInt(hex[1] + hex[1], 16);
+      fillB = parseInt(hex[2] + hex[2], 16);
+    } else if (hex.length >= 6) {
+      fillR = parseInt(hex.slice(0, 2), 16);
+      fillG = parseInt(hex.slice(2, 4), 16);
+      fillB = parseInt(hex.slice(4, 6), 16);
+    }
+  }
+
+  // If start color already matches fill color within threshold, do nothing
+  const initialDiff = Math.hypot(startR - fillR, startG - fillG, startB - fillB) + Math.abs(startA - fillA);
+  if (initialDiff < 8 && ((startA === 0 && fillA === 0) || (startA > 0 && fillA > 0))) {
+    return;
+  }
+
+  const matchTarget = (idx: number): boolean => {
+    const a = data[idx + 3];
+    if (startA < 20 && a < 20) return true;
+    if (Math.abs(a - startA) > 40) return false;
+    const r = data[idx], g = data[idx + 1], b = data[idx + 2];
+    return Math.hypot(r - startR, g - startG, b - startB) <= tolerance;
+  };
+
+  const visited = new Uint8Array(w * h);
+  const queue: number[] = [startY * w + startX];
+  visited[startY * w + startX] = 1;
+
+  let head = 0;
+  while (head < queue.length) {
+    const curr = queue[head++];
+    const cx = curr % w;
+    const cy = Math.floor(curr / w);
+    const pixelIdx = curr * 4;
+
+    data[pixelIdx] = fillR;
+    data[pixelIdx + 1] = fillG;
+    data[pixelIdx + 2] = fillB;
+    data[pixelIdx + 3] = fillA;
+
+    const neighbors = [
+      cx > 0 ? curr - 1 : -1,
+      cx < w - 1 ? curr + 1 : -1,
+      cy > 0 ? curr - w : -1,
+      cy < h - 1 ? curr + w : -1,
+    ];
+
+    for (const n of neighbors) {
+      if (n !== -1 && !visited[n] && matchTarget(n * 4)) {
+        visited[n] = 1;
+        queue.push(n);
+      }
+    }
+  }
+
+  ctx.putImageData(imgData, 0, 0);
+}
+
+
+/**
  * Extracts a specific rectangular region of an image, cleaning background while preserving
  * character contours and contact ground shadow.
  */
@@ -617,6 +751,7 @@ export function CharacterEditor({
     [message, setMessage] = useState('');
   const [mode, setMode] = useState<'pixel' | 'auto_sprite' | 'photo'>('pixel');
   const [drawType, setDrawType] = useState<'pixel' | 'freehand'>('pixel');
+  const [activeTool, setActiveTool] = useState<'brush' | 'fill'>('brush');
   const [brushSize, setBrushSize] = useState(8);
   const [paletteTab, setPaletteTab] = useState(0);
   const [spriteMovement, setSpriteMovement] = useState<Movement>('run');
@@ -949,8 +1084,14 @@ export function CharacterEditor({
     const x = Math.floor(((e.clientX - rect.left) / rect.width) * 16);
     const y = Math.floor(((e.clientY - rect.top) / rect.height) * 16);
     if (x < 0 || x >= 16 || y < 0 || y >= 16) return;
-    const updated = [...pixels.current];
-    updated[y * 16 + x] = color;
+
+    let updated: string[];
+    if (activeTool === 'fill') {
+      updated = floodFillPixel(pixels.current, x, y, color);
+    } else {
+      updated = [...pixels.current];
+      updated[y * 16 + x] = color;
+    }
     pixels.current = updated;
     const frameUrl = pixelsToDataUrl(updated);
     setEditing((c) => {
@@ -966,6 +1107,26 @@ export function CharacterEditor({
         frames: curFrames.length > 0 ? { ...c.frames, [spriteMovement]: curFrames } : c.frames,
       };
     });
+  };
+
+  const applyFloodFillFreehand = (clientX: number, clientY: number) => {
+    const canvas = freehandRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d', { willReadFrequently: true });
+    if (!ctx) return;
+    const rect = canvas.getBoundingClientRect();
+    const x = Math.floor(((clientX - rect.left) / rect.width) * 320);
+    const y = Math.floor(((clientY - rect.top) / rect.height) * 320);
+    if (x < 0 || x >= 320 || y < 0 || y >= 320) return;
+
+    freehandUndo.current = [...freehandUndo.current.slice(-19), ctx.getImageData(0, 0, 320, 320)];
+    floodFillFreehand(ctx, x, y, color);
+
+    const isolated = isolateBlackOutlineContour(canvas);
+    setEditing((prev) => ({
+      ...prev,
+      image: isolated,
+    }));
   };
 
   const save = async () => {
@@ -1407,26 +1568,54 @@ export function CharacterEditor({
                 </div>
               </div>
 
-              {/* Draw Type Selector: Pixel-by-Pixel vs Freehand */}
+              {/* Draw Type Selector: Pixel-by-Pixel vs Freehand & Tools */}
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', margin: '10px 0 14px', flexWrap: 'wrap', gap: '10px' }}>
-                <div className="segmented" style={{ width: 'fit-content' }}>
-                  <button
-                    type="button"
-                    className={drawType === 'pixel' ? 'active' : ''}
-                    onClick={() => setDrawType('pixel')}
-                  >
-                    <Grid size={13} style={{ marginRight: 4 }} /> Píxel por píxel (16x16)
-                  </button>
-                  <button
-                    type="button"
-                    className={drawType === 'freehand' ? 'active' : ''}
-                    onClick={() => setDrawType('freehand')}
-                  >
-                    <Brush size={13} style={{ marginRight: 4 }} /> Trazo a mano alzada
-                  </button>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                  <div className="segmented" style={{ width: 'fit-content' }}>
+                    <button
+                      type="button"
+                      className={drawType === 'pixel' ? 'active' : ''}
+                      onClick={() => setDrawType('pixel')}
+                    >
+                      <Grid size={13} style={{ marginRight: 4 }} /> Píxel por píxel (16x16)
+                    </button>
+                    <button
+                      type="button"
+                      className={drawType === 'freehand' ? 'active' : ''}
+                      onClick={() => setDrawType('freehand')}
+                    >
+                      <Brush size={13} style={{ marginRight: 4 }} /> Trazo a mano alzada
+                    </button>
+                  </div>
+
+                  {/* Tool mode: Brush vs Fill Bucket */}
+                  <div className="segmented" style={{ width: 'fit-content' }}>
+                    <button
+                      type="button"
+                      className={activeTool === 'brush' && color !== 'transparent' ? 'active' : ''}
+                      onClick={() => {
+                        setActiveTool('brush');
+                        if (color === 'transparent') setColor(COLORS[0]);
+                      }}
+                      title="Pincel / Lápiz: Dibuja trazos o píxeles individuales"
+                    >
+                      <Paintbrush size={13} style={{ marginRight: 4 }} /> Pincel
+                    </button>
+                    <button
+                      type="button"
+                      className={activeTool === 'fill' ? 'active' : ''}
+                      onClick={() => {
+                        setActiveTool('fill');
+                        if (color === 'transparent') setColor(COLORS[0]);
+                      }}
+                      title="Bote de pintura: Rellena formas cerradas o áreas del mismo color (como en Paint)"
+                    >
+                      <PaintBucket size={13} style={{ marginRight: 4 }} /> Relleno
+                    </button>
+                  </div>
                 </div>
 
-                <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
                   {drawType === 'freehand' && (
                     <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.8rem', color: 'var(--ink)' }}>
                       <span>Grosor:</span>
@@ -1481,14 +1670,21 @@ export function CharacterEditor({
                   height={320}
                   className="pixel-editor"
                   aria-label="Lienzo de dibujo de 16 por 16 píxeles"
+                  style={{
+                    cursor: activeTool === 'fill' ? 'cell' : color === 'transparent' ? 'crosshair' : 'default',
+                  }}
                   onPointerDown={(e) => {
-                    drawing.current = true;
                     undo.current = [...undo.current.slice(-19), [...pixels.current]];
-                    e.currentTarget.setPointerCapture(e.pointerId);
-                    paint(e);
+                    if (activeTool === 'fill') {
+                      paint(e);
+                    } else {
+                      drawing.current = true;
+                      e.currentTarget.setPointerCapture(e.pointerId);
+                      paint(e);
+                    }
                   }}
                   onPointerMove={(e) => {
-                    if (drawing.current) paint(e);
+                    if (drawing.current && activeTool !== 'fill') paint(e);
                   }}
                   onPointerUp={() => {
                     drawing.current = false;
@@ -1514,9 +1710,13 @@ export function CharacterEditor({
                       borderRadius: '12px',
                       background: '#ffffff',
                       touchAction: 'none',
-                      cursor: color === 'transparent' ? 'crosshair' : 'default',
+                      cursor: activeTool === 'fill' ? 'cell' : color === 'transparent' ? 'crosshair' : 'default',
                     }}
                     onPointerDown={(e) => {
+                      if (activeTool === 'fill') {
+                        applyFloodFillFreehand(e.clientX, e.clientY);
+                        return;
+                      }
                       const canvas = freehandRef.current;
                       if (!canvas) return;
                       const ctx = canvas.getContext('2d')!;
@@ -1543,7 +1743,7 @@ export function CharacterEditor({
                       ctx.stroke();
                     }}
                     onPointerMove={(e) => {
-                      if (!freehandDrawing.current) return;
+                      if (!freehandDrawing.current || activeTool === 'fill') return;
                       const canvas = freehandRef.current;
                       if (!canvas) return;
                       const ctx = canvas.getContext('2d')!;
@@ -1554,7 +1754,7 @@ export function CharacterEditor({
                       ctx.stroke();
                     }}
                     onPointerUp={() => {
-                      if (!freehandDrawing.current) return;
+                      if (!freehandDrawing.current || activeTool === 'fill') return;
                       freehandDrawing.current = false;
                       const canvas = freehandRef.current;
                       if (canvas) {
@@ -1570,7 +1770,7 @@ export function CharacterEditor({
                     }}
                   />
                   <small style={{ color: 'var(--subtle)', fontSize: '0.75rem', display: 'block', marginBottom: '8px' }}>
-                    Tip: El pincel negro define el contorno exterior del personaje. Lo que quede fuera de las formas cerradas se descartará automáticamente.
+                    Tip: Dibuja un contorno cerrado con el pincel negro y luego usa el Bote de Relleno para colorear el interior como en Paint.
                   </small>
                 </div>
               )}
@@ -1599,15 +1799,36 @@ export function CharacterEditor({
 
               {/* Swatches for Selected Category */}
               <div className="palette" style={{ marginTop: '10px' }}>
+                {/* Paint Bucket quick indicator */}
+                <button
+                  type="button"
+                  aria-label="Herramienta de relleno"
+                  className={activeTool === 'fill' ? 'active' : ''}
+                  onClick={() => {
+                    setActiveTool('fill');
+                    if (color === 'transparent') setColor(COLORS[0]);
+                  }}
+                  title="Herramienta de Relleno / Cubo de pintura"
+                  style={{
+                    background: activeTool === 'fill' ? 'var(--lime)' : 'var(--panel)',
+                    color: activeTool === 'fill' ? '#183f35' : 'var(--ink)',
+                    border: '1px solid var(--border)',
+                  }}
+                >
+                  <PaintBucket size={15} />
+                </button>
+
                 {COLOR_PALETTES[paletteTab].colors.map((c) => (
                   <button
                     key={c}
                     title={c}
                     aria-label={`Pintar con ${c}`}
-                    aria-pressed={color === c}
-                    className={color === c ? 'active' : ''}
+                    aria-pressed={color === c && color !== 'transparent'}
+                    className={color === c && color !== 'transparent' ? 'active' : ''}
                     style={{ background: c }}
-                    onClick={() => setColor(c)}
+                    onClick={() => {
+                      setColor(c);
+                    }}
                   />
                 ))}
 
@@ -1639,7 +1860,10 @@ export function CharacterEditor({
                 <button
                   aria-label="Borrador"
                   className={color === 'transparent' ? 'active' : ''}
-                  onClick={() => setColor('transparent')}
+                  onClick={() => {
+                    setColor('transparent');
+                    setActiveTool('brush');
+                  }}
                   title="Borrador"
                 >
                   <Eraser size={17} />

@@ -63,12 +63,12 @@ export function BackgroundRunner({
       // Render world landscape seamlessly
       drawLandscape(ctx, width, height, track.world, distance);
 
-      // Ground position
+      // Ground position perfectly matching landscape floor
       const ground = height * 0.79;
-      const baseScale = Math.min(1.4, Math.max(0.8, height / 520));
+      const baseScale = Math.min(1.35, Math.max(0.75, height / 540));
       const charScale = character.scale ?? 1.0;
       const scale = baseScale * charScale;
-      const foxX = width * 0.22;
+      const foxX = width < 600 ? width * 0.35 : width * 0.22;
       const stride = distance * 0.05;
       const isJumping = false;
       const isSliding = false;
