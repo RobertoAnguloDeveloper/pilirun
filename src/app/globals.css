@@ -3867,7 +3867,7 @@ input[type='checkbox'] {
 }
 
 .arcade-game-title {
-  font-size: var(--lobby-title-size, 96px) !important;
+  font-size: clamp(42px, min(14vw, 15vh), var(--lobby-title-size, 150px)) !important;
   font-weight: 900;
   line-height: 0.9;
   letter-spacing: clamp(-4px, -0.35vw, -2px);

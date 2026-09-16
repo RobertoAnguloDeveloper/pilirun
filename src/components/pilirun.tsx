@@ -287,8 +287,11 @@ export default function PiliRun() {
       );
     };
 
-    // Attempt autoplay immediately, and arm gesture listeners as immediate fallback
+    // Arm gesture listeners so if the browser's autoplay policy blocks unprompted audio,
+    // it automatically starts and resumes smoothly on the very first touch/click/keypress anywhere.
     arm();
+
+    // Trigger immediate playback attempt as requested
     void play();
 
     return () => {

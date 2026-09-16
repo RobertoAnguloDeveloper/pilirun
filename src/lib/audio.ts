@@ -36,6 +36,10 @@ class AudioEngine {
     return this.preferences.muted;
   }
 
+  get isUnlocked(): boolean {
+    return Boolean(this.context && this.context.state === 'running');
+  }
+
   get isPlaying(): boolean {
     return !this.paused && (Boolean(this.media && !this.media.audio.paused) || Boolean(this.voice));
   }
