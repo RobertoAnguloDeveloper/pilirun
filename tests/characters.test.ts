@@ -11,4 +11,12 @@ describe('editable built-in characters', () => {
     expect(merged.filter((character) => character.id === 'pili')).toEqual([editedPili]);
     expect(merged.at(-1)).toEqual(custom);
   });
+
+  it('provides Luna with default starter pixel art', () => {
+    const luna = CHARACTERS.find((c) => c.id === 'luna');
+    expect(luna).toBeDefined();
+    expect(luna?.pixels).toBeDefined();
+    expect(luna?.pixels).toHaveLength(256);
+    expect(luna?.pixels?.filter((p) => p !== 'transparent').length).toBeGreaterThan(20);
+  });
 });

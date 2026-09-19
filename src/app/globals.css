@@ -5380,15 +5380,67 @@ input[type='checkbox'] {
 }
 
 .in-game-drawer-panel .upload-zone strong {
-  color: #ffffff;
+  color: #ffffff !important;
 }
 
 .in-game-drawer-panel .upload-zone span {
-  color: #a7cab8;
+  color: #c7dec9 !important;
 }
 
 .in-game-drawer-panel .upload-zone svg {
-  color: var(--lime);
+  color: var(--lime) !important;
+}
+
+/* Photo Editor & Reposition Container inside drawer (High-Contrast guarantee) */
+.in-game-drawer-panel .photo-editor {
+  color: #f1f5f2;
+}
+
+.in-game-drawer-panel .photo-reposition-container {
+  background: #10241c !important;
+  border: 1px solid rgba(216, 243, 106, 0.25) !important;
+  color: #f1f5f2 !important;
+}
+
+.in-game-drawer-panel .photo-reposition-container strong,
+.in-game-drawer-panel .photo-reposition-container span {
+  color: #ffffff !important;
+}
+
+.in-game-drawer-panel .photo-reposition-container small {
+  color: #b7d5c4 !important;
+}
+
+.in-game-drawer-panel .crop-sliders label {
+  color: #d1e5d7 !important;
+  font-weight: 600;
+  font-size: 0.8rem;
+}
+
+.in-game-drawer-panel .photo-suite-panel {
+  background: #10241c !important;
+  border: 1px solid rgba(255, 255, 255, 0.14) !important;
+  color: #f1f5f2 !important;
+}
+
+.in-game-drawer-panel .photo-suite-panel span,
+.in-game-drawer-panel .photo-suite-panel label {
+  color: #e5ede7 !important;
+}
+
+.in-game-drawer-panel .photo-suite-panel small {
+  color: #a7cab8 !important;
+}
+
+/* Light backgrounds adapt to dark text */
+.light-contrast-box {
+  background: #f5f8ef !important;
+  color: #11291f !important;
+}
+.light-contrast-box strong,
+.light-contrast-box label,
+.light-contrast-box span {
+  color: #11291f !important;
 }
 
 .in-game-drawer-panel .step-item {
@@ -5412,6 +5464,7 @@ input[type='checkbox'] {
   color: #0b241c;
   font-weight: 800;
 }
+
 
 /* Stats cards inside drawer */
 .in-game-drawer-panel .stat-card {
@@ -7962,3 +8015,89 @@ input[type='checkbox'] {
     display: none;
   }
 }
+
+/* ==========================================================================
+   Photography Panel & Character Editor Contrast & Legibility Rules
+   Ensures WCAG AAA contrast: light backgrounds have dark text,
+   dark backgrounds have light text across photo editor and reposition stage.
+   ========================================================================== */
+
+/* Dark themes / containers: guarantee crisp white / lime contrast */
+[data-theme='dark'] .photo-editor,
+.photo-editor.dark,
+.photo-reposition-stage,
+.help-modal {
+  color: #f1f5f2 !important;
+}
+
+.photo-reposition-stage small,
+.photo-reposition-stage span {
+  color: #d2e4d6 !important;
+}
+
+/* Light background containers in photo editor: dark text with high contrast */
+.photo-editor,
+.photo-reposition-container,
+.upload-zone {
+  color: #162a22 !important;
+}
+
+.upload-zone strong {
+  color: #142a20 !important;
+  font-weight: 700 !important;
+}
+
+.upload-zone span {
+  color: #243d31 !important;
+  font-weight: 600 !important;
+}
+
+.upload-zone>svg {
+  color: #1b382c !important;
+}
+
+.photo-reposition-container span,
+.photo-reposition-container label,
+.crop-sliders label {
+  color: #183327 !important;
+  font-weight: 600 !important;
+}
+
+.crop-sliders label span {
+  color: #183327 !important;
+  font-weight: 600 !important;
+}
+
+.photo-editor small {
+  color: #274436 !important;
+  font-weight: 600 !important;
+}
+
+.photo-editor .segmented button {
+  color: #1b382c !important;
+  font-weight: 600 !important;
+}
+
+.photo-editor .segmented button.active {
+  color: #0b1f17 !important;
+  font-weight: 700 !important;
+}
+
+.photo-editor button.template-pill-btn {
+  color: #162a22 !important;
+  font-weight: 600 !important;
+}
+
+.photo-editor input[type="range"] {
+  accent-color: #2b7a4b !important;
+}
+
+.transform-toolbar {
+  color: #183327 !important;
+}
+
+.transform-toolbar span,
+.transform-toolbar label {
+  color: #183327 !important;
+  font-weight: 600 !important;
+}

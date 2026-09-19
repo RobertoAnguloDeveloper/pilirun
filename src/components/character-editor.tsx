@@ -17,14 +17,12 @@ import {
   Wand2,
   Copy,
   X,
-} from 'lucide-react';
-import { AnimationEditor, type Movement } from './animation-editor';
-import { Avatar } from './art';
-import type { Character } from '@/lib/types';
-import {
   Pipette,
   Scissors,
   RotateCcw,
+  RotateCw,
+  FlipHorizontal,
+  FlipVertical,
   ZoomIn,
   Brush,
   Crosshair,
@@ -34,7 +32,13 @@ import {
   MousePointer,
   HelpCircle,
   Grid,
+  Zap,
+  Play,
+  Pause,
 } from 'lucide-react';
+import { AnimationEditor, type Movement } from './animation-editor';
+import { Avatar } from './art';
+import type { Character } from '@/lib/types';
 
 export const COLOR_PALETTES: { name: string; colors: string[] }[] = [
   {
@@ -458,6 +462,105 @@ function floodFillFreehand(
   ctx.putImageData(imgData, 0, 0);
 }
 
+/**
+ * Rotate a 16x16 pixel array by 90 degrees.
+ * clockwise = true rotates 90° clockwise; false rotates 90° counter-clockwise.
+ */
+export function rotatePixels90(pxs: string[], clockwise = true): string[] {
+  const result = Array<string>(256).fill('transparent');
+  for (let r = 0; r < 16; r++) {
+    for (let c = 0; c < 16; c++) {
+      const srcIdx = r * 16 + c;
+      const val = pxs[srcIdx] ?? 'transparent';
+      const destR = clockwise ? c : 15 - c;
+      const destC = clockwise ? 15 - r : r;
+      result[destR * 16 + destC] = val;
+    }
+  }
+  return result;
+}
+
+/**
+ * Flip a 16x16 pixel array horizontally (mirror along vertical axis).
+ */
+export function flipPixelsH(pxs: string[]): string[] {
+  const result = Array<string>(256).fill('transparent');
+  for (let r = 0; r < 16; r++) {
+    for (let c = 0; c < 16; c++) {
+      result[r * 16 + (15 - c)] = pxs[r * 16 + c] ?? 'transparent';
+    }
+  }
+  return result;
+}
+
+/**
+ * Flip a 16x16 pixel array vertically (mirror along horizontal axis).
+ */
+export function flipPixelsV(pxs: string[]): string[] {
+  const result = Array<string>(256).fill('transparent');
+  for (let r = 0; r < 16; r++) {
+    for (let c = 0; c < 16; c++) {
+      result[(15 - r) * 16 + c] = pxs[r * 16 + c] ?? 'transparent';
+    }
+  }
+  return result;
+}
+
+/**
+ * Transform an image data URL with rotation (degrees) or flip horizontally/vertically.
+ */
+export async function transformImageDataUrl(
+  dataUrl: string,
+  options: { degrees?: number; flipH?: boolean; flipV?: boolean }
+): Promise<string> {
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.onload = () => {
+      const w = img.naturalWidth || img.width;
+      const h = img.naturalHeight || img.height;
+      const degrees = (options.degrees ?? 0) % 360;
+      const rads = (degrees * Math.PI) / 180;
+      const absCos = Math.abs(Math.cos(rads));
+      const absSin = Math.abs(Math.sin(rads));
+      const newW = Math.max(1, Math.round(w * absCos + h * absSin));
+      const newH = Math.max(1, Math.round(w * absSin + h * absCos));
+
+      const canvas = document.createElement('canvas');
+      canvas.width = newW;
+      canvas.height = newH;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) {
+        resolve(dataUrl);
+        return;
+      }
+
+      ctx.save();
+      ctx.translate(newW / 2, newH / 2);
+      if (options.flipH || options.flipV) {
+        ctx.scale(options.flipH ? -1 : 1, options.flipV ? -1 : 1);
+      }
+      if (degrees !== 0) {
+        ctx.rotate(rads);
+      }
+      ctx.imageSmoothingEnabled = false;
+      ctx.drawImage(img, -w / 2, -h / 2, w, h);
+      ctx.restore();
+      resolve(canvas.toDataURL('image/png'));
+    };
+    img.onerror = () => resolve(dataUrl);
+    img.src = dataUrl;
+  });
+}
+
+/**
+ * Convert RGB components to 6-digit hex string #rrggbb.
+ */
+export function rgbToHex(r: number, g: number, b: number): string {
+  const toHex = (n: number) => Math.max(0, Math.min(255, Math.round(n))).toString(16).padStart(2, '0');
+  return `#${toHex(r)}${toHex(g)}${toHex(b)}`;
+}
+
+
 
 /**
  * Extracts a specific rectangular region of an image, cleaning background while preserving
@@ -751,11 +854,18 @@ export function CharacterEditor({
     [message, setMessage] = useState('');
   const [mode, setMode] = useState<'pixel' | 'auto_sprite' | 'photo'>('pixel');
   const [drawType, setDrawType] = useState<'pixel' | 'freehand'>('pixel');
-  const [activeTool, setActiveTool] = useState<'brush' | 'fill'>('brush');
+  const [activeTool, setActiveTool] = useState<'brush' | 'fill' | 'pipette'>('brush');
   const [brushSize, setBrushSize] = useState(8);
   const [paletteTab, setPaletteTab] = useState(0);
   const [spriteMovement, setSpriteMovement] = useState<Movement>('run');
   const [activeFrameIdx, setActiveFrameIdx] = useState<number>(0);
+
+  // Free transformation state
+  const [freeRotation, setFreeRotation] = useState<number>(0);
+
+  // Sidebar live preview animation controls
+  const [previewPlaying, setPreviewPlaying] = useState<boolean>(true);
+  const [previewMovement, setPreviewMovement] = useState<Movement>('run');
 
   // Photo editing state
   const [photo, setPhoto] = useState<File>(),
@@ -763,8 +873,9 @@ export function CharacterEditor({
     [zoom, setZoom] = useState(1),
     [cropX, setCropX] = useState(0.5),
     [cropY, setCropY] = useState(0.5),
+    [photoRotation, setPhotoRotation] = useState<number>(0),
     [processing, setProcessing] = useState(false);
-  const [photoTool, setPhotoTool] = useState<'wand' | 'eraser' | 'restore'>('wand');
+  const [photoTool, setPhotoTool] = useState<'wand' | 'eraser' | 'restore' | 'pipette'>('wand');
   const [wandTolerance, setWandTolerance] = useState(32);
   const [eraserRadius, setEraserRadius] = useState(16);
   const [showPrompt, setShowPrompt] = useState(false);
@@ -781,6 +892,10 @@ export function CharacterEditor({
     drawing = useRef(false),
     undo = useRef<string[][]>([]),
     pixels = useRef(editing.pixels!),
+    baseSpriteRef = useRef<string | null>(null),
+    colorInputRef = useRef<HTMLInputElement>(null),
+    colorPickerActive = useRef(false),
+    lastColorPickerCloseTime = useRef(0),
     imageWorker = useRef<Worker | null>(null),
     requestId = useRef(0);
 
@@ -803,6 +918,8 @@ export function CharacterEditor({
 
   // Switch to or edit a specific frame in the active movement
   const selectSpriteFrame = (idx: number, mov: Movement = spriteMovement) => {
+    baseSpriteRef.current = null;
+    setFreeRotation(0);
     const movFrames = editing.frames?.[mov] ?? [];
     setActiveFrameIdx(idx);
     const targetUrl = movFrames[idx];
@@ -847,6 +964,8 @@ export function CharacterEditor({
 
   // Add a new blank frame or duplicate frame to the current movement
   const addSpriteFrame = (duplicate: boolean = false) => {
+    baseSpriteRef.current = null;
+    setFreeRotation(0);
     const movFrames = [...(editing.frames?.[spriteMovement] ?? [])];
     let newFrameUrl = '';
     if (duplicate && movFrames[activeFrameIdx]) {
@@ -869,6 +988,8 @@ export function CharacterEditor({
 
   // Remove a sprite frame from the current movement
   const deleteSpriteFrame = (idx: number) => {
+    baseSpriteRef.current = null;
+    setFreeRotation(0);
     const movFrames = [...(editing.frames?.[spriteMovement] ?? [])];
     if (movFrames.length <= 1) {
       setMessage('El movimiento debe conservar al menos un fotograma.');
@@ -885,6 +1006,8 @@ export function CharacterEditor({
 
   // Clear Canvas handler with undo
   const clearCanvas = () => {
+    baseSpriteRef.current = null;
+    setFreeRotation(0);
     if (drawType === 'pixel') {
       undo.current = [...undo.current.slice(-19), [...pixels.current]];
       const empty = Array<string>(256).fill('transparent');
@@ -899,6 +1022,217 @@ export function CharacterEditor({
         const dataUrl = isolateBlackOutlineContour(fCanvas);
         setEditing((c) => ({ ...c, image: dataUrl }));
       }
+    }
+  };
+
+  // Automatically load character into editor when 'selected' prop changes
+  useEffect(() => {
+    if (selected) {
+      const match = characters.find((c) => c.id === selected);
+      if (match && match.id !== editing.id) {
+        baseSpriteRef.current = null;
+        setEditing(match);
+        setMode(match.image || match.frames ? 'auto_sprite' : 'pixel');
+        setPhoto(undefined);
+        undo.current = [];
+        setFreeRotation(0);
+      }
+    }
+  }, [selected, characters]);
+
+  // Transform current sprite: rotate 90 degrees clockwise or counter-clockwise
+  const handleRotate90 = (clockwise = true) => {
+    baseSpriteRef.current = null;
+    setFreeRotation(0);
+    if (drawType === 'pixel') {
+      undo.current = [...undo.current.slice(-19), [...pixels.current]];
+      const rotated = rotatePixels90(pixels.current, clockwise);
+      pixels.current = rotated;
+      const url = pixelsToDataUrl(rotated);
+      setEditing((prev) => {
+        const curFrames = prev.frames?.[spriteMovement] ? [...prev.frames[spriteMovement]] : [];
+        if (curFrames.length > 0) {
+          curFrames[Math.min(activeFrameIdx, curFrames.length - 1)] = url;
+        }
+        return {
+          ...prev,
+          pixels: rotated,
+          image: url,
+          frames: curFrames.length > 0 ? { ...prev.frames, [spriteMovement]: curFrames } : prev.frames,
+        };
+      });
+      setMessage(clockwise ? 'Giro de 90° horario aplicado.' : 'Giro de 90° antihorario aplicado.');
+    } else if (freehandRef.current) {
+      const canvas = freehandRef.current;
+      const ctx = canvas.getContext('2d')!;
+      freehandUndo.current = [...freehandUndo.current.slice(-19), ctx.getImageData(0, 0, 320, 320)];
+      const tempCanvas = document.createElement('canvas');
+      tempCanvas.width = 320;
+      tempCanvas.height = 320;
+      tempCanvas.getContext('2d')!.drawImage(canvas, 0, 0);
+
+      ctx.clearRect(0, 0, 320, 320);
+      ctx.save();
+      ctx.translate(160, 160);
+      ctx.rotate((clockwise ? 90 : -90) * (Math.PI / 180));
+      ctx.drawImage(tempCanvas, -160, -160);
+      ctx.restore();
+
+      const isolated = isolateBlackOutlineContour(canvas);
+      setEditing((prev) => ({ ...prev, image: isolated }));
+      setMessage(clockwise ? 'Giro de 90° horario aplicado.' : 'Giro de 90° antihorario aplicado.');
+    } else if (editing.image) {
+      void transformImageDataUrl(editing.image, { degrees: clockwise ? 90 : -90 }).then((newUrl) => {
+        setEditing((prev) => ({ ...prev, image: newUrl }));
+        setMessage('Giro aplicado a la imagen.');
+      });
+    }
+  };
+
+  // Transform current sprite: Flip Horizontal
+  const handleFlipHorizontal = () => {
+    baseSpriteRef.current = null;
+    setFreeRotation(0);
+    if (drawType === 'pixel') {
+      undo.current = [...undo.current.slice(-19), [...pixels.current]];
+      const flipped = flipPixelsH(pixels.current);
+      pixels.current = flipped;
+      const url = pixelsToDataUrl(flipped);
+      setEditing((prev) => {
+        const curFrames = prev.frames?.[spriteMovement] ? [...prev.frames[spriteMovement]] : [];
+        if (curFrames.length > 0) {
+          curFrames[Math.min(activeFrameIdx, curFrames.length - 1)] = url;
+        }
+        return {
+          ...prev,
+          pixels: flipped,
+          image: url,
+          frames: curFrames.length > 0 ? { ...prev.frames, [spriteMovement]: curFrames } : prev.frames,
+        };
+      });
+      setMessage('Espejo horizontal aplicado.');
+    } else if (freehandRef.current) {
+      const canvas = freehandRef.current;
+      const ctx = canvas.getContext('2d')!;
+      freehandUndo.current = [...freehandUndo.current.slice(-19), ctx.getImageData(0, 0, 320, 320)];
+      const tempCanvas = document.createElement('canvas');
+      tempCanvas.width = 320;
+      tempCanvas.height = 320;
+      tempCanvas.getContext('2d')!.drawImage(canvas, 0, 0);
+
+      ctx.clearRect(0, 0, 320, 320);
+      ctx.save();
+      ctx.translate(320, 0);
+      ctx.scale(-1, 1);
+      ctx.drawImage(tempCanvas, 0, 0);
+      ctx.restore();
+
+      const isolated = isolateBlackOutlineContour(canvas);
+      setEditing((prev) => ({ ...prev, image: isolated }));
+      setMessage('Espejo horizontal aplicado.');
+    } else if (editing.image) {
+      void transformImageDataUrl(editing.image, { flipH: true }).then((newUrl) => {
+        setEditing((prev) => ({ ...prev, image: newUrl }));
+        setMessage('Espejo horizontal aplicado.');
+      });
+    }
+  };
+
+  // Transform current sprite: Flip Vertical
+  const handleFlipVertical = () => {
+    baseSpriteRef.current = null;
+    setFreeRotation(0);
+    if (drawType === 'pixel') {
+      undo.current = [...undo.current.slice(-19), [...pixels.current]];
+      const flipped = flipPixelsV(pixels.current);
+      pixels.current = flipped;
+      const url = pixelsToDataUrl(flipped);
+      setEditing((prev) => {
+        const curFrames = prev.frames?.[spriteMovement] ? [...prev.frames[spriteMovement]] : [];
+        if (curFrames.length > 0) {
+          curFrames[Math.min(activeFrameIdx, curFrames.length - 1)] = url;
+        }
+        return {
+          ...prev,
+          pixels: flipped,
+          image: url,
+          frames: curFrames.length > 0 ? { ...prev.frames, [spriteMovement]: curFrames } : prev.frames,
+        };
+      });
+      setMessage('Espejo vertical aplicado.');
+    } else if (freehandRef.current) {
+      const canvas = freehandRef.current;
+      const ctx = canvas.getContext('2d')!;
+      freehandUndo.current = [...freehandUndo.current.slice(-19), ctx.getImageData(0, 0, 320, 320)];
+      const tempCanvas = document.createElement('canvas');
+      tempCanvas.width = 320;
+      tempCanvas.height = 320;
+      tempCanvas.getContext('2d')!.drawImage(canvas, 0, 0);
+
+      ctx.clearRect(0, 0, 320, 320);
+      ctx.save();
+      ctx.translate(0, 320);
+      ctx.scale(1, -1);
+      ctx.drawImage(tempCanvas, 0, 0);
+      ctx.restore();
+
+      const isolated = isolateBlackOutlineContour(canvas);
+      setEditing((prev) => ({ ...prev, image: isolated }));
+      setMessage('Espejo vertical aplicado.');
+    } else if (editing.image) {
+      void transformImageDataUrl(editing.image, { flipV: true }).then((newUrl) => {
+        setEditing((prev) => ({ ...prev, image: newUrl }));
+        setMessage('Espejo vertical aplicado.');
+      });
+    }
+  };
+
+  // Transform current sprite: Free rotation by angle (e.g. from slider)
+  const handleFreeRotateCanvas = (degrees: number) => {
+    setFreeRotation(degrees);
+    if (degrees === 0) {
+      if (baseSpriteRef.current) {
+        setEditing((prev) => ({ ...prev, image: baseSpriteRef.current! }));
+      } else if (drawType === 'pixel') {
+        const resetUrl = pixelsToDataUrl(pixels.current);
+        setEditing((prev) => ({ ...prev, image: resetUrl }));
+      }
+      setMessage('Rotación restablecida a 0°.');
+      return;
+    }
+
+    const currentSource = baseSpriteRef.current || editing.image || (drawType === 'pixel' ? pixelsToDataUrl(pixels.current) : '');
+    if (!baseSpriteRef.current && currentSource) {
+      baseSpriteRef.current = currentSource;
+    }
+
+    if (currentSource) {
+      void transformImageDataUrl(currentSource, { degrees }).then((newUrl) => {
+        setEditing((prev) => ({ ...prev, image: newUrl }));
+        setMessage(`Rotación libre de ${degrees}° aplicada.`);
+      });
+    }
+  };
+
+  // Eyedropper API invocation with graceful fallback
+  const triggerNativeEyeDropper = async () => {
+    if (typeof window !== 'undefined' && 'EyeDropper' in window) {
+      try {
+        const EyeDropperClass = (window as unknown as { EyeDropper: new () => { open: () => Promise<{ sRGBHex: string }> } }).EyeDropper;
+        const eyeDropper = new EyeDropperClass();
+        const result = await eyeDropper.open();
+        if (result && result.sRGBHex) {
+          setColor(result.sRGBHex);
+          setActiveTool('brush');
+          setMessage(`Color tomado: ${result.sRGBHex}`);
+        }
+      } catch {
+        // User aborted or EyeDropper closed without picking - harmless
+        setMessage('Cuentagotas cancelado.');
+      }
+    } else {
+      setActiveTool('pipette');
+      setMessage('Haz clic en cualquier punto del lienzo para tomar su color.');
     }
   };
 
@@ -1041,6 +1375,8 @@ export function CharacterEditor({
       return;
     }
 
+    baseSpriteRef.current = null;
+    setFreeRotation(0);
     setProcessing(true);
     setMessage('Analizando hoja de sprites y extrayendo animaciones (carrera, saltos, agachado)…');
 
@@ -1086,7 +1422,15 @@ export function CharacterEditor({
     if (x < 0 || x >= 16 || y < 0 || y >= 16) return;
 
     let updated: string[];
-    if (activeTool === 'fill') {
+    if (activeTool === 'pipette') {
+      const pickedColor = pixels.current[y * 16 + x];
+      if (pickedColor && pickedColor !== 'transparent') {
+        setColor(pickedColor);
+        setActiveTool('brush');
+        setMessage(`Color seleccionado del píxel: ${pickedColor}`);
+      }
+      return;
+    } else if (activeTool === 'fill') {
       updated = floodFillPixel(pixels.current, x, y, color);
     } else {
       updated = [...pixels.current];
@@ -1118,6 +1462,17 @@ export function CharacterEditor({
     const x = Math.floor(((clientX - rect.left) / rect.width) * 320);
     const y = Math.floor(((clientY - rect.top) / rect.height) * 320);
     if (x < 0 || x >= 320 || y < 0 || y >= 320) return;
+
+    if (activeTool === 'pipette') {
+      const pixel = ctx.getImageData(x, y, 1, 1).data;
+      if (pixel[3] > 10) {
+        const hex = rgbToHex(pixel[0], pixel[1], pixel[2]);
+        setColor(hex);
+        setActiveTool('brush');
+        setMessage(`Color tomado del lienzo: ${hex}`);
+      }
+      return;
+    }
 
     freehandUndo.current = [...freehandUndo.current.slice(-19), ctx.getImageData(0, 0, 320, 320)];
     floodFillFreehand(ctx, x, y, color);
@@ -1260,7 +1615,19 @@ export function CharacterEditor({
       <div className="character-list">
         {characters.map((c) => (
           <article className={`character-card ${selected === c.id ? 'selected' : ''}`} key={c.id}>
-            <button onClick={() => onSelect(c.id)} aria-pressed={selected === c.id}>
+            <button
+              onClick={() => {
+                onSelect(c.id);
+                baseSpriteRef.current = null;
+                setEditing(c);
+                setMode(c.image || c.frames ? 'auto_sprite' : 'pixel');
+                setPhoto(undefined);
+                undo.current = [];
+                setFreeRotation(0);
+                setMessage(`Cargado ${c.name} en el editor y seleccionado para tu equipo.`);
+              }}
+              aria-pressed={selected === c.id}
+            >
               <Avatar character={c} />
               <strong>{c.name}</strong>
               <small>
@@ -1269,19 +1636,22 @@ export function CharacterEditor({
                     <Check size={13} /> En tu equipo
                   </>
                 ) : (
-                  'Elegir personaje'
+                  'Elegir y editar'
                 )}
               </small>
             </button>
             <div className="card-actions">
               <button
                 aria-label={`Editar ${c.name}`}
+                title="Cargar en el editor"
                 onClick={() => {
+                  baseSpriteRef.current = null;
                   setEditing(c);
                   setMode(c.image || c.frames ? 'auto_sprite' : 'pixel');
                   setPhoto(undefined);
                   undo.current = [];
-                  setMessage('');
+                  setFreeRotation(0);
+                  setMessage(`Editando ${c.name}.`);
                 }}
               >
                 <Paintbrush size={15} />
@@ -1300,6 +1670,7 @@ export function CharacterEditor({
         <button
           className="new-character"
           onClick={() => {
+            baseSpriteRef.current = null;
             setEditing({
               id: '',
               name: 'Mi explorador',
@@ -1310,6 +1681,7 @@ export function CharacterEditor({
             setPhoto(undefined);
             setMessage('Nuevo personaje: dale vida.');
             undo.current = [];
+            setFreeRotation(0);
           }}
         >
           <Plus size={26} />
@@ -1342,6 +1714,8 @@ export function CharacterEditor({
               key={preset.name}
               className="template-pill-btn asset-preset-btn"
               onClick={() => {
+                baseSpriteRef.current = null;
+                setFreeRotation(0);
                 setProcessing(true);
                 setMessage(`Cargando sprite de ${preset.name}…`);
                 const img = new Image();
@@ -1390,6 +1764,8 @@ export function CharacterEditor({
               key={tmpl.name}
               className="template-pill-btn"
               onClick={() => {
+                baseSpriteRef.current = null;
+                setFreeRotation(0);
                 setEditing((prev) => ({
                   ...prev,
                   name: tmpl.name,
@@ -1588,7 +1964,7 @@ export function CharacterEditor({
                     </button>
                   </div>
 
-                  {/* Tool mode: Brush vs Fill Bucket */}
+                    {/* Tool mode: Brush vs Fill Bucket vs Pipette */}
                   <div className="segmented" style={{ width: 'fit-content' }}>
                     <button
                       type="button"
@@ -1611,6 +1987,14 @@ export function CharacterEditor({
                       title="Bote de pintura: Rellena formas cerradas o áreas del mismo color (como en Paint)"
                     >
                       <PaintBucket size={13} style={{ marginRight: 4 }} /> Relleno
+                    </button>
+                    <button
+                      type="button"
+                      className={activeTool === 'pipette' ? 'active' : ''}
+                      onClick={() => void triggerNativeEyeDropper()}
+                      title="Cuentagotas: Toma una muestra de cualquier color en pantalla o lienzo"
+                    >
+                      <Pipette size={13} style={{ marginRight: 4 }} /> Cuentagotas
                     </button>
                   </div>
                 </div>
@@ -1663,6 +2047,97 @@ export function CharacterEditor({
                 </div>
               </div>
 
+              {/* Free Transformation & Orientation Toolbar */}
+              <div
+                className="transform-toolbar"
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  gap: '8px',
+                  flexWrap: 'wrap',
+                  background: 'var(--panel)',
+                  border: '1px solid var(--border)',
+                  borderRadius: '10px',
+                  padding: '8px 12px',
+                  marginBottom: '10px',
+                }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
+                  <span style={{ fontSize: '0.78rem', fontWeight: 700, color: 'var(--ink)', marginRight: '4px' }}>
+                    Transformar:
+                  </span>
+                  <button
+                    type="button"
+                    className="template-pill-btn"
+                    onClick={() => handleRotate90(false)}
+                    title="Girar 90° hacia la izquierda (antihorario)"
+                    style={{ fontSize: '0.75rem', padding: '4px 8px' }}
+                  >
+                    <RotateCcw size={13} /> 90° Izq
+                  </button>
+                  <button
+                    type="button"
+                    className="template-pill-btn"
+                    onClick={() => handleRotate90(true)}
+                    title="Girar 90° hacia la derecha (horario)"
+                    style={{ fontSize: '0.75rem', padding: '4px 8px' }}
+                  >
+                    <RotateCw size={13} /> 90° Der
+                  </button>
+                  <button
+                    type="button"
+                    className="template-pill-btn"
+                    onClick={handleFlipHorizontal}
+                    title="Reflejar / Voltear horizontalmente"
+                    style={{ fontSize: '0.75rem', padding: '4px 8px' }}
+                  >
+                    <FlipHorizontal size={13} /> Espejo H
+                  </button>
+                  <button
+                    type="button"
+                    className="template-pill-btn"
+                    onClick={handleFlipVertical}
+                    title="Reflejar / Voltear verticalmente"
+                    style={{ fontSize: '0.75rem', padding: '4px 8px' }}
+                  >
+                    <FlipVertical size={13} /> Espejo V
+                  </button>
+                </div>
+
+                {/* Free Rotation Slider */}
+                <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.78rem', color: 'var(--ink)' }}>
+                  <span>Ángulo ({freeRotation}°):</span>
+                  <input
+                    type="range"
+                    min="-180"
+                    max="180"
+                    step="5"
+                    value={freeRotation}
+                    onChange={(e) => handleFreeRotateCanvas(Number(e.target.value))}
+                    style={{ width: '85px', accentColor: 'var(--lime)', margin: 0 }}
+                    title="Rotación libre en grados"
+                  />
+                  {freeRotation !== 0 && (
+                    <button
+                      type="button"
+                      onClick={() => handleFreeRotateCanvas(0)}
+                      title="Restablecer rotación a 0°"
+                      style={{
+                        background: 'none',
+                        border: 'none',
+                        color: 'var(--subtle)',
+                        cursor: 'pointer',
+                        fontSize: '0.75rem',
+                        padding: '2px',
+                      }}
+                    >
+                      ↺
+                    </button>
+                  )}
+                </div>
+              </div>
+
               {drawType === 'pixel' ? (
                 <canvas
                   ref={ref}
@@ -1674,6 +2149,9 @@ export function CharacterEditor({
                     cursor: activeTool === 'fill' ? 'cell' : color === 'transparent' ? 'crosshair' : 'default',
                   }}
                   onPointerDown={(e) => {
+                    if (Date.now() - lastColorPickerCloseTime.current < 250) {
+                      return;
+                    }
                     undo.current = [...undo.current.slice(-19), [...pixels.current]];
                     if (activeTool === 'fill') {
                       paint(e);
@@ -1713,7 +2191,10 @@ export function CharacterEditor({
                       cursor: activeTool === 'fill' ? 'cell' : color === 'transparent' ? 'crosshair' : 'default',
                     }}
                     onPointerDown={(e) => {
-                      if (activeTool === 'fill') {
+                      if (Date.now() - lastColorPickerCloseTime.current < 250) {
+                        return;
+                      }
+                      if (activeTool === 'fill' || activeTool === 'pipette') {
                         applyFloodFillFreehand(e.clientX, e.clientY);
                         return;
                       }
@@ -1799,23 +2280,24 @@ export function CharacterEditor({
 
               {/* Swatches for Selected Category */}
               <div className="palette" style={{ marginTop: '10px' }}>
-                {/* Paint Bucket quick indicator */}
+                {/* 1-Click Fill / Brush quick toggle button */}
                 <button
                   type="button"
-                  aria-label="Herramienta de relleno"
+                  aria-label={activeTool === 'fill' ? 'Cambiar a Pincel' : 'Cambiar a Bote de Pintura (Relleno)'}
                   className={activeTool === 'fill' ? 'active' : ''}
                   onClick={() => {
-                    setActiveTool('fill');
+                    setActiveTool((prev) => (prev === 'fill' ? 'brush' : 'fill'));
                     if (color === 'transparent') setColor(COLORS[0]);
                   }}
-                  title="Herramienta de Relleno / Cubo de pintura"
+                  title={activeTool === 'fill' ? 'Herramienta activa: Bote de Relleno. Haz clic para cambiar a Pincel' : 'Herramienta activa: Pincel. Haz clic para cambiar a Bote de Relleno'}
                   style={{
                     background: activeTool === 'fill' ? 'var(--lime)' : 'var(--panel)',
                     color: activeTool === 'fill' ? '#183f35' : 'var(--ink)',
                     border: '1px solid var(--border)',
+                    cursor: 'pointer',
                   }}
                 >
-                  <PaintBucket size={15} />
+                  {activeTool === 'fill' ? <PaintBucket size={15} /> : <Paintbrush size={15} />}
                 </button>
 
                 {COLOR_PALETTES[paletteTab].colors.map((c) => (
@@ -1828,33 +2310,97 @@ export function CharacterEditor({
                     style={{ background: c }}
                     onClick={() => {
                       setColor(c);
+                      if (activeTool === 'pipette') {
+                        setActiveTool('brush');
+                      }
                     }}
                   />
                 ))}
 
                 {/* Custom Color Picker Input */}
-                <label
-                  title="Color personalizado"
+                <div
                   style={{
+                    position: 'relative',
                     width: '27px',
                     height: '27px',
-                    borderRadius: '50%',
-                    border: '1px solid #bac5ae',
-                    display: 'grid',
-                    placeItems: 'center',
-                    cursor: 'pointer',
-                    overflow: 'hidden',
-                    background: color.startsWith('#') ? color : '#ffffff',
+                    display: 'inline-block',
                   }}
                 >
+                  <button
+                    type="button"
+                    title="Color personalizado (Selector)"
+                    aria-label="Color personalizado (Selector)"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      colorPickerActive.current = true;
+                      colorInputRef.current?.click();
+                    }}
+                    onPointerDown={(e) => {
+                      e.stopPropagation();
+                    }}
+                    style={{
+                      width: '27px',
+                      height: '27px',
+                      borderRadius: '50%',
+                      border: '1px solid #bac5ae',
+                      display: 'grid',
+                      placeItems: 'center',
+                      cursor: 'pointer',
+                      overflow: 'hidden',
+                      padding: 0,
+                      background: color.startsWith('#') ? color : '#ffffff',
+                    }}
+                  >
+                    <Pipette size={14} color={color === '#000000' || color === '#243b32' ? '#ffffff' : '#183f35'} />
+                  </button>
                   <input
+                    ref={colorInputRef}
                     type="color"
                     value={color.startsWith('#') ? color : '#000000'}
-                    onChange={(e) => setColor(e.target.value)}
-                    style={{ opacity: 0, width: 0, height: 0, position: 'absolute' }}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      colorPickerActive.current = true;
+                    }}
+                    onChange={(e) => {
+                      e.stopPropagation();
+                      const chosenColor = e.target.value;
+                      setColor(chosenColor);
+                      setActiveTool('brush');
+                      lastColorPickerCloseTime.current = Date.now();
+                      colorPickerActive.current = false;
+                    }}
+                    onBlur={() => {
+                      colorPickerActive.current = false;
+                      lastColorPickerCloseTime.current = Date.now();
+                    }}
+                    style={{
+                      opacity: 0,
+                      width: 0,
+                      height: 0,
+                      position: 'absolute',
+                      pointerEvents: 'none',
+                      border: 'none',
+                      padding: 0,
+                      margin: 0,
+                    }}
                   />
-                  <Pipette size={14} color={color === '#000000' || color === '#243b32' ? '#ffffff' : '#183f35'} />
-                </label>
+                </div>
+
+                {/* Eyedropper / Pipette Screen Color Picker Button */}
+                <button
+                  type="button"
+                  aria-label="Cuentagotas para tomar color"
+                  title="Cuentagotas: Tomar muestra de color del lienzo o pantalla"
+                  className={activeTool === 'pipette' ? 'active' : ''}
+                  onClick={() => void triggerNativeEyeDropper()}
+                  style={{
+                    background: activeTool === 'pipette' ? 'var(--lime)' : 'var(--panel)',
+                    color: activeTool === 'pipette' ? '#183f35' : 'var(--ink)',
+                    border: '1px solid var(--border)',
+                  }}
+                >
+                  <Pipette size={15} />
+                </button>
 
                 {/* Eraser */}
                 <button
@@ -1993,9 +2539,10 @@ export function CharacterEditor({
                           setCropX(0.5);
                           setCropY(0.5);
                           setZoom(1);
-                          setMessage('Punto focal centrado.');
+                          setPhotoRotation(0);
+                          setMessage('Punto focal y rotación centrados a 0°.');
                         }}
-                        title="Centrar punto focal"
+                        title="Centrar punto focal y restablecer rotación a 0°"
                       >
                         <Crosshair size={12} /> Centrar
                       </button>
@@ -2047,7 +2594,7 @@ export function CharacterEditor({
                             width: `${Math.round(zoom * 100)}%`,
                             height: `${Math.round(zoom * 100)}%`,
                             objectFit: 'cover',
-                            transform: `translate(${-cropX * 100}%, ${-cropY * 100}%)`,
+                            transform: `translate(${-cropX * 100}%, ${-cropY * 100}%) rotate(${photoRotation}deg)`,
                           }}
                         />
                       )}
@@ -2072,6 +2619,41 @@ export function CharacterEditor({
                           step="0.05"
                           value={zoom}
                           onChange={(e) => setZoom(Number(e.target.value))}
+                        />
+                      </label>
+                      <label>
+                        <span style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                          <span>Rotación ({photoRotation}°)</span>
+                          {photoRotation !== 0 && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setPhotoRotation(0);
+                                setMessage('Rotación de foto restablecida a 0°.');
+                              }}
+                              title="Restablecer rotación a 0°"
+                              style={{
+                                background: 'none',
+                                border: 'none',
+                                color: 'var(--subtle)',
+                                cursor: 'pointer',
+                                fontSize: '0.75rem',
+                                padding: '0 4px',
+                                lineHeight: 1,
+                              }}
+                            >
+                              ↺ Restablecer
+                            </button>
+                          )}
+                        </span>
+                        <input
+                          type="range"
+                          min="-180"
+                          max="180"
+                          step="5"
+                          value={photoRotation}
+                          onChange={(e) => setPhotoRotation(Number(e.target.value))}
+                          style={{ accentColor: 'var(--lime)' }}
                         />
                       </label>
                       <label>
@@ -2115,6 +2697,10 @@ export function CharacterEditor({
                               const targetUrl = uneditedPhotoUrl || editing.image;
                               if (targetUrl) {
                                 setEditing((prev) => ({ ...prev, image: targetUrl }));
+                                setPhotoRotation(0);
+                                setZoom(1);
+                                setCropX(0.5);
+                                setCropY(0.5);
                                 const pCanvas = photoCanvasRef.current;
                                 if (pCanvas) {
                                   const ctx = pCanvas.getContext('2d')!;
@@ -2126,7 +2712,7 @@ export function CharacterEditor({
                                   };
                                   img.src = targetUrl;
                                 }
-                                setMessage('Foto restaurada al estado original.');
+                                setMessage('Foto restaurada al estado original con rotación a 0°.');
                               } else {
                                 setMessage('No hay foto original para restaurar.');
                               }
@@ -2205,6 +2791,14 @@ export function CharacterEditor({
                         >
                           <RotateCcw size={13} style={{ marginRight: 4 }} /> Pincel Restaurador
                         </button>
+                        <button
+                          type="button"
+                          className={photoTool === 'pipette' ? 'active' : ''}
+                          onClick={() => setPhotoTool('pipette')}
+                          title="Cuentagotas: Haz clic en la foto para tomar un color de muestra"
+                        >
+                          <Pipette size={13} style={{ marginRight: 4 }} /> Cuentagotas
+                        </button>
                       </div>
 
                       <div style={{ display: 'flex', gap: '16px', alignItems: 'center', marginBottom: '10px', fontSize: '0.8rem', color: 'var(--ink)' }}>
@@ -2220,6 +2814,10 @@ export function CharacterEditor({
                               style={{ width: '100px', accentColor: 'var(--lime)' }}
                             />
                           </label>
+                        ) : photoTool === 'pipette' ? (
+                          <span style={{ color: 'var(--subtle)' }}>
+                            Haz clic en cualquier punto de la foto para seleccionar ese color en tu paleta.
+                          </span>
                         ) : (
                           <label style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                             Radio del pincel: {eraserRadius}px
@@ -2241,7 +2839,7 @@ export function CharacterEditor({
                           ref={photoCanvasRef}
                           width={260}
                           height={260}
-                          style={{ display: 'block', width: '100%', height: '100%', cursor: photoTool === 'wand' ? 'crosshair' : 'default', touchAction: 'none' }}
+                          style={{ display: 'block', width: '100%', height: '100%', cursor: photoTool === 'wand' || photoTool === 'pipette' ? 'crosshair' : 'default', touchAction: 'none' }}
                           onPointerDown={(e) => {
                             const canvas = photoCanvasRef.current;
                             if (!canvas) return;
@@ -2249,6 +2847,16 @@ export function CharacterEditor({
                             const rect = canvas.getBoundingClientRect();
                             const x = Math.floor(((e.clientX - rect.left) / rect.width) * 260);
                             const y = Math.floor(((e.clientY - rect.top) / rect.height) * 260);
+
+                            if (photoTool === 'pipette') {
+                              const pixel = ctx.getImageData(x, y, 1, 1).data;
+                              if (pixel[3] > 10) {
+                                const hex = rgbToHex(pixel[0], pixel[1], pixel[2]);
+                                setColor(hex);
+                                setMessage(`Color tomado de la foto: ${hex}`);
+                              }
+                              return;
+                            }
 
                             if (photoTool === 'wand') {
                               const imgData = ctx.getImageData(0, 0, 260, 260);
@@ -2331,7 +2939,7 @@ export function CharacterEditor({
 
         <aside className="editor-sidebar">
           <p className="eyebrow">VISTA PREVIA ANIMADA</p>
-          <div className="avatar-preview">
+          <div className="avatar-preview" style={{ flexDirection: 'column', gap: '8px' }}>
             <Avatar
               character={{
                 ...editing,
@@ -2339,9 +2947,50 @@ export function CharacterEditor({
                 pixels: editing.pixels,
                 frames: editing.frames,
               }}
+              movement={previewMovement}
+              frameIndex={previewPlaying ? undefined : 0}
               showGround
               size={145}
             />
+            {/* Live Animation Controls */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', justifyContent: 'center', width: '100%' }}>
+              <button
+                type="button"
+                className="template-pill-btn"
+                onClick={() => setPreviewPlaying((p) => !p)}
+                title={previewPlaying ? 'Pausar animación' : 'Reproducir animación'}
+                aria-label={previewPlaying ? 'Pausar animación' : 'Reproducir animación'}
+                style={{
+                  padding: '4px 8px',
+                  fontSize: '0.75rem',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '4px',
+                  background: previewPlaying ? 'var(--lime)' : 'var(--panel)',
+                  color: previewPlaying ? '#183f35' : 'var(--ink)',
+                  borderColor: previewPlaying ? 'var(--lime)' : 'var(--border)',
+                  fontWeight: 600,
+                }}
+              >
+                {previewPlaying ? <Pause size={13} /> : <Play size={13} />}
+                <span>{previewPlaying ? 'Pausar' : 'Play'}</span>
+              </button>
+
+              <div className="segmented" style={{ width: 'fit-content' }}>
+                {(['run', 'jump', 'slide', 'idle'] as Movement[]).map((mov) => (
+                  <button
+                    key={mov}
+                    type="button"
+                    className={previewMovement === mov ? 'active' : ''}
+                    onClick={() => setPreviewMovement(mov)}
+                    style={{ fontSize: '0.7rem', padding: '3px 7px' }}
+                    title={`Ver animación de ${mov}`}
+                  >
+                    {mov === 'run' ? 'Corre' : mov === 'jump' ? 'Salta' : mov === 'slide' ? 'Desliza' : 'Reposo'}
+                  </button>
+                ))}
+              </div>
+            </div>
           </div>
           <label>
             Nombre del personaje
@@ -2362,14 +3011,49 @@ export function CharacterEditor({
               onChange={(e) => setEditing((c) => ({ ...c, scale: Number(e.target.value) }))}
             />
           </label>
-          <p className="subtle">
-            {mode === 'auto_sprite'
-              ? 'Sprite generado automáticamente para animaciones en carrera, saltos y caídas.'
-              : mode === 'pixel'
-                ? 'Pinta cada píxel, elige tus colores y dale vida en la pista.'
-                : 'Ajusta el recorte. La foto se procesa en tu dispositivo.'}
-          </p>
-          <button className="primary" onClick={() => void save()} disabled={busy || processing}>
+          <div className="sidebar-quick-actions" style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginTop: '12px' }}>
+            <span style={{ fontSize: '0.78rem', fontWeight: 700, color: 'var(--ink)' }}>Acciones Rápidas</span>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '6px' }}>
+              <button
+                type="button"
+                className="template-pill-btn"
+                onClick={handleFlipHorizontal}
+                title="Voltear horizontalmente"
+                style={{ fontSize: '0.75rem', padding: '6px 8px', justifyContent: 'center' }}
+              >
+                <FlipHorizontal size={13} /> Voltear H
+              </button>
+              <button
+                type="button"
+                className="template-pill-btn"
+                onClick={handleFlipVertical}
+                title="Voltear verticalmente"
+                style={{ fontSize: '0.75rem', padding: '6px 8px', justifyContent: 'center' }}
+              >
+                <FlipVertical size={13} /> Voltear V
+              </button>
+            </div>
+            <button
+              type="button"
+              className="template-pill-btn"
+              onClick={() => {
+                const cloned: Character = {
+                  ...editing,
+                  id: crypto.randomUUID(),
+                  name: `${editing.name} (Copia)`.slice(0, 24),
+                };
+                setEditing(cloned);
+                void onSave(cloned);
+                setMessage(`Copia de ${editing.name} creada y guardada.`);
+              }}
+              title="Duplica el personaje actual con un solo clic"
+              style={{ fontSize: '0.75rem', padding: '6px 8px', justifyContent: 'center', background: 'var(--panel)' }}
+            >
+              <Copy size={13} /> Duplicar Personaje
+            </button>
+          </div>
+
+          <button className="primary" onClick={() => void save()} disabled={busy || processing} style={{ marginTop: '14px' }}>
             <Save size={17} />{' '}
             {processing ? 'Generando…' : busy ? 'Guardando…' : 'Guardar personaje'}
           </button>
