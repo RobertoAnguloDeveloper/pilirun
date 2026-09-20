@@ -20,6 +20,8 @@ export const ITEM_KINDS: ItemKind[] = [
   'log',
   'rock',
   'branch',
+  'drone',
+  'golem',
   'coin',
   'shield',
   'boost',

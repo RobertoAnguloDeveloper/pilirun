@@ -1575,7 +1575,8 @@ export function CharacterEditor({
                 background: 'var(--panel)',
                 border: '1px solid var(--border)',
                 borderRadius: '14px',
-                minWidth: '240px',
+                width: '100%',
+                maxWidth: '340px',
               }}
             >
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>

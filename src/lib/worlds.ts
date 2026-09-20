@@ -196,6 +196,8 @@ export function validateTrack(track: Track): string | null {
     'log',
     'rock',
     'branch',
+    'drone',
+    'golem',
     'coin',
     'shield',
     'boost',
@@ -216,7 +218,7 @@ export function validateTrack(track: Track): string | null {
   )
     return 'Deja espacio libre al inicio y al final de la pista.';
   const obstacles = track.items
-    .filter((i) => ['log', 'rock', 'branch'].includes(i.kind))
+    .filter((i) => ['log', 'rock', 'branch', 'drone', 'golem'].includes(i.kind))
     .sort((a, b) => a.x - b.x);
   if (obstacles.some((o, i) => i > 0 && o.x - obstacles[i - 1].x < 420))
     return 'Separa los obstáculos al menos 42 metros para que la pista se pueda superar.';

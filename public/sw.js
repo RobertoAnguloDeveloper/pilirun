@@ -1,5 +1,5 @@
 /* Versioned production shell. User data is never stored in this HTTP cache. */
-const CACHE = 'pilirun-shell-UViJBkE2Pktr5OWj_tLHW';
+const CACHE = 'pilirun-shell-B0n07owbFBPsyknZCkkXC';
 const CORE = [
   '/',
   '/manifest.webmanifest',
@@ -52,7 +52,7 @@ const CORE = [
   '/assets/generated/environment-foliage.webp',
   '/assets/generated/environment-spire.webp',
 ];
-CORE.push(...["/_next/static/UViJBkE2Pktr5OWj_tLHW/_buildManifest.js","/_next/static/UViJBkE2Pktr5OWj_tLHW/_clientMiddlewareManifest.js","/_next/static/UViJBkE2Pktr5OWj_tLHW/_ssgManifest.js","/_next/static/chunks/093_sugt6qlro.js","/_next/static/chunks/09lgyggnhjlha.js","/_next/static/chunks/0cz1d0mv5g_q7.js","/_next/static/chunks/0kch0gnwdvr7p.js","/_next/static/chunks/0mm73_naedqvk.js","/_next/static/chunks/0sw87_2s_mjnt.js","/_next/static/chunks/1igq67rqaryzq.js","/_next/static/chunks/1ka5iyy_g7mew.js","/_next/static/chunks/1mh6a-0e61pyc.js","/_next/static/chunks/2abfs_k7qau8y.js","/_next/static/chunks/2gimjrhq_9v6h.js","/_next/static/chunks/2gw_w_32tj1_y.js","/_next/static/chunks/2l_y_qqi24r7y.js","/_next/static/chunks/2nq1xvplyp02x.js","/_next/static/chunks/34rkd6j5q0ng7.js","/_next/static/chunks/3fntmmi971322.js","/_next/static/chunks/3sdj-xzhrekr-.js","/_next/static/chunks/3y-vq592_1uk1.css","/_next/static/chunks/3ynuqez-u30uy.js","/_next/static/chunks/turbopack-3wbyi96ng71ls.js"]);
+CORE.push(...["/_next/static/chunks/036z03r-foj6b.js","/_next/static/chunks/093_sugt6qlro.js","/_next/static/chunks/09lgyggnhjlha.js","/_next/static/chunks/0cz1d0mv5g_q7.js","/_next/static/chunks/0mm73_naedqvk.js","/_next/static/chunks/0polirqoben17.js","/_next/static/chunks/1ka5iyy_g7mew.js","/_next/static/chunks/1mh6a-0e61pyc.js","/_next/static/chunks/1q8_3fftr12xn.js","/_next/static/chunks/1settdmxlx9gu.js","/_next/static/chunks/2abfs_k7qau8y.js","/_next/static/chunks/2gw_w_32tj1_y.js","/_next/static/chunks/2lz8kug9ooycm.js","/_next/static/chunks/2l_y_qqi24r7y.js","/_next/static/chunks/2peh8sox8nbyy.css","/_next/static/chunks/2_tiv3-lu1xt0.js","/_next/static/chunks/35czrwxsvix--.js","/_next/static/chunks/3fntmmi971322.js","/_next/static/chunks/3uactx4u7khu6.js","/_next/static/chunks/turbopack-3wbyi96ng71ls.js","/_next/static/B0n07owbFBPsyknZCkkXC/_buildManifest.js","/_next/static/B0n07owbFBPsyknZCkkXC/_clientMiddlewareManifest.js","/_next/static/B0n07owbFBPsyknZCkkXC/_ssgManifest.js"]);
 self.addEventListener('install', (event) =>
   event.waitUntil(
     (async () => {

@@ -4,6 +4,8 @@ export type ItemKind =
   | 'log'
   | 'rock'
   | 'branch'
+  | 'drone'
+  | 'golem'
   | 'coin'
   | 'shield'
   | 'boost'
@@ -16,6 +18,15 @@ export type ItemKind =
   | 'power_thunder'
   | 'power_star';
 export type CameraView = 'side' | 'first_person';
+export interface DamageFeedback {
+  id: string;
+  x: number;
+  y: number;
+  damage: number;
+  color: string;
+  elapsed: number;
+  duration: number;
+}
 export interface TrackItem {
   material?: import('./obstacles').ObstacleMaterial;
   health?: number;

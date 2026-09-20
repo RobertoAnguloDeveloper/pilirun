@@ -1,6 +1,7 @@
 import { frameScale, drawGroundedSprite, measureSprite, pixelBounds, playerVisualHeight, proportionalSpriteHeight } from '../lib/sprite-geometry';
 import { WORLDS } from '../lib/worlds';
 import { TIME_PERIODS, type TimeOfDay } from '../lib/environment';
+import { obstacleHealth } from '../lib/obstacles';
 import type {
   Character,
   ItemKind,
@@ -590,6 +591,10 @@ export class Renderer {
     let palette: string[];
     if (kind === 'boss') {
       palette = ['#ffffff', '#fde047', '#c084fc', '#38bdf8', '#ef4444'];
+    } else if (kind === 'drone') {
+      palette = ['#38bdf8', '#0284c7', '#ef4444', '#f8fafc', '#94a3b8'];
+    } else if (kind === 'golem') {
+      palette = ['#64748b', '#475569', '#a855f7', '#c084fc', '#e2e8f0'];
     } else if (kind === 'rock') {
       palette = ['#95a49b', '#c3ccc0', '#5a6860', '#748076', '#bfe8fa'];
     } else if (kind === 'branch') {
@@ -1345,6 +1350,10 @@ export class Renderer {
         ctx.beginPath(); ctx.moveTo(8, -25); ctx.lineTo(22, -32); ctx.lineTo(29, 0); ctx.lineTo(12, -8); ctx.closePath(); ctx.fill();
         ctx.fillStyle = '#9fcf83';
         ctx.beginPath(); ctx.ellipse(-10, -31, 8, 3, -0.3, 0, Math.PI * 2); ctx.fill();
+      } else if (item.kind === 'drone') {
+        this.drawDrone(ctx, game.elapsed, item.x);
+      } else if (item.kind === 'golem') {
+        this.drawGolem(ctx, game.elapsed, item.x);
       } else if (item.kind === 'branch') {
         ctx.fillStyle = '#70533e';
         ctx.fillRect(-26, -85, 52, 38);
@@ -1365,6 +1374,39 @@ export class Renderer {
         ctx.font = 'bold 20px sans-serif';
         ctx.textAlign = 'center';
         ctx.fillText(item.kind === 'shield' ? '◇' : item.kind === 'boost' ? 'ϟ' : '+', 0, -63);
+      }
+
+      // Hit Flash overlay when damaged
+      const flashTime = game.hitFlashes.get(item.id) ?? 0;
+      if (flashTime > 0) {
+        ctx.save();
+        ctx.globalAlpha = Math.min(0.8, flashTime * 3.5);
+        ctx.fillStyle = '#ffffff';
+        ctx.beginPath();
+        const flashH = item.height ?? (item.kind === 'branch' ? 38 : item.kind === 'drone' ? 36 : item.kind === 'golem' ? 50 : 40);
+        const flashY = item.y ? -item.y - flashH : (item.kind === 'branch' ? -85 : item.kind === 'drone' ? -85 : -flashH);
+        ctx.roundRect(-26, flashY, 52, flashH, 6);
+        ctx.fill();
+        ctx.restore();
+      }
+
+      // Mini Health Bar for damaged obstacles and enemies
+      const maxHp = obstacleHealth(item);
+      const currentHp = game.obstacleDurability.get(item.id);
+      if (currentHp !== undefined && currentHp < maxHp && currentHp > 0) {
+        const hpPercent = Math.max(0, currentHp / maxHp);
+        const barW = 44;
+        const barH = 6;
+        const barY = item.y ? -item.y - (item.height ?? 40) - 14 : (item.kind === 'branch' ? -98 : item.kind === 'drone' ? -98 : -56);
+        ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
+        ctx.roundRect(-barW / 2, barY, barW, barH, 3);
+        ctx.fill();
+        ctx.fillStyle = hpPercent > 0.45 ? '#22c55e' : hpPercent > 0.2 ? '#f59e0b' : '#ef4444';
+        ctx.roundRect(-barW / 2, barY, barW * hpPercent, barH, 3);
+        ctx.fill();
+        ctx.strokeStyle = '#ffffff';
+        ctx.lineWidth = 1;
+        ctx.strokeRect(-barW / 2, barY, barW, barH);
       }
       ctx.restore();
     }
@@ -1735,6 +1777,55 @@ export class Renderer {
 
     if (game.bossEntity) this.drawBoss(game, px + (game.bossEntity.x - game.distance) * scale, ground - game.bossEntity.y * scale, scale);
 
+    // 8. Render Projectile Impact Feedback (Expanding Shockwave Ring & Floating Damage Numbers)
+    if (game.damageFeedbacks.length > 0) {
+      ctx.save();
+      for (const df of game.damageFeedbacks) {
+        const progress = Math.min(1, df.elapsed / df.duration);
+        const hitScreenX = px + (df.x - game.distance) * scale;
+        const hitScreenY = ground - df.y * scale;
+
+        if (hitScreenX < -50 || hitScreenX > width + 50) continue;
+
+        // Expanding Impact Shockwave Ring & Spark Stars
+        const ringAlpha = Math.max(0, 1 - progress);
+        const ringRadius = (16 + progress * 48) * scale;
+        ctx.strokeStyle = df.color || '#ffffff';
+        ctx.lineWidth = Math.max(1.5, 3.5 * (1 - progress) * scale);
+        ctx.beginPath();
+        ctx.arc(hitScreenX, hitScreenY, ringRadius, 0, Math.PI * 2);
+        ctx.stroke();
+
+        // High intensity white center flash during the first 25% of impact
+        if (progress < 0.25) {
+          const flashAlpha = 1 - progress / 0.25;
+          ctx.fillStyle = `rgba(255, 255, 255, ${flashAlpha * 0.75})`;
+          ctx.beginPath();
+          ctx.arc(hitScreenX, hitScreenY, 24 * scale * (1 - progress), 0, Math.PI * 2);
+          ctx.fill();
+        }
+
+        // Floating Damage Number rising upwards with bouncy deceleration
+        const floatY = hitScreenY - Math.sin(progress * Math.PI * 0.5) * 45 * scale;
+        const textAlpha = Math.max(0, 1 - Math.pow(progress, 2.5));
+        ctx.save();
+        ctx.globalAlpha = textAlpha;
+        ctx.font = `900 ${Math.max(14, Math.round((18 + (df.damage >= 50 ? 4 : 0)) * scale))}px sans-serif`;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        // Black outline for extreme contrast
+        ctx.strokeStyle = '#000000';
+        ctx.lineWidth = 4 * scale;
+        const damageText = `-${df.damage}`;
+        ctx.strokeText(damageText, hitScreenX, floatY);
+        // Colored text fill
+        ctx.fillStyle = df.color || '#ffffff';
+        ctx.fillText(damageText, hitScreenX, floatY);
+        ctx.restore();
+      }
+      ctx.restore();
+    }
+
     this.renderScenarioSide(game, width, height, true);
   }
 
@@ -1894,6 +1985,18 @@ export class Renderer {
       ctx.textAlign = 'center';
       ctx.fillText(boss.name, 0, -bossSize * 0.7 - barHeight - 4);
 
+      // Boss Hit Flash overlay
+      const bossFlash = game.hitFlashes.get('boss') ?? 0;
+      if (bossFlash > 0) {
+        ctx.save();
+        ctx.globalAlpha = Math.min(0.85, bossFlash * 4);
+        ctx.fillStyle = '#ffffff';
+        ctx.beginPath();
+        ctx.arc(0, 0, bossSize * 0.52, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.restore();
+      }
+
       ctx.restore();
     }
 
@@ -1921,11 +2024,172 @@ export class Renderer {
     } else if (kind === 'branch') {
       ctx.fillStyle = '#70533e';
       ctx.fillRect(-26, -85, 52, 38);
+    } else if (kind === 'drone') {
+      this.drawDrone(ctx, 0, 0);
+    } else if (kind === 'golem') {
+      this.drawGolem(ctx, 0, 0);
     } else {
       ctx.fillStyle = '#afdbef';
       ctx.beginPath();
       ctx.roundRect(-15, -85, 30, 30, 9);
       ctx.fill();
     }
+  }
+
+  private drawDrone(ctx: CanvasRenderingContext2D, elapsed: number, seedX = 0) {
+    const hover = Math.sin(elapsed * 4 + seedX * 0.05) * 5;
+    const tilt = Math.cos(elapsed * 3 + seedX * 0.05) * 0.08;
+    const thrusterFlame = 0.7 + Math.sin(elapsed * 18 + seedX) * 0.3;
+
+    ctx.save();
+    ctx.translate(0, -58 + hover);
+    ctx.rotate(tilt);
+
+    // Thruster exhaust flame
+    const flameGrad = ctx.createLinearGradient(0, 14, 0, 26 * thrusterFlame);
+    flameGrad.addColorStop(0, 'rgba(56, 189, 248, 0.9)');
+    flameGrad.addColorStop(0.5, 'rgba(239, 68, 68, 0.8)');
+    flameGrad.addColorStop(1, 'rgba(239, 68, 68, 0)');
+    ctx.fillStyle = flameGrad;
+    ctx.beginPath();
+    ctx.moveTo(-7, 12);
+    ctx.lineTo(0, 14 + 12 * thrusterFlame);
+    ctx.lineTo(7, 12);
+    ctx.closePath();
+    ctx.fill();
+
+    // Twin side thrusters/wings
+    ctx.fillStyle = '#334155';
+    ctx.beginPath();
+    ctx.roundRect(-24, -4, 48, 8, 3);
+    ctx.fill();
+    ctx.fillStyle = '#0ea5e9';
+    ctx.beginPath();
+    ctx.arc(-20, 0, 3, 0, Math.PI * 2);
+    ctx.arc(20, 0, 3, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Drone Chassis / Spherical armored shell
+    const shellGrad = ctx.createRadialGradient(-3, -4, 2, 0, 0, 18);
+    shellGrad.addColorStop(0, '#f8fafc');
+    shellGrad.addColorStop(0.6, '#94a3b8');
+    shellGrad.addColorStop(1, '#1e293b');
+    ctx.fillStyle = shellGrad;
+    ctx.beginPath();
+    ctx.arc(0, 0, 16, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.strokeStyle = '#0f172a';
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+
+    // Antenna on top
+    ctx.strokeStyle = '#64748b';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(0, -16);
+    ctx.lineTo(0, -23);
+    ctx.stroke();
+    ctx.fillStyle = '#ef4444';
+    ctx.beginPath();
+    ctx.arc(0, -24, 2.5, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Cyclops glowing red sensor eye
+    const eyeGrad = ctx.createRadialGradient(0, 0, 1, 0, 0, 8);
+    eyeGrad.addColorStop(0, '#ffffff');
+    eyeGrad.addColorStop(0.3, '#f87171');
+    eyeGrad.addColorStop(0.8, '#dc2626');
+    eyeGrad.addColorStop(1, '#7f1d1d');
+    ctx.fillStyle = eyeGrad;
+    ctx.beginPath();
+    ctx.arc(0, 0, 7.5, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Scanning eye glint
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.8)';
+    ctx.beginPath();
+    ctx.arc(-2, -2, 2, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.restore();
+  }
+
+  private drawGolem(ctx: CanvasRenderingContext2D, elapsed: number, seedX = 0) {
+    const breathe = Math.sin(elapsed * 2.5 + seedX * 0.05) * 2;
+
+    ctx.save();
+
+    // Shadow
+    ctx.fillStyle = 'rgba(15, 23, 42, 0.4)';
+    ctx.beginPath();
+    ctx.ellipse(0, 2, 26, 7, 0, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Massive Stone Legs
+    ctx.fillStyle = '#475569';
+    ctx.strokeStyle = '#1e293b';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.roundRect(-22, -18, 14, 20, 3);
+    ctx.roundRect(8, -18, 14, 20, 3);
+    ctx.fill();
+    ctx.stroke();
+
+    // Crystal Shards on Ground/Feet
+    ctx.fillStyle = '#c084fc';
+    ctx.beginPath();
+    ctx.moveTo(-18, -4); ctx.lineTo(-14, -14); ctx.lineTo(-10, -4); ctx.closePath();
+    ctx.moveTo(10, -4); ctx.lineTo(14, -15); ctx.lineTo(18, -4); ctx.closePath();
+    ctx.fill();
+
+    // Heavy Stone Torso
+    const torsoY = -38 + breathe * 0.5;
+    ctx.fillStyle = '#64748b';
+    ctx.beginPath();
+    ctx.moveTo(-24, torsoY + 22);
+    ctx.lineTo(-26, torsoY - 6);
+    ctx.lineTo(-18, torsoY - 18);
+    ctx.lineTo(18, torsoY - 18);
+    ctx.lineTo(26, torsoY - 6);
+    ctx.lineTo(24, torsoY + 22);
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
+
+    // Stone Shoulder Armor Pads
+    ctx.fillStyle = '#334155';
+    ctx.beginPath();
+    ctx.ellipse(-24, torsoY - 8, 8, 11, -0.2, 0, Math.PI * 2);
+    ctx.ellipse(24, torsoY - 8, 8, 11, 0.2, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.stroke();
+
+    // Glowing Purple/Cosmic Elemental Core Rune
+    const runePulse = 0.7 + Math.sin(elapsed * 5 + seedX) * 0.3;
+    ctx.save();
+    ctx.shadowColor = '#a855f7';
+    ctx.shadowBlur = 10 * runePulse;
+    ctx.fillStyle = `rgba(192, 132, 252, ${0.7 + runePulse * 0.3})`;
+    ctx.beginPath();
+    ctx.moveTo(0, torsoY - 8);
+    ctx.lineTo(6, torsoY);
+    ctx.lineTo(0, torsoY + 8);
+    ctx.lineTo(-6, torsoY);
+    ctx.closePath();
+    ctx.fill();
+    ctx.restore();
+
+    // Stone Brow & Visor
+    ctx.fillStyle = '#1e293b';
+    ctx.fillRect(-12, torsoY - 16, 24, 7);
+
+    // Twin Glowing Eyes
+    ctx.fillStyle = '#fde047';
+    ctx.shadowColor = '#fde047';
+    ctx.shadowBlur = 6;
+    ctx.fillRect(-8, torsoY - 14, 4, 3);
+    ctx.fillRect(4, torsoY - 14, 4, 3);
+
+    ctx.restore();
   }
 }

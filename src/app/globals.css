@@ -7400,10 +7400,121 @@ input[type='checkbox'] {
     font-size: 11px;
   }
 
-  .power-start-btn {
-    min-height: 38px;
-    padding: 0 16px;
+}
+
+/* Mobile & Small Screen Portrait Optimizations for Power Selector Modal */
+@media (max-width: 640px), (orientation: portrait) and (max-width: 768px) {
+  .pre-world-power-overlay {
+    padding: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .power-select-modal {
+    width: 100%;
+    max-width: 100%;
+    max-height: calc(100dvh - 16px);
+    padding: 12px 10px 10px 10px;
+    border-radius: 14px;
+    gap: 8px;
+  }
+
+  .power-modal-header {
+    margin-bottom: 4px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
+    gap: 2px;
+  }
+
+  .power-modal-header .round-icon {
+    display: none;
+  }
+
+  .power-modal-header h2 {
+    font-size: 16px;
+    margin: 0;
+    line-height: 1.2;
+  }
+
+  .power-modal-header p {
+    font-size: 11px;
+    margin: 2px 0 0 0;
+    line-height: 1.3;
+    color: #94a3b8;
+  }
+
+  .boss-intel-badge {
+    display: inline-block;
+    margin-top: 3px;
+    padding: 2px 6px;
+    font-size: 10px;
+    border-radius: 6px;
+  }
+
+  .power-cards-grid {
+    grid-template-columns: 1fr;
+    gap: 6px;
+    padding: 2px;
+    max-height: 52dvh;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .power-select-card {
+    min-height: 48px;
+    padding: 8px 10px;
+    gap: 8px;
+    grid-template-columns: 36px 1fr auto;
+    border-radius: 10px;
+  }
+
+  .power-icon-circle {
+    width: 36px;
+    height: 36px;
+    font-size: 17px;
+    border-radius: 8px;
+  }
+
+  .power-card-info strong {
     font-size: 13px;
+    line-height: 1.2;
+  }
+
+  .power-card-info small {
+    font-size: 10.5px;
+    line-height: 1.25;
+  }
+
+  .power-eff-badge {
+    font-size: 9.5px;
+    padding: 2px 6px;
+    border-radius: 5px;
+  }
+
+  .power-modal-footer {
+    margin-top: 4px;
+    padding-top: 8px;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 8px;
+  }
+
+  .time-of-day-info {
+    font-size: 10.5px;
+    justify-content: center;
+    text-align: center;
+  }
+
+  .power-start-btn {
+    width: 100%;
+    min-height: 44px;
+    padding: 0 14px;
+    font-size: 14px;
+    justify-content: center;
+    border-radius: 10px;
   }
 }
 
@@ -7900,21 +8011,42 @@ input[type='checkbox'] {
    MOBILE & SMALL SCREEN UI/UX ENHANCEMENTS FOR CHARACTER EDITOR & TOOLS
    ========================================================================== */
 
-@media (max-width: 640px) {
+@media (max-width: 640px), (orientation: portrait) and (max-width: 768px) {
+  /* In-game drawer full bleed adaptation */
+  .in-game-drawer-panel {
+    border-radius: 12px !important;
+    height: 96% !important;
+    max-height: 96dvh !important;
+  }
+
+  .in-game-drawer-header {
+    padding: 12px 14px !important;
+  }
+
+  .in-game-drawer-body {
+    padding: 12px 10px !important;
+  }
+
   .editor-main {
-    padding: 14px 10px;
+    padding: 12px 8px !important;
   }
 
   .editor-card {
-    border-radius: 12px;
+    border-radius: 12px !important;
+    grid-template-columns: 1fr !important;
   }
 
   .pixel-editor,
   .freehand-editor {
     width: 100% !important;
-    max-width: 320px !important;
+    max-width: min(88vw, 300px) !important;
     height: auto !important;
     aspect-ratio: 1 / 1 !important;
+    margin: 8px auto !important;
+  }
+
+  .accessible-grid {
+    max-width: min(88vw, 290px) !important;
     margin: 8px auto !important;
   }
 
@@ -7924,11 +8056,11 @@ input[type='checkbox'] {
   }
 
   .sprite-guide-banner {
-    padding: 12px 14px !important;
+    padding: 12px 10px !important;
   }
 
   .palette {
-    gap: 8px !important;
+    gap: 7px !important;
     margin-top: 12px !important;
   }
 
@@ -7943,8 +8075,8 @@ input[type='checkbox'] {
   }
 
   .character-list {
-    grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)) !important;
-    gap: 10px !important;
+    grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)) !important;
+    gap: 8px !important;
   }
 
   .character-card {
@@ -7952,49 +8084,82 @@ input[type='checkbox'] {
   }
 
   .character-card>button {
-    padding: 10px 8px !important;
+    padding: 10px 6px !important;
   }
 
   .character-card strong {
     font-size: 12px !important;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 100%;
   }
 
   .new-character {
-    min-height: 110px !important;
-    padding: 10px !important;
+    min-height: 105px !important;
+    padding: 8px !important;
   }
 
   .new-character strong {
-    font-size: 13px !important;
+    font-size: 12px !important;
   }
 
   .new-character span {
-    font-size: 10px !important;
+    font-size: 9.5px !important;
   }
 
   .editor-sidebar {
-    padding: 16px 12px !important;
-    gap: 10px 12px !important;
+    padding: 14px 10px !important;
+    display: flex !important;
+    flex-direction: column !important;
+    gap: 12px !important;
+    border-left: none !important;
+    border-top: 1px solid rgba(255, 255, 255, 0.12) !important;
+  }
+
+  .editor-sidebar label {
+    width: 100% !important;
+  }
+
+  .editor-sidebar input {
+    width: 100% !important;
   }
 
   .avatar-preview {
-    min-height: 110px !important;
+    min-height: 100px !important;
   }
 
   .avatar-preview>canvas,
   .avatar-preview img {
-    max-width: 100px !important;
-    max-height: 100px !important;
+    max-width: 110px !important;
+    max-height: 110px !important;
+  }
+
+  .photo-suite-panel {
+    padding: 10px 8px !important;
+  }
+
+  .photo-reposition-stage {
+    max-width: min(88vw, 290px) !important;
+    height: min(88vw, 290px) !important;
+  }
+
+  .transform-toolbar {
+    flex-direction: column !important;
+    align-items: stretch !important;
+    gap: 8px !important;
   }
 }
 
 @media (max-width: 480px) {
   .section-heading h1 {
-    font-size: 22px !important;
+    font-size: 20px !important;
+    line-height: 1.25 !important;
   }
 
   .section-heading p {
     font-size: 11px !important;
+    line-height: 1.35 !important;
   }
 
   .sprite-guide-banner .guide-header {
@@ -8013,6 +8178,19 @@ input[type='checkbox'] {
 
   .guide-templates::-webkit-scrollbar {
     display: none;
+  }
+
+  .segmented {
+    flex-wrap: wrap !important;
+  }
+
+  .segmented button {
+    padding: 5px 7px !important;
+    font-size: 9.5px !important;
+  }
+
+  .character-list {
+    grid-template-columns: repeat(2, 1fr) !important;
   }
 }
 

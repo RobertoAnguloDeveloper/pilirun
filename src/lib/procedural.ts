@@ -304,7 +304,7 @@ export function validateLevelPlayability(track: Track): { valid: boolean; reason
 
   // 1. Safe zones
   for (const item of track.items) {
-    if (['log', 'rock', 'branch'].includes(item.kind)) {
+    if (['log', 'rock', 'branch', 'drone', 'golem'].includes(item.kind)) {
       if (item.x < 500) {
         return {
           valid: false,
@@ -319,7 +319,7 @@ export function validateLevelPlayability(track: Track): { valid: boolean; reason
 
   // 2. Obstacle spacing & overlap
   const obstacles = track.items
-    .filter((item) => ['log', 'rock', 'branch'].includes(item.kind))
+    .filter((item) => ['log', 'rock', 'branch', 'drone', 'golem'].includes(item.kind))
     .sort((a, b) => a.x - b.x);
 
   for (let i = 0; i < obstacles.length - 1; i++) {
@@ -340,7 +340,7 @@ export function validateLevelPlayability(track: Track): { valid: boolean; reason
   const springs = track.items.filter((item) => item.kind === 'spring');
   for (const sp of springs) {
     const dangerousLanding = obstacles.find(
-      (o) => o.x > sp.x + 300 && o.x < sp.x + 750 && ['log', 'rock'].includes(o.kind),
+      (o) => o.x > sp.x + 300 && o.x < sp.x + 750 && ['log', 'rock', 'golem'].includes(o.kind),
     );
     if (dangerousLanding) {
       return {
@@ -403,8 +403,9 @@ function attemptGeneration(config: LevelConfig, seed: number): Track {
     }
 
     if (roll < 0.55) {
-      // Ground jump challenge: log or rock
-      const kind = rng() > 0.5 ? 'log' : 'rock';
+      // Ground challenge: log, rock, or heavy armored golem
+      const subRoll = rng();
+      const kind = subRoll < 0.35 ? 'log' : subRoll < 0.7 ? 'rock' : 'golem';
       const obsX = Math.round(cursorX);
       items.push({ id: `obs-${itemId++}`, x: obsX, kind });
 
@@ -425,11 +426,13 @@ function attemptGeneration(config: LevelConfig, seed: number): Track {
     }
 
     if (roll < 0.85) {
-      // Slide challenge: overhead branch
+      // Upper aerial challenge: overhead branch or hovering technological drone
+      const subRoll = rng();
+      const kind = subRoll < 0.55 ? 'branch' : 'drone';
       const obsX = Math.round(cursorX);
-      items.push({ id: `br-${itemId++}`, x: obsX, kind: 'branch' });
+      items.push({ id: `air-${itemId++}`, x: obsX, kind, y: kind === 'drone' ? 55 : 47 });
 
-      // Low ground coins that require/reward slide
+      // Low ground coins that reward ducking / sliding underneath
       for (let c = -1; c <= 2; c++) {
         items.push({
           id: `sc-${itemId++}`,

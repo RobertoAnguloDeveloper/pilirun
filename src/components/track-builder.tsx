@@ -15,6 +15,8 @@ import {
   Pencil,
   Sparkles,
   CircleDot,
+  Bot,
+  Skull,
 } from 'lucide-react';
 import type { ItemKind, Track, WorldId } from '@/lib/types';
 import { validateTrack, WORLDS } from '@/lib/worlds';
@@ -23,6 +25,8 @@ const TOOLS = [
   { kind: 'log', label: 'Tronco', icon: TreePine },
   { kind: 'rock', label: 'Roca', icon: Mountain },
   { kind: 'branch', label: 'Rama alta', icon: Flag },
+  { kind: 'drone', label: 'Dron Aéreo', icon: Bot },
+  { kind: 'golem', label: 'Gólem Guardián', icon: Skull },
   { kind: 'spring', label: 'Resorte Vertical', icon: Sparkles },
   { kind: 'ring', label: 'Aro Aéreo', icon: CircleDot },
   { kind: 'coin', label: 'Moneda', icon: Coins },

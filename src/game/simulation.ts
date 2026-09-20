@@ -4,6 +4,7 @@ import type {
   BossConfig,
   CameraView,
   CharacterStats,
+  DamageFeedback,
   GamePhase,
   Hud,
   Projectile,
@@ -29,6 +30,8 @@ export class Simulation {
   moveAxis: -1 | 0 | 1 = 0;
   facing: -1 | 1 = 1;
   obstacleDurability = new Map<string, number>();
+  hitFlashes = new Map<string, number>();
+  damageFeedbacks: DamageFeedback[] = [];
   destroyed = new Set<string>();
   get inBossFight() { return this.encounterStarted && !!this.bossEntity && !this.bossEntity.defeated; }
   setMoveAxis(axis: -1 | 0 | 1) {
@@ -351,6 +354,22 @@ export class Simulation {
     this.shake = Math.max(0, this.shake - dt * 2.8);
     this.powerCooldown = Math.max(0, this.powerCooldown - dt);
 
+    // Decay damage flash timers
+    for (const [id, timer] of this.hitFlashes.entries()) {
+      const nextTimer = timer - dt;
+      if (nextTimer <= 0) this.hitFlashes.delete(id);
+      else this.hitFlashes.set(id, nextTimer);
+    }
+
+    // Advance damage feedbacks
+    for (let fIdx = this.damageFeedbacks.length - 1; fIdx >= 0; fIdx--) {
+      const df = this.damageFeedbacks[fIdx];
+      df.elapsed += dt;
+      if (df.elapsed >= df.duration) {
+        this.damageFeedbacks.splice(fIdx, 1);
+      }
+    }
+
     // Power Charge Accumulation (Mega Man Buster style - unbounded accumulation)
     // The longer the attack is held, the more power accumulates proportionally
     if (this.isChargingPower) {
@@ -426,7 +445,7 @@ export class Simulation {
       if (dx < -55 && !this.inBossFight) {
         if (!this.cleared.has(item.id)) {
           this.cleared.add(item.id);
-          if (['log', 'rock', 'branch'].includes(item.kind)) {
+          if (['log', 'rock', 'branch', 'drone', 'golem'].includes(item.kind)) {
             this.perfects++;
             this.streak++;
             if (this.streak % 3 === 0) {
@@ -555,21 +574,44 @@ export class Simulation {
           hitBoss = nearest !== Infinity;
         }
         for (const item of this.track.items) {
-          if (!['log', 'branch', 'rock'].includes(item.kind) || this.destroyed.has(item.id)) continue;
+          if (!['log', 'branch', 'rock', 'drone', 'golem'].includes(item.kind) || this.destroyed.has(item.id)) continue;
           if (item.id === p.ignoredObstacleId && (p.ignoreObstacleTime ?? 0) > 0) continue;
-          const y = item.y ?? (item.kind === 'branch' ? 47 : 0);
-          const half = (item.width ?? 40) / 2 + p.size / 2;
-          const hit = segmentHit(previousX, previousY, p.x, p.y, item.x - half, item.x + half, y - p.size / 2, y + (item.height ?? 40) + p.size / 2);
+          const y = item.y ?? (item.kind === 'branch' ? 47 : item.kind === 'drone' ? 55 : 0);
+          const half = (item.width ?? (item.kind === 'drone' ? 44 : item.kind === 'golem' ? 46 : 40)) / 2 + p.size / 2;
+          const height = item.height ?? (item.kind === 'drone' ? 36 : item.kind === 'golem' ? 50 : 40);
+          const hit = segmentHit(previousX, previousY, p.x, p.y, item.x - half, item.x + half, y - p.size / 2, y + height + p.size / 2);
           if (hit < nearest) { nearest = hit; target = item; hitBoss = false; }
         }
         if (nearest !== Infinity) {
+          const hitX = previousX + (p.x - previousX) * Math.max(0, Math.min(1, nearest));
+          const hitY = previousY + (p.y - previousY) * Math.max(0, Math.min(1, nearest));
           if (target) {
             const damage = obstacleDamage(target, p.type);
             if (damage > 0) {
               this.projectiles.splice(i, 1);
-              const remaining = Math.max(0, (this.obstacleDurability.get(target.id) ?? obstacleHealth(target)) - damage);
+              const maxHealth = obstacleHealth(target);
+              const remaining = Math.max(0, (this.obstacleDurability.get(target.id) ?? maxHealth) - damage);
               this.obstacleDurability.set(target.id, remaining);
-              if (remaining === 0) this.destroyObstacle(target);
+              this.hitFlashes.set(target.id, 0.25);
+              this.damageFeedbacks.push({
+                id: crypto.randomUUID(),
+                x: hitX,
+                y: hitY,
+                damage,
+                color: p.color,
+                elapsed: 0,
+                duration: 0.75,
+              });
+              this.events.push('hit');
+              this.shake = Math.max(this.shake, 0.25);
+              if (remaining === 0) {
+                if (target.kind === 'drone' || target.kind === 'golem') {
+                  this.coins += target.kind === 'drone' ? 2 : 4;
+                  this.energy = Math.min(this.maxEnergy, this.energy + (target.kind === 'drone' ? 10 : 20));
+                  this.events.push('coin');
+                }
+                this.destroyObstacle(target);
+              }
             } else {
               p.x = previousX + (p.x - previousX) * Math.max(0, nearest - 0.02);
               p.y = previousY + (p.y - previousY) * Math.max(0, nearest - 0.02);
@@ -584,7 +626,17 @@ export class Simulation {
           } else if (hitBoss && this.bossEntity) {
             this.projectiles.splice(i, 1);
             this.bossEntity.health = Math.max(0, this.bossEntity.health - p.damage);
-            this.events.push('hit'); this.shake = Math.max(this.shake, 0.4);
+            this.hitFlashes.set('boss', 0.25);
+            this.damageFeedbacks.push({
+              id: crypto.randomUUID(),
+              x: hitX,
+              y: hitY,
+              damage: p.damage,
+              color: p.color,
+              elapsed: 0,
+              duration: 0.85,
+            });
+            this.events.push('hit'); this.shake = Math.max(this.shake, 0.45);
             if (this.bossEntity.health === 0) {
               this.bossEntity.defeated = true; this.bossEntity.defeatTimer = 1.2; this.bossEntity.isTelegraphing = false;
               this.bossEntity.vx = 0; this.bossEntity.vy = 0;
@@ -640,11 +692,13 @@ export class Simulation {
           ? 50
           : item.kind === 'branch'
             ? 47
-            : ['shield', 'boost', 'time'].includes(item.kind)
+            : item.kind === 'drone'
               ? 55
-              : 0);
+              : ['shield', 'boost', 'time'].includes(item.kind)
+                ? 55
+                : 0);
     const itemHeight =
-      item.height ?? (item.kind === 'branch' ? 38 : item.kind === 'ring' ? 48 : 40);
+      item.height ?? (item.kind === 'branch' ? 38 : item.kind === 'ring' ? 48 : item.kind === 'drone' ? 36 : item.kind === 'golem' ? 50 : 40);
     const playerBottom = this.height;
     const playerTop = this.height + (this.slide > 0 ? PLAYER_SLIDE_HEIGHT : PLAYER_HEIGHT) * this.characterScale;
     const overlapsVertically = playerTop >= itemY && playerBottom <= itemY + itemHeight;
@@ -711,7 +765,10 @@ export class Simulation {
       }
       return;
     }
-    const hit = item.kind === 'branch' ? this.slide <= 0 && overlapsVertically : overlapsVertically;
+    const hit =
+      item.kind === 'branch' || item.kind === 'drone'
+        ? this.slide <= 0 && overlapsVertically
+        : overlapsVertically;
     if (hit) {
       this.cleared.add(item.id);
       if (this.shield > 0) {

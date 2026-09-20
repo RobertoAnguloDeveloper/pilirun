@@ -1,13 +1,22 @@
 import type { TrackItem } from './types';
 import { POWERS, type PowerId } from './combat';
-export type ObstacleMaterial = 'wood' | 'stone' | 'indestructible';
+export type ObstacleMaterial = 'wood' | 'stone' | 'metal' | 'indestructible';
 export function obstacleMaterial(item: TrackItem): ObstacleMaterial {
-  return item.material ?? (item.kind === 'rock' ? 'stone' : ['branch', 'log'].includes(item.kind) ? 'wood' : 'indestructible');
+  return item.material ?? (item.kind === 'rock' || item.kind === 'golem' ? 'stone' : item.kind === 'drone' ? 'metal' : ['branch', 'log'].includes(item.kind) ? 'wood' : 'indestructible');
 }
-export function obstacleHealth(item: TrackItem): number { return item.health ?? (item.kind === 'branch' ? 25 : item.kind === 'rock' ? 90 : 60); }
+export function obstacleHealth(item: TrackItem): number {
+  return item.health ?? (item.kind === 'branch' ? 25 : item.kind === 'drone' ? 35 : item.kind === 'golem' ? 80 : item.kind === 'rock' ? 90 : 60);
+}
 export function obstacleDamage(item: TrackItem, powerId: string): number {
   const material = obstacleMaterial(item);
-  const allowed = material === 'wood' ? ['flame_burst', 'leaf_storm', 'thunder_dash', 'starlight_beam'] : material === 'stone' ? ['thunder_dash', 'starlight_beam'] : [];
+  const allowed =
+    material === 'wood'
+      ? ['flame_burst', 'leaf_storm', 'thunder_dash', 'starlight_beam']
+      : material === 'metal'
+        ? ['flame_burst', 'thunder_dash', 'starlight_beam', 'aqua_shield']
+        : material === 'stone'
+          ? ['thunder_dash', 'starlight_beam']
+          : [];
   return allowed.includes(powerId) ? POWERS[powerId as PowerId].damage : 0;
 }
 /** Fraction along a swept projectile segment where it first meets an expanded AABB. */

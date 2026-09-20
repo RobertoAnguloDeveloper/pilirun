@@ -29,6 +29,8 @@ import {
   Undo2,
   Unlock,
   Upload,
+  Bot,
+  Skull,
   Zap,
 } from 'lucide-react';
 import { localStore } from '@/lib/storage';
@@ -57,6 +59,8 @@ const TOOLBOX: Array<{ kind: ItemKind; label: string; icon: typeof Mountain; col
   { kind: 'log', label: 'Tronco', icon: Box, color: '#9a6845' },
   { kind: 'rock', label: 'Roca', icon: Mountain, color: '#91a29a' },
   { kind: 'branch', label: 'Rama alta', icon: ArrowRight, color: '#608d55' },
+  { kind: 'drone', label: 'Dron Aéreo', icon: Bot, color: '#38bdf8' },
+  { kind: 'golem', label: 'Gólem Guardián', icon: Skull, color: '#a855f7' },
   { kind: 'coin', label: 'Moneda', icon: Coins, color: '#ffd45f' },
   { kind: 'shield', label: 'Escudo', icon: Shield, color: '#8edbf3' },
   { kind: 'boost', label: 'Impulso', icon: Zap, color: '#d7a7f2' },
@@ -69,6 +73,8 @@ const defaultSize: Record<ItemKind, { width: number; height: number; y: number }
   log: { width: 48, height: 31, y: 0 },
   rock: { width: 54, height: 48, y: 0 },
   branch: { width: 58, height: 42, y: 48 },
+  drone: { width: 48, height: 36, y: 55 },
+  golem: { width: 52, height: 50, y: 0 },
   coin: { width: 24, height: 24, y: 52 },
   shield: { width: 34, height: 34, y: 55 },
   boost: { width: 34, height: 34, y: 55 },

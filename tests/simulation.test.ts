@@ -479,6 +479,70 @@ describe('runner physics and progression', () => {
     expect(pTier2.size).toBe(74);
     expect(pTier2.size).toBeGreaterThan(pTier1.size);
   });
+
+  it('inflicts damage on drone and golem enemies with damage feedback popups and hit flash', () => {
+    const track: Track = {
+      ...empty(),
+      length: 10000,
+      items: [
+        { id: 'drone-1', kind: 'drone', x: 200, y: 55 },
+        { id: 'golem-1', kind: 'golem', x: 500, y: 0 },
+      ],
+    };
+    const game = new Simulation(track);
+    game.start();
+
+    // Hit drone with flame burst (damage 35, drone has 35 HP, drone at x: 200, y: 55)
+    game.projectiles.push({
+      id: 'shot-1',
+      sender: 'player',
+      x: 100,
+      y: 60,
+      vx: 15000,
+      vy: 0,
+      damage: 35,
+      element: 'fire',
+      type: 'flame_burst',
+      size: 20,
+      color: '#f97316',
+      life: 2,
+    });
+
+    game.update(STEP);
+
+    // Projectile hit the drone
+    expect(game.projectiles).toHaveLength(0);
+    expect(game.hitFlashes.has('drone-1')).toBe(true);
+    expect(game.damageFeedbacks.length).toBeGreaterThan(0);
+    expect(game.damageFeedbacks[0].damage).toBe(35);
+    expect(game.damageFeedbacks[0].color).toBe('#f97316');
+    expect(game.destroyed.has('drone-1')).toBe(true);
+    expect(game.coins).toBeGreaterThan(0); // Defeat reward
+
+    // Hit golem with thunder dash (golem has 80 HP, thunder does 50 HP, golem at x: 500, y: 0)
+    game.projectiles.push({
+      id: 'shot-2',
+      sender: 'player',
+      x: 400,
+      y: 20,
+      vx: 15000,
+      vy: 0,
+      damage: 50,
+      element: 'electric',
+      type: 'thunder_dash',
+      size: 22,
+      color: '#eab308',
+      life: 2,
+    });
+
+    game.update(STEP);
+
+    expect(game.hitFlashes.has('golem-1')).toBe(true);
+    const golemFeedback = game.damageFeedbacks.find((f) => f.damage === 42);
+    expect(golemFeedback).toBeDefined();
+    expect(game.obstacleDurability.get('golem-1')).toBe(38); // 80 - 42 = 38 remaining
+    expect(game.destroyed.has('golem-1')).toBe(false); // still alive
+  });
 });
 describe('playable track validation', () => {
   it('accepts all 18 built-in official progression levels', () => {
