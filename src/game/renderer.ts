@@ -1482,48 +1482,91 @@ export class Renderer {
       ctx.stroke();
     }
 
-    // 5b. Mega Man Buster Charge Aura (Gradually changes color from pure white to intense red, expanding with accumulated charge)
+    // 5b. Multi-tier Progressive Buster Charge Aura (Upgrades visually at each 100% / Tier 1, 2, 3+)
     if (game.isChargingPower && game.powerChargeRatio > 0) {
       const charge = game.powerChargeRatio;
-      const colorCharge = Math.min(1, charge);
-      // Interpolate from pure white (255, 255, 255) to fiery red (239, 68, 68)
-      const r = 255;
-      const g = Math.round(255 - colorCharge * 187); // 255 -> 68
-      const b = Math.round(255 - colorCharge * 187); // 255 -> 68
-      const chargeColor = `rgb(${r}, ${g}, ${b})`;
-      // Aura radius grows proportionally with accumulated power
-      const extraRadius = Math.min(charge * 25, 120);
-      const chargeRadius = (35 + extraRadius + Math.sin(game.elapsed * 24) * 4) * scale * charScale;
+      const tier = Math.floor(charge);
+
+      // Color scheme based on charge tier
+      let primaryR = 255, primaryG = 255, primaryB = 255;
+      let secondaryColor = 'rgba(255, 255, 255, 0.8)';
+      let sparkColor = '#ffffff';
+
+      if (tier >= 3) {
+        // Tier 3+ (300%+): Cosmic Prismatic Purple / Violet Hyper-charge
+        primaryR = 168; primaryG = 85; primaryB = 247;
+        secondaryColor = 'rgba(236, 72, 153, 0.9)';
+        sparkColor = '#f472b6';
+      } else if (tier >= 2) {
+        // Tier 2 (200%-299%): Fiery Super Nova Crimson / Red Overcharge
+        primaryR = 239; primaryG = 68; primaryB = 68;
+        secondaryColor = 'rgba(249, 115, 22, 0.9)';
+        sparkColor = '#fbbf24';
+      } else if (tier >= 1) {
+        // Tier 1 (100%-199%): Golden Solar Plasma Flare
+        primaryR = 245; primaryG = 158; primaryB = 11;
+        secondaryColor = 'rgba(234, 179, 8, 0.85)';
+        sparkColor = '#fef08a';
+      } else {
+        // Tier 0 (<100%): Cyan / Electric White Initial Concentration
+        const sub = Math.min(1, charge);
+        primaryR = Math.round(180 + sub * 75);
+        primaryG = Math.round(230 + sub * 25);
+        primaryB = 255;
+        secondaryColor = 'rgba(56, 189, 248, 0.7)';
+        sparkColor = '#bae6fd';
+      }
+
+      const chargeColor = `rgb(${primaryR}, ${primaryG}, ${primaryB})`;
+      const extraRadius = Math.min(charge * 24 + tier * 16, 140);
+      const pulse = Math.sin(game.elapsed * (20 + tier * 12)) * (3 + tier * 2);
+      const chargeRadius = (32 + extraRadius + pulse) * scale * charScale;
 
       // Radial charge gradient
-      const chargeGrad = ctx.createRadialGradient(0, -28 * scale * charScale, 10 * scale, 0, -28 * scale * charScale, chargeRadius);
-      chargeGrad.addColorStop(0, `rgba(${r}, ${g}, ${b}, ${0.5 + Math.min(charge, 1.5) * 0.25})`);
-      chargeGrad.addColorStop(0.7, `rgba(${r}, ${g}, ${b}, ${0.25 + Math.min(charge, 1.5) * 0.2})`);
+      const chargeGrad = ctx.createRadialGradient(0, -28 * scale * charScale, 6 * scale, 0, -28 * scale * charScale, chargeRadius);
+      chargeGrad.addColorStop(0, `rgba(255, 255, 255, ${0.7 + Math.min(charge, 2) * 0.15})`);
+      chargeGrad.addColorStop(0.35, `rgba(${primaryR}, ${primaryG}, ${primaryB}, ${0.5 + Math.min(tier, 3) * 0.15})`);
+      chargeGrad.addColorStop(0.75, secondaryColor);
       chargeGrad.addColorStop(1, 'rgba(255, 255, 255, 0)');
       ctx.fillStyle = chargeGrad;
       ctx.beginPath();
       ctx.arc(0, -28 * scale * charScale, chargeRadius, 0, Math.PI * 2);
       ctx.fill();
 
-      // Sharp pulsing condensing rings
-      ctx.strokeStyle = chargeColor;
-      ctx.lineWidth = (2 + Math.min(charge, 3) * 2.5) * scale;
-      ctx.beginPath();
-      ctx.arc(0, -28 * scale * charScale, chargeRadius * 0.82, 0, Math.PI * 2);
-      ctx.stroke();
+      // Sharp pulsing condensing rings (more rings at higher tiers)
+      const ringCount = 1 + tier;
+      for (let rIdx = 0; rIdx < ringCount; rIdx++) {
+        const ringProgress = ((game.elapsed * (2 + rIdx * 1.2) + rIdx * 0.3) % 1);
+        const ringRad = chargeRadius * (0.4 + 0.6 * (1 - ringProgress));
+        ctx.strokeStyle = rIdx % 2 === 0 ? chargeColor : secondaryColor;
+        ctx.lineWidth = (2 + tier * 1.5) * scale;
+        ctx.beginPath();
+        ctx.arc(0, -28 * scale * charScale, ringRad, 0, Math.PI * 2);
+        ctx.stroke();
+      }
 
-      // Swirling Buster energy particles
-      const particleCount = Math.floor(4 + Math.min(charge, 4) * 6);
-      ctx.fillStyle = colorCharge >= 0.8 ? '#ffeded' : chargeColor;
+      // Swirling Buster energy particles and lightning arcs
+      const particleCount = Math.floor(6 + charge * 8 + tier * 6);
+      ctx.fillStyle = sparkColor;
       for (let p = 0; p < particleCount; p++) {
-        const pSpeed = 6 + Math.min(charge, 3) * 12;
+        const pSpeed = 8 + tier * 6;
         const pAngle = (game.elapsed * pSpeed + p * ((Math.PI * 2) / particleCount)) % (Math.PI * 2);
-        const pDist = chargeRadius * (0.4 + 0.6 * ((1 - ((game.elapsed * 3 + p * 0.2) % 1))));
+        const pDist = chargeRadius * (0.35 + 0.65 * ((1 - ((game.elapsed * (3 + tier) + p * 0.18) % 1))));
         const pxPos = Math.cos(pAngle) * pDist;
         const pyPos = -28 * scale * charScale + Math.sin(pAngle) * pDist;
         ctx.beginPath();
-        ctx.arc(pxPos, pyPos, (2 + Math.min(charge, 3) * 2) * scale, 0, Math.PI * 2);
+        ctx.arc(pxPos, pyPos, (2 + tier * 1.5) * scale, 0, Math.PI * 2);
         ctx.fill();
+
+        // Arcs of energy discharging from core at Tier 2+
+        if (tier >= 2 && p % 3 === 0) {
+          ctx.strokeStyle = sparkColor;
+          ctx.lineWidth = 1.5 * scale;
+          ctx.beginPath();
+          ctx.moveTo(0, -28 * scale * charScale);
+          ctx.lineTo(pxPos, pyPos);
+          ctx.stroke();
+        }
       }
     }
     ctx.restore();
@@ -1640,20 +1683,45 @@ export class Renderer {
       ctx.scale(1 + ricochet * 0.5, 1 - ricochet * 0.35);
 
       if (isCharged) {
-        // Outer energy aura for charged Mega Buster shot
-        const chargedGrad = ctx.createRadialGradient(0, 0, p.size * scale * 0.2, 0, 0, p.size * scale * 0.95);
+        // Multi-tier outer energy aura and shockwaves for charged Buster projectile
+        const pulse = Math.sin(game.elapsed * 26) * 3 * scale;
+        const outerRadius = (p.size * 0.95 * scale) + pulse;
+
+        const chargedGrad = ctx.createRadialGradient(0, 0, p.size * scale * 0.15, 0, 0, outerRadius);
         chargedGrad.addColorStop(0, '#ffffff');
-        chargedGrad.addColorStop(0.4, p.color);
+        chargedGrad.addColorStop(0.35, p.color);
+        chargedGrad.addColorStop(0.7, 'rgba(255, 255, 255, 0.4)');
         chargedGrad.addColorStop(1, 'rgba(255, 255, 255, 0)');
         ctx.fillStyle = chargedGrad;
         ctx.beginPath();
-        ctx.arc(0, 0, p.size * scale * 0.95, 0, Math.PI * 2);
+        ctx.arc(0, 0, outerRadius, 0, Math.PI * 2);
         ctx.fill();
+
+        // Pulsing shockwave ring around high-tier projectiles
+        if (p.size >= 40) {
+          ctx.strokeStyle = '#ffffff';
+          ctx.lineWidth = 2.5 * scale;
+          ctx.beginPath();
+          ctx.arc(0, 0, outerRadius * 0.85, 0, Math.PI * 2);
+          ctx.stroke();
+        }
+
+        // Energy corona arcs around hyper-charged shots
+        if (p.size >= 65) {
+          ctx.strokeStyle = '#fef08a';
+          ctx.lineWidth = 1.8 * scale;
+          for (let a = 0; a < 4; a++) {
+            const arcAngle = (game.elapsed * 15 + a * (Math.PI / 2)) % (Math.PI * 2);
+            ctx.beginPath();
+            ctx.arc(0, 0, outerRadius * 1.15, arcAngle, arcAngle + 0.6);
+            ctx.stroke();
+          }
+        }
       }
 
       ctx.fillStyle = p.color;
       ctx.beginPath();
-      ctx.arc(0, 0, p.size * scale * 0.65, 0, Math.PI * 2);
+      ctx.arc(0, 0, p.size * scale * 0.62, 0, Math.PI * 2);
       ctx.fill();
 
       // Bright core

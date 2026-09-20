@@ -250,6 +250,8 @@ export interface Hud {
   isChargingPower?: boolean;
   powerChargeRatio?: number;
   timeOfDay?: string;
+  checkpoint?: number;
+  checkpointDistance?: number;
 }
 export type MusicTrack = AudioTrack;
 export type Backend = 'OPFS' | 'IndexedDB';

@@ -129,6 +129,25 @@ export function GameView({
   const lastCollectedCount = useRef(0);
   const powerToastTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 
+  // Tablet dynamic touch indicators:
+  // Left half: Virtual joystick appears wherever touch begins
+  // Right half: Fire button appears wherever touch begins
+  const [joystickTouch, setJoystickTouch] = useState<{
+    active: boolean;
+    pointerId: number;
+    startX: number;
+    startY: number;
+    curX: number;
+    curY: number;
+  } | null>(null);
+
+  const [fireTouch, setFireTouch] = useState<{
+    active: boolean;
+    pointerId: number;
+    x: number;
+    y: number;
+  } | null>(null);
+
   // Auto-progression modal state (shown only on victory)
   const [showAutoNextModal, setShowAutoNextModal] = useState<boolean>(false);
   const [completedResult, setCompletedResult] = useState<RunResult | null>(null);
@@ -511,97 +530,170 @@ export function GameView({
             tabIndex={0}
             aria-label="Juego: espacio o flecha arriba para saltar; flecha abajo para deslizar; C para cámara; P para pausar"
             onPointerDown={(e) => {
-              clearTimeout(touch.current.chargeTimer);
-              touch.current = {
-                x: e.clientX,
-                y: e.clientY,
-                time: Date.now(),
-                pointerId: e.pointerId,
-                swipingHorizontal: false,
-                chargeStarted: false,
-                chargeTimer: undefined,
-              };
+              const isLeftHalf = e.clientX < window.innerWidth / 2;
               e.currentTarget.setPointerCapture(e.pointerId);
 
-              // Long press / hold shooting area triggers Buster charging
-              touch.current.chargeTimer = setTimeout(() => {
-                if (!touch.current.swipingHorizontal) {
+              if (isLeftHalf) {
+                // Left half: Virtual Joystick appears exactly where touched
+                setJoystickTouch({
+                  active: true,
+                  pointerId: e.pointerId,
+                  startX: e.clientX,
+                  startY: e.clientY,
+                  curX: e.clientX,
+                  curY: e.clientY,
+                });
+              } else {
+                // Right half: Dynamic Fire Button appears exactly where touched
+                setFireTouch({
+                  active: true,
+                  pointerId: e.pointerId,
+                  x: e.clientX,
+                  y: e.clientY,
+                });
+                clearTimeout(touch.current.chargeTimer);
+                touch.current = {
+                  x: e.clientX,
+                  y: e.clientY,
+                  time: Date.now(),
+                  pointerId: e.pointerId,
+                  swipingHorizontal: false,
+                  chargeStarted: false,
+                  chargeTimer: undefined,
+                };
+                // Automatically begin Buster charging after holding 180ms
+                touch.current.chargeTimer = setTimeout(() => {
                   touch.current.chargeStarted = true;
                   engine.current?.startChargePower();
-                }
-              }, 200);
+                }, 180);
+              }
             }}
             onPointerMove={(e) => {
-              if (touch.current.pointerId !== e.pointerId) return;
-              const dx = e.clientX - touch.current.x;
-              const dy = e.clientY - touch.current.y;
+              // Handle left half virtual joystick drag
+              if (joystickTouch && joystickTouch.pointerId === e.pointerId) {
+                const dx = e.clientX - joystickTouch.startX;
+                const dy = e.clientY - joystickTouch.startY;
+                setJoystickTouch((prev) => (prev ? { ...prev, curX: e.clientX, curY: e.clientY } : null));
 
-              // When fighting a boss on tablet, prioritize swipe left/right
-              if (hud.isBossFight) {
-                if (Math.abs(dx) > 24 && Math.abs(dx) > Math.abs(dy)) {
-                  if (!touch.current.swipingHorizontal) {
-                    touch.current.swipingHorizontal = true;
-                    clearTimeout(touch.current.chargeTimer);
-                    if (touch.current.chargeStarted) {
-                      touch.current.chargeStarted = false;
-                      engine.current?.releaseChargePower();
-                    }
-                  }
-                  const dir = dx < 0 ? -1 : 1;
-                  moveInput(`swipe:${e.pointerId}`, dir);
+                // Horizontal movement (moveAxis)
+                if (Math.abs(dx) > 20) {
+                  moveInput(`joystick:${e.pointerId}`, dx < 0 ? -1 : 1);
+                } else {
+                  moveInput(`joystick:${e.pointerId}`);
                 }
+
+                // Vertical swipe gesture on joystick: Up = Jump, Down = Slide
+                if (dy < -38 && Math.abs(dy) > Math.abs(dx) * 1.2) {
+                  engine.current?.jump();
+                } else if (dy > 38 && Math.abs(dy) > Math.abs(dx) * 1.2) {
+                  engine.current?.slide();
+                }
+              }
+
+              // Handle right half fire indicator drag/position
+              if (fireTouch && fireTouch.pointerId === e.pointerId) {
+                setFireTouch((prev) => (prev ? { ...prev, x: e.clientX, y: e.clientY } : null));
               }
             }}
             onPointerUp={(e) => {
               void audioEngine.unlock();
-              clearTimeout(touch.current.chargeTimer);
-              const dy = e.clientY - touch.current.y;
-              const dx = e.clientX - touch.current.x;
-              const dt = Date.now() - touch.current.time;
 
-              // Clear boss swipe horizontal movement if active
-              if (touch.current.swipingHorizontal) {
-                moveInput(`swipe:${e.pointerId}`);
-                touch.current.swipingHorizontal = false;
-                return;
+              // Clear Left Joystick if this pointer released
+              if (joystickTouch && joystickTouch.pointerId === e.pointerId) {
+                moveInput(`joystick:${e.pointerId}`);
+                setJoystickTouch(null);
               }
 
-              // If charging was active, release charged attack
-              if (touch.current.chargeStarted) {
-                touch.current.chargeStarted = false;
-                engine.current?.releaseChargePower();
-                return;
-              }
+              // Clear Right Fire Button if this pointer released
+              if (fireTouch && fireTouch.pointerId === e.pointerId) {
+                clearTimeout(touch.current.chargeTimer);
+                setFireTouch(null);
 
-              // Swipe Down -> Slide
-              if (dy > 30 && Math.abs(dy) > Math.abs(dx)) {
-                engine.current?.slide();
-              }
-              // Swipe Up -> Jump
-              else if (dy < -30 && Math.abs(dy) > Math.abs(dx)) {
-                engine.current?.jump();
-              }
-              // Quick Tap without major drag -> Attack / Cast Power
-              else if (dt < 250 && Math.abs(dx) < 20 && Math.abs(dy) < 20) {
-                engine.current?.castPower();
-              }
-              // Standard tap or other gesture -> Jump fallback
-              else {
-                engine.current?.jump();
+                if (touch.current.chargeStarted) {
+                  touch.current.chargeStarted = false;
+                  engine.current?.releaseChargePower();
+                } else {
+                  // Tap cast power
+                  engine.current?.castPower();
+                }
               }
             }}
             onPointerCancel={(e) => {
-              clearTimeout(touch.current.chargeTimer);
-              if (touch.current.swipingHorizontal) {
-                moveInput(`swipe:${e.pointerId}`);
-                touch.current.swipingHorizontal = false;
+              if (joystickTouch && joystickTouch.pointerId === e.pointerId) {
+                moveInput(`joystick:${e.pointerId}`);
+                setJoystickTouch(null);
               }
-              if (touch.current.chargeStarted) {
-                touch.current.chargeStarted = false;
-                engine.current?.releaseChargePower();
+              if (fireTouch && fireTouch.pointerId === e.pointerId) {
+                clearTimeout(touch.current.chargeTimer);
+                if (touch.current.chargeStarted) {
+                  touch.current.chargeStarted = false;
+                  engine.current?.releaseChargePower();
+                }
+                setFireTouch(null);
               }
             }}
           />
+
+          {/* Dynamic Tablet Virtual Joystick (Appears on touch from left side to center) */}
+          {joystickTouch && joystickTouch.active && (
+            <div
+              className="dynamic-virtual-joystick-base"
+              style={{
+                left: `${joystickTouch.startX}px`,
+                top: `${joystickTouch.startY}px`,
+              }}
+              aria-hidden="true"
+            >
+              <div
+                className="dynamic-virtual-joystick-knob"
+                style={{
+                  transform: `translate(${Math.max(-45, Math.min(45, joystickTouch.curX - joystickTouch.startX))}px, ${Math.max(-45, Math.min(45, joystickTouch.curY - joystickTouch.startY))}px)`,
+                }}
+              />
+            </div>
+          )}
+
+          {/* Dynamic Tablet Fire Button (Appears on touch on right side) */}
+          {fireTouch && fireTouch.active && (
+            <div
+              className={`dynamic-fire-touch-indicator ${hud.isChargingPower ? 'charging' : ''}`}
+              style={{
+                left: `${fireTouch.x}px`,
+                top: `${fireTouch.y}px`,
+                borderColor: hud.isChargingPower && (hud.powerChargeRatio ?? 0) >= 3.0
+                  ? '#a855f7'
+                  : hud.isChargingPower && (hud.powerChargeRatio ?? 0) >= 2.0
+                    ? '#ef4444'
+                    : hud.isChargingPower && (hud.powerChargeRatio ?? 0) >= 1.0
+                      ? '#f59e0b'
+                      : POWERS[selectedPower].color,
+              }}
+              aria-hidden="true"
+            >
+              <span className="dynamic-fire-icon">{POWERS[selectedPower].icon}</span>
+              {hud.isChargingPower && (
+                <div
+                  className="dynamic-fire-charge-ring"
+                  style={{
+                    transform: `scale(${1 + Math.min(3, (hud.powerChargeRatio ?? 0)) * 0.4})`,
+                  }}
+                />
+              )}
+              {hud.isChargingPower && (
+                <span className="dynamic-fire-charge-label">
+                  {Math.round((hud.powerChargeRatio ?? 0) * 100)}%
+                </span>
+              )}
+            </div>
+          )}
+
+          {/* Checkpoint Milestone Banner */}
+          {(hud.checkpoint ?? 0) > 0 && (
+            <div className="in-game-checkpoint-pill">
+              <Flag size={14} className="text-emerald-400" />
+              <span>Checkpoint: {hud.checkpointDistance ?? ((hud.checkpoint ?? 0) * 300)} m</span>
+            </div>
+          )}
 
           {/* Top Video Game Arcade HUD */}
           <div className="game-hud">
@@ -820,9 +912,27 @@ export function GameView({
                     <small>metros</small>
                   </div>
                 </div>
-                <button className="primary" onClick={retry}>
-                  <RotateCcw size={18} /> Otra aventura
-                </button>
+                <div className="game-over-actions-grid">
+                  {(hud.checkpoint ?? 0) > 0 && (
+                    <button
+                      className="primary checkpoint-respawn-btn"
+                      onClick={() => {
+                        const ok = engine.current?.respawnAtCheckpoint();
+                        if (ok) {
+                          setResult(null);
+                          setCompletedResult(null);
+                        } else {
+                          retry();
+                        }
+                      }}
+                    >
+                      <Flag size={18} /> Reaparecer en Checkpoint ({hud.checkpointDistance ?? ((hud.checkpoint ?? 0) * 300)}m)
+                    </button>
+                  )}
+                  <button className={hud.checkpoint ? 'secondary' : 'primary'} onClick={retry}>
+                    <RotateCcw size={18} /> {hud.checkpoint ? 'Reiniciar desde el inicio' : 'Otra aventura'}
+                  </button>
+                </div>
                 <button className="text-button" onClick={onClose}>
                   Volver al campamento
                 </button>

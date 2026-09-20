@@ -144,6 +144,18 @@ export class GameEngine {
     this.simulation.releaseChargedPower();
     this.onHud(this.simulation.hud());
   }
+  respawnAtCheckpoint(): boolean {
+    const success = this.simulation.respawnAtCheckpoint();
+    if (success) {
+      this.done = false;
+      this.last = 0;
+      this.onHud(this.simulation.hud());
+      cancelAnimationFrame(this.frame);
+      this.frame = requestAnimationFrame(this.tick);
+      this.draw();
+    }
+    return success;
+  }
   private draw() {
     if (this.width <= 0 || this.height <= 0) return;
     this.renderer.render(this.simulation, this.width, this.height, this.reduced);

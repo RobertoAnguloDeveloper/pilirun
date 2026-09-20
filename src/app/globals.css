@@ -8100,4 +8100,347 @@ input[type='checkbox'] {
 .transform-toolbar label {
   color: #183327 !important;
   font-weight: 600 !important;
+}
+
+/* ==========================================================================
+   DYNAMIC TABLET TOUCH CONTROLS (Joystick & Fire Button Indicators)
+   ========================================================================== */
+
+.dynamic-virtual-joystick-base {
+  position: fixed;
+  width: 110px;
+  height: 110px;
+  margin-left: -55px;
+  margin-top: -55px;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(56, 189, 248, 0.22) 0%, rgba(15, 23, 42, 0.45) 80%);
+  border: 2px solid rgba(56, 189, 248, 0.7);
+  box-shadow: 0 0 20px rgba(56, 189, 248, 0.35), inset 0 0 15px rgba(56, 189, 248, 0.2);
+  pointer-events: none;
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: opacity 0.15s ease;
+  animation: joystickPopIn 0.18s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+}
+
+.dynamic-virtual-joystick-knob {
+  width: 46px;
+  height: 46px;
+  border-radius: 50%;
+  background: radial-gradient(circle at 35% 35%, #ffffff 0%, #38bdf8 55%, #0284c7 100%);
+  border: 2px solid #ffffff;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4), 0 0 10px rgba(56, 189, 248, 0.8);
+  pointer-events: none;
+}
+
+@keyframes joystickPopIn {
+  from {
+    transform: scale(0.6);
+    opacity: 0;
+  }
+  to {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
+.dynamic-fire-touch-indicator {
+  position: fixed;
+  width: 74px;
+  height: 74px;
+  margin-left: -37px;
+  margin-top: -37px;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(239, 68, 68, 0.25) 0%, rgba(15, 23, 42, 0.6) 80%);
+  border: 3px solid #ef4444;
+  box-shadow: 0 0 25px rgba(239, 68, 68, 0.5), inset 0 0 14px rgba(255, 255, 255, 0.2);
+  pointer-events: none;
+  z-index: 1000;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  animation: fireIndicatorPop 0.16s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+}
+
+.dynamic-fire-touch-indicator.charging {
+  animation: firePulseCharging 0.35s infinite alternate ease-in-out;
+}
+
+.dynamic-fire-icon {
+  font-size: 26px;
+  line-height: 1;
+  filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.6));
+}
+
+.dynamic-fire-charge-label {
+  font-size: 11px;
+  font-weight: 800;
+  color: #ffffff;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.8);
+  margin-top: 2px;
+}
+
+.dynamic-fire-charge-ring {
+  position: absolute;
+  inset: -12px;
+  border-radius: 50%;
+  border: 2px dashed rgba(255, 255, 255, 0.7);
+  animation: spinSlow 4s linear infinite;
+  pointer-events: none;
+}
+
+@keyframes fireIndicatorPop {
+  from {
+    transform: scale(0.65);
+    opacity: 0;
+  }
+  to {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
+@keyframes firePulseCharging {
+  from {
+    box-shadow: 0 0 15px currentColor;
+  }
+  to {
+    box-shadow: 0 0 35px currentColor, 0 0 10px #ffffff;
+  }
+}
+
+/* Checkpoint Milestone Banner */
+.in-game-checkpoint-pill {
+  position: absolute;
+  top: 65px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 6px 14px;
+  border-radius: 20px;
+  background: rgba(15, 23, 42, 0.85);
+  border: 1px solid rgba(52, 211, 153, 0.45);
+  color: #34d399;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  backdrop-filter: blur(8px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.35);
+  z-index: 100;
+  animation: bannerSlideDown 0.3s ease;
+}
+
+@keyframes bannerSlideDown {
+  from {
+    transform: translate(-50%, -15px);
+    opacity: 0;
+  }
+  to {
+    transform: translate(-50%, 0);
+    opacity: 1;
+  }
+}
+
+/* Checkpoint Respawn Button in Game Over Card */
+.checkpoint-respawn-btn {
+  background: linear-gradient(135deg, #10b981 0%, #059669 100%) !important;
+  color: #ffffff !important;
+  box-shadow: 0 4px 16px rgba(16, 185, 129, 0.4) !important;
+  font-weight: 700 !important;
+  border: none !important;
+  margin-bottom: 8px;
+}
+
+.checkpoint-respawn-btn:hover {
+  background: linear-gradient(135deg, #059669 0%, #047857 100%) !important;
+  transform: translateY(-1px);
+}
+
+.game-over-actions-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  width: 100%;
+  margin-top: 15px;
+}
+
+/* ==========================================================================
+   1-CLICK QUICK CUSTOMIZATION MODAL (Character & Environment)
+   ========================================================================== */
+
+.quick-customize-overlay {
+  z-index: 1100 !important;
+}
+
+.quick-customize-modal {
+  max-width: 580px !important;
+  width: 92% !important;
+  text-align: left !important;
+  padding: 24px 28px !important;
+  background: #11281f !important;
+  border: 1px solid rgba(255, 255, 255, 0.15) !important;
+  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.6) !important;
+}
+
+.quick-modal-header {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  position: relative;
+  margin-bottom: 18px;
+  padding-bottom: 14px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.quick-modal-header h2 {
+  font-size: 18px !important;
+  color: #f8fafc !important;
+  margin: 0 !important;
+}
+
+.quick-modal-header p {
+  font-size: 12px !important;
+  color: #94a3b8 !important;
+  margin: 2px 0 0 !important;
+}
+
+.quick-modal-header .close-modal-btn {
+  margin-left: auto;
+}
+
+.quick-modal-body {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.quick-section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.quick-section-title {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 12px;
+  font-weight: 700;
+  color: #cbd5e1;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.quick-characters-row {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  padding-bottom: 4px;
+}
+
+.quick-char-chip {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 20px;
+  color: #e2e8f0;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  white-space: nowrap;
+}
+
+.quick-char-chip:hover {
+  background: rgba(255, 255, 255, 0.12);
+  border-color: rgba(255, 255, 255, 0.25);
+}
+
+.quick-char-chip.active {
+  background: rgba(16, 185, 129, 0.22);
+  border-color: #10b981;
+  color: #34d399;
+  box-shadow: 0 0 12px rgba(16, 185, 129, 0.3);
+}
+
+.quick-times-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
+  gap: 7px;
+}
+
+.quick-time-chip {
+  padding: 7px 10px;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 8px;
+  color: #cbd5e1;
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  text-align: center;
+  transition: all 0.15s ease;
+}
+
+.quick-time-chip:hover {
+  background: rgba(255, 255, 255, 0.1);
+  border-color: rgba(255, 255, 255, 0.2);
+}
+
+.quick-time-chip.active {
+  background: rgba(245, 158, 11, 0.2);
+  border-color: #f59e0b;
+  color: #fbbf24;
+  box-shadow: 0 0 10px rgba(245, 158, 11, 0.25);
+}
+
+.quick-worlds-row {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  padding-bottom: 4px;
+}
+
+.quick-world-chip {
+  display: flex;
+  flex-direction: column;
+  padding: 6px 12px;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 8px;
+  color: #e2e8f0;
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  white-space: nowrap;
+}
+
+.quick-world-chip small {
+  font-size: 9px;
+  color: #94a3b8;
+  font-weight: normal;
+}
+
+.quick-world-chip.active {
+  background: rgba(56, 189, 248, 0.2);
+  border-color: #38bdf8;
+  color: #38bdf8;
+  box-shadow: 0 0 10px rgba(56, 189, 248, 0.25);
+}
+
+.quick-modal-footer {
+  margin-top: 20px;
+  padding-top: 14px;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  display: flex;
+  justify-content: flex-end;
 }

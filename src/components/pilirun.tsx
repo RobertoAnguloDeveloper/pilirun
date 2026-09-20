@@ -151,6 +151,7 @@ export default function PiliRun() {
   const [isStandalone, setIsStandalone] = useState(false);
   const [installModalOpen, setInstallModalOpen] = useState(false);
   const [installedToastShown, setInstalledToastShown] = useState(false);
+  const [quickCustomizeOpen, setQuickCustomizeOpen] = useState(false);
   const initialized = useRef(false),
     prefTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const currentPrefs = useRef(data.preferences);
@@ -784,6 +785,20 @@ export default function PiliRun() {
                       </strong>
                       <span className="status-sub">Nivel {character.stats?.level ?? 1}</span>
                     </button>
+
+                    <div className="status-divider" />
+
+                    <button
+                      className="status-preview-item quick-customize-trigger"
+                      onClick={() => setQuickCustomizeOpen(true)}
+                      title="Edición rápida de personaje y entorno en 1 clic"
+                    >
+                      <span className="status-label">Ajuste Rápido</span>
+                      <strong className="status-val text-amber-400">
+                        <SlidersHorizontal size={14} /> 1 Clic
+                      </strong>
+                      <span className="status-sub">Personaje y Cielo</span>
+                    </button>
                   </div>
 
                   {!isStandalone && (
@@ -916,6 +931,144 @@ export default function PiliRun() {
                         <Trophy size={18} />
                       </div>
                       <span>Récords</span>
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* 1-Click Quick Character & Environment Customizer Modal */}
+            {quickCustomizeOpen && (
+              <div
+                className="game-overlay quick-customize-overlay"
+                onClick={() => setQuickCustomizeOpen(false)}
+              >
+                <div
+                  className="result-card quick-customize-modal"
+                  onClick={(e) => e.stopPropagation()}
+                  role="dialog"
+                  aria-modal="true"
+                  aria-label="Panel Rápido de Personalización"
+                >
+                  <div className="quick-modal-header">
+                    <span className="round-icon">
+                      <SlidersHorizontal size={24} />
+                    </span>
+                    <div>
+                      <h2>Ajuste Rápido de Partida</h2>
+                      <p>Cambia personaje, tamaño y atmósfera del mundo al instante.</p>
+                    </div>
+                    <button
+                      className="arcade-icon-btn close-modal-btn"
+                      onClick={() => setQuickCustomizeOpen(false)}
+                      aria-label="Cerrar ajuste rápido"
+                    >
+                      <X size={18} />
+                    </button>
+                  </div>
+
+                  <div className="quick-modal-body">
+                    {/* Quick Character Picker */}
+                    <div className="quick-section">
+                      <label className="quick-section-title">
+                        <Palette size={16} /> Corredor Activo
+                      </label>
+                      <div className="quick-characters-row">
+                        {characters.map((char) => (
+                          <button
+                            key={char.id}
+                            className={`quick-char-chip ${char.id === character.id ? 'active' : ''}`}
+                            onClick={() => {
+                              preferences({ ...data.preferences, characterId: char.id });
+                            }}
+                          >
+                            <Avatar character={char} size={30} />
+                            <span>{char.name}</span>
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
+                    {/* Quick Scale Slider */}
+                    <div className="quick-section">
+                      <div className="quick-slider-header">
+                        <label className="quick-section-title">
+                          <Sprout size={16} /> Tamaño de Personaje: {character.scale ?? 1.0}x
+                        </label>
+                      </div>
+                      <input
+                        type="range"
+                        min="0.5"
+                        max="2.2"
+                        step="0.1"
+                        value={character.scale ?? 1.0}
+                        onChange={(e) => {
+                          const val = parseFloat(e.target.value);
+                          void saveCharacter({ ...character, scale: val });
+                        }}
+                      />
+                    </div>
+
+                    {/* Quick Environment / Time of Day */}
+                    <div className="quick-section">
+                      <label className="quick-section-title">
+                        <Compass size={16} /> Atmósfera / Iluminación del Cielo
+                      </label>
+                      <div className="quick-times-grid">
+                        {[
+                          { id: 'realtime', label: 'Hora Real (Auto)' },
+                          { id: 'morning', label: 'Mañana Soleada' },
+                          { id: 'midday', label: 'Mediodía Brillante' },
+                          { id: 'sunset', label: 'Atardecer Dorado' },
+                          { id: 'dusk', label: 'Crepúsculo' },
+                          { id: 'night', label: 'Noche Estrellada' },
+                          { id: 'late_night', label: 'Noche Profunda' },
+                        ].map((t) => (
+                          <button
+                            key={t.id}
+                            className={`quick-time-chip ${(data.preferences.timeOfDay || 'realtime') === t.id ? 'active' : ''}`}
+                            onClick={() => {
+                              preferences({
+                                ...data.preferences,
+                                timeOfDay: t.id as any,
+                                environmentSync: t.id === 'realtime' ? 'realtime' : 'manual',
+                              });
+                            }}
+                          >
+                            {t.label}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
+                    {/* Quick World Biome Picker */}
+                    <div className="quick-section">
+                      <label className="quick-section-title">
+                        <Map size={16} /> Mundo de Aventura
+                      </label>
+                      <div className="quick-worlds-row">
+                        {tracks.slice(0, 6).map((trk) => (
+                          <button
+                            key={trk.id}
+                            className={`quick-world-chip ${trk.id === selectedTrack.id ? 'active' : ''}`}
+                            onClick={() => {
+                              preferences({ ...data.preferences, trackId: trk.id });
+                            }}
+                          >
+                            <span>{trk.name}</span>
+                            <small>{WORLDS[trk.world]?.name || trk.world}</small>
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="quick-modal-footer">
+                    <button
+                      className="primary"
+                      onClick={() => setQuickCustomizeOpen(false)}
+                    >
+                      <Check size={18} /> Listo para Correr
                     </button>
                   </div>
                 </div>

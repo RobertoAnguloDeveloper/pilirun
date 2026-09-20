@@ -290,7 +290,7 @@ describe('runner physics and progression', () => {
     game.castPower();
     expect(game.projectiles).toHaveLength(1);
     const normalProj = game.projectiles[0];
-    expect(normalProj.size).toBe(16);
+    expect(normalProj.size).toBe(18);
     const normalDmg = normalProj.damage;
     game.projectiles = [];
     game.powerCooldown = 0;
@@ -309,12 +309,12 @@ describe('runner physics and progression', () => {
     expect(game.projectiles).toHaveLength(1);
     const chargedProj = game.projectiles[0];
 
-    // Projectile size scales up to 38px
-    expect(chargedProj.size).toBe(38);
+    // Projectile size scales up progressively with charge ratio + 100% tier (18 + 20 + 8 = 46px)
+    expect(chargedProj.size).toBeGreaterThan(38);
     // Projectile damage scales up significantly
     expect(chargedProj.damage).toBeGreaterThan(normalDmg * 2.5);
     // Projectile color reflects fiery charged power
-    expect(chargedProj.color).toBe('#ef4444');
+    expect(chargedProj.color).toBe('#f59e0b');
   });
 
   it('keeps charging and accumulating power until released or hit by an obstacle/boss', () => {
@@ -337,12 +337,12 @@ describe('runner physics and progression', () => {
     expect(game.powerChargeRatio).toBeCloseTo(2.0, 1);
     expect(game.powerChargeTime).toBeCloseTo(2.8, 1);
 
-    // Release at 2.0x charge: projectile size scales up proportionally (16 + 2 * 22 = 60px)
+    // Release at 2.0x charge: projectile size scales up progressively (18 + 40 + 16 = 74px)
     game.releaseChargedPower();
     expect(game.isChargingPower).toBe(false);
     expect(game.projectiles).toHaveLength(1);
     const megaProj = game.projectiles[0];
-    expect(megaProj.size).toBe(60);
+    expect(megaProj.size).toBe(74);
 
     // Start charging again and advance until hitting an obstacle
     game.projectiles = [];
@@ -408,6 +408,76 @@ describe('runner physics and progression', () => {
     // Release swipe
     game.setMoveAxis(0);
     expect(game.moveAxis).toBe(0);
+  });
+
+  it('respawns player at reached checkpoint with restored resources and invulnerability', () => {
+    const track = { ...empty(), length: 12000 };
+    const game = new Simulation(track);
+    game.start();
+    // Advance past checkpoint 1 (3000m)
+    game.distance = 3200;
+    game.furthestDistance = 3200;
+    game.update(STEP);
+    expect(game.checkpoint).toBe(1);
+
+    // Player takes fatal damage
+    game.lives = 0;
+    game.update(STEP);
+    expect(game.phase).toBe('GAME_OVER');
+
+    // Respawn at checkpoint
+    const respawned = game.respawnAtCheckpoint();
+    expect(respawned).toBe(true);
+    expect(game.phase).toBe('PLAYING');
+    expect(game.distance).toBe(3000);
+    expect(game.lives).toBe(3);
+    expect(game.energy).toBe(game.maxEnergy);
+    expect(game.time).toBeGreaterThanOrEqual(35);
+    expect(game.hurt).toBe(2.0); // invulnerability
+  });
+
+  it('keeps player projectiles active until hitting an obstacle or leaving the world', () => {
+    const track = { ...empty(), length: 10000 };
+    const game = new Simulation(track);
+    game.start();
+    game.castPower(0);
+    expect(game.projectiles).toHaveLength(1);
+    const proj = game.projectiles[0];
+    expect(proj.life).toBe(Infinity);
+
+    // Advance 5 seconds through empty air without despawning
+    advance(game, 5);
+    expect(game.projectiles).toHaveLength(1);
+    expect(game.projectiles[0].x).toBeGreaterThan(1000);
+  });
+
+  it('scales projectile size progressively with charge ratio and 100% tiers', () => {
+    const track = { ...empty(), length: 10000 };
+    const game = new Simulation(track);
+    game.start();
+
+    // Normal shot (charge 0)
+    game.castPower(0);
+    const pNormal = game.projectiles[0];
+    expect(pNormal.size).toBe(18);
+
+    // 100% charged shot (charge 1.0) -> 18 + 20 + 8 = 46
+    game.projectiles.length = 0;
+    game.powerCooldown = 0;
+    game.energy = 100;
+    game.castPower(1.0);
+    const pTier1 = game.projectiles[0];
+    expect(pTier1.size).toBe(46);
+    expect(pTier1.size).toBeGreaterThan(pNormal.size);
+
+    // 200% charged shot (charge 2.0) -> 18 + 40 + 16 = 74
+    game.projectiles.length = 0;
+    game.powerCooldown = 0;
+    game.energy = 100;
+    game.castPower(2.0);
+    const pTier2 = game.projectiles[0];
+    expect(pTier2.size).toBe(74);
+    expect(pTier2.size).toBeGreaterThan(pTier1.size);
   });
 });
 describe('playable track validation', () => {

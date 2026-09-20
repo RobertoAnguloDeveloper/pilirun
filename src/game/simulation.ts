@@ -191,6 +191,35 @@ export class Simulation {
   }
 
   /**
+   * Respawn player at the last reached checkpoint (resets position, grants lives & energy)
+   */
+  respawnAtCheckpoint(): boolean {
+    if (this.checkpoint <= 0) return false;
+    const checkpointDist = this.checkpoint * CHECKPOINT;
+    this.distance = Math.min(this.track.length - 100, checkpointDist);
+    this.furthestDistance = Math.max(this.furthestDistance, this.distance);
+    this.lives = 3;
+    this.energy = this.maxEnergy;
+    this.time = Math.max(this.time, 35);
+    this.height = 0;
+    this.velocity = 0;
+    this.jumps = 0;
+    this.slide = 0;
+    this.boost = 0;
+    this.hurt = 2.0; // 2 seconds of spawn invulnerability
+    this.shake = 0;
+    this.moveAxis = 0;
+    this.facing = 1;
+    this.isChargingPower = false;
+    this.powerChargeTime = 0;
+    this.powerChargeRatio = 0;
+    this.projectiles.length = 0;
+    this.phase = 'PLAYING';
+    this.events.push('power');
+    return true;
+  }
+
+  /**
    * Start charging equipped power (Mega Man Buster style)
    */
   startChargingPower() {
@@ -252,10 +281,11 @@ export class Simulation {
       ? calculateDamage(power, this.stats.strength, this.boss, envMod) * chargeDmgMultiplier
       : power.damage * chargeDmgMultiplier;
 
-    // Projectile size scales proportionally with charge ratio (16px base, 38px at 1.0, 60px at 2.0, etc.)
-    const projSize = Math.round(16 + chargeRatio * 22);
+    // Projectile size scales progressively with charge ratio + each 100% tier
+    const chargeTier = Math.floor(chargeRatio + 1e-4);
+    const projSize = Math.round(18 + chargeRatio * 20 + chargeTier * 8);
 
-    // Spawn Player Projectile
+    // Spawn Player Projectile: Player projectiles persist until hitting an obstacle, the boss, or leaving the track boundaries
     this.projectiles.push({
       id: crypto.randomUUID(),
       sender: 'player',
@@ -267,8 +297,8 @@ export class Simulation {
       element: power.element,
       type: power.id,
       size: projSize,
-      color: chargeRatio > 0.6 ? '#ef4444' : chargeRatio > 0.25 ? '#f97316' : power.color,
-      life: 2.5 + Math.min(chargeRatio, 4) * 0.5,
+      color: chargeTier >= 3 ? '#a855f7' : chargeTier >= 2 ? '#ef4444' : chargeTier >= 1 ? '#f59e0b' : chargeRatio > 0.25 ? '#38bdf8' : power.color,
+      life: Infinity,
     });
   }
 
@@ -497,14 +527,20 @@ export class Simulation {
     for (let i = this.projectiles.length - 1; i >= 0; i--) {
       const p = this.projectiles[i];
       const previousX = p.x, previousY = p.y;
-      p.life -= dt;
       p.ricochetTime = Math.max(0, (p.ricochetTime ?? 0) - dt);
       p.ignoreObstacleTime = Math.max(0, (p.ignoreObstacleTime ?? 0) - dt);
       if (p.ignoreObstacleTime === 0) p.ignoredObstacleId = undefined;
       p.x += p.vx * dt;
       p.y += p.vy * dt;
 
-      if (p.life <= 0) {
+      if (p.sender !== 'player') {
+        p.life -= dt;
+        if (p.life <= 0) {
+          this.projectiles.splice(i, 1);
+          continue;
+        }
+      } else if (p.x < -200 || p.x > this.track.length + 800) {
+        // Player projectile only despawns once leaving the world track boundaries
         this.projectiles.splice(i, 1);
         continue;
       }
@@ -726,6 +762,8 @@ export class Simulation {
       isChargingPower: this.isChargingPower,
       powerChargeRatio: this.powerChargeRatio,
       timeOfDay: this.timeOfDay,
+      checkpoint: this.checkpoint,
+      checkpointDistance: Math.floor((this.checkpoint * CHECKPOINT) / 10),
     };
   }
   result(): RunResult {
