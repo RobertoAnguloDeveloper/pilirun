@@ -128,11 +128,18 @@ async function init(): Promise<void> {
   migrateSchema();
 }
 async function readAll() {
-  const rows = db.selectObjects('SELECT collection, json FROM records');
+  const rows = db.selectObjects('SELECT collection, id, json FROM records');
   const collection = (name: string) =>
     rows
       .filter((row) => row.collection === name)
       .map((row) => JSON.parse(String(row.json)) as unknown);
+
+  const prefRow = rows.find((r) => r.collection === 'preferences' && r.id === 'settings');
+  const progressRow = rows.find((r) => r.collection === 'preferences' && r.id === 'level_progress');
+  const levelProgress = progressRow
+    ? (JSON.parse(String(progressRow.json)) as import('../lib/types').LevelProgress)
+    : undefined;
+
   return {
     backend,
     data: {
@@ -141,7 +148,13 @@ async function readAll() {
       scenarios: collection('scenarios'),
       draftScenario: collection('scenario-drafts')[0],
       runs: collection('runs'),
-      preferences: { ...DEFAULT_PREFERENCES, ...((collection('preferences')[0] as object) ?? {}) },
+      preferences: {
+        ...DEFAULT_PREFERENCES,
+        ...((prefRow ? JSON.parse(String(prefRow.json)) : collection('preferences')[0]) as object ?? {}),
+      },
+      levelProgress,
+      characterLevel: levelProgress?.characterLevel ?? 1,
+      unlockedPowers: levelProgress?.unlockedPowers ?? ['flame_burst'],
       music: [
         ...new Map(
           [

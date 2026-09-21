@@ -1,4 +1,4 @@
-import type { ItemKind, Track, TrackItem, WorldId } from './types';
+import type { BossArchetype, BossConfig, ItemKind, Track, TrackItem, WorldId } from './types';
 import { WORLDS } from './worlds';
 import { SPEED, JUMP, GRAVITY } from '../game/simulation';
 
@@ -360,138 +360,92 @@ export function validateLevelPlayability(track: Track): { valid: boolean; reason
   return { valid: true };
 }
 
+export const WORLD_BOSS_NAMES: Record<WorldId, [string, string, string]> = {
+  forest: ['Brote Centinela', 'Guardián Floreciente', 'Silvanus, Titán Arbóreo'],
+  sunset: ['Centinela Solar', 'Esfinge de las Dunas', 'Solarius, Fénix del Ocaso'],
+  night: ['Espectro Lunar', 'Guardián Astral', 'Nocturna, Dragón del Vacío'],
+  neon: ['Cyber-Dron Alfa', 'Vanguardia Neón', 'Overdrive-X, Titán Cyber'],
+  alpine: ['Centinela Helado', 'Wyrm de Escarcha', 'Glacior, Behemoth Polar'],
+  volcano: ['Engendro de Lava', 'Molten Drake', 'Magmacore, Dragón Ígneo'],
+};
+
+export const PROCEDURAL_BOSS_TITLES: Record<WorldId, { prefixes: string[]; epithets: string[] }> = {
+  forest: {
+    prefixes: ['Silvanus', 'Yggdras', 'Verdantor', 'Cernunnos', 'Brote', 'Arboris'],
+    epithets: ['Titán Arbóreo', 'Guardián Floreciente', 'Señor del Bosque', 'Corteza Viva', 'Espíritu Primigenio', 'Brote Centinela'],
+  },
+  sunset: {
+    prefixes: ['Solarius', 'Ra-Khepri', 'Oryx', 'Horus', 'Sekhmet', 'Dunas-Rex'],
+    epithets: ['Fénix del Ocaso', 'Esfinge de las Dunas', 'Guardián Solar', 'Centinela del Desierto', 'Ojo del Horizonte', 'Faraón Dorado'],
+  },
+  night: {
+    prefixes: ['Nocturna', 'Vesper', 'Nyxar', 'Chronos', 'Nebulon', 'Astralis'],
+    epithets: ['Dragón del Vacío', 'Guardián Astral', 'Espectro Lunar', 'Devorador Estelar', 'Vórtice Abisal', 'Sombra Cósmica'],
+  },
+  neon: {
+    prefixes: ['Overdrive-X', 'Vanguardia', 'Cybernox', 'Apex-Core', 'Nexus-9', 'Vector-Prime'],
+    epithets: ['Titán Cyber', 'Autómata Alfa', 'Matriz de Voltaje', 'Dron Supremo', 'Coloso Neón', 'Cíborg Centinela'],
+  },
+  alpine: {
+    prefixes: ['Glacior', 'Kryos', 'Boreas', 'Skadi', 'Frost-Bite', 'Avalanchar'],
+    epithets: ['Behemoth Polar', 'Wyrm de Escarcha', 'Centinela Helado', 'Glaciar Eterno', 'Coloso de Hielo', 'Monarca Ártico'],
+  },
+  volcano: {
+    prefixes: ['Magmacore', 'Ignis', 'Vulcanor', 'Pyroth', 'Surtr', 'Cinder-Lord'],
+    epithets: ['Dragón de Magma', 'Titán Ígneo', 'Señor del Cráter', 'Furia Volcánica', 'Molten Drake', 'Leviatán de Obsidiana'],
+  },
+};
+
 /**
- * Procedural generation algorithm for a level with controlled randomness
+ * Procedural Boss Synthesizer
+ * Produces balanced, thematic bosses with custom or generated titles,
+ * elemental affiliations, scaled attributes, and archetype visuals.
  */
-function attemptGeneration(config: LevelConfig, seed: number): Track {
-  const rng = createRNG(seed);
-  const items: TrackItem[] = [];
-  const length = config.length;
-  let cursorX = 650;
-  let itemId = 0;
-
-  while (cursorX < length - 950) {
-    const roll = rng();
-
-    if (config.allowVerticals && roll < 0.22 && cursorX < length - 1200) {
-      // Spring pattern
-      const springX = Math.round(cursorX);
-      items.push({ id: `sp-${itemId++}`, x: springX, kind: 'spring' });
-
-      // Arc of high coins
-      for (let c = 1; c <= 4; c++) {
-        items.push({
-          id: `spc-${itemId++}`,
-          x: Math.round(springX + c * 100),
-          kind: 'coin',
-          y: Math.round(110 + Math.sin((c / 5) * Math.PI) * 70),
-        });
-      }
-
-      // Air boost ring at apex
-      if (rng() > 0.35) {
-        items.push({
-          id: `rg-${itemId++}`,
-          x: Math.round(springX + 280),
-          kind: 'ring',
-          y: 150,
-        });
-      }
-
-      cursorX += 850 + Math.round(rng() * 200);
-      continue;
-    }
-
-    if (roll < 0.55) {
-      // Ground challenge: log, rock, or heavy armored golem
-      const subRoll = rng();
-      const kind = subRoll < 0.35 ? 'log' : subRoll < 0.7 ? 'rock' : 'golem';
-      const obsX = Math.round(cursorX);
-      items.push({ id: `obs-${itemId++}`, x: obsX, kind });
-
-      // Coin approach / parabola
-      for (let c = -2; c <= 2; c++) {
-        if (c === 0) continue;
-        items.push({
-          id: `cn-${itemId++}`,
-          x: Math.round(obsX + c * 60),
-          kind: 'coin',
-          y: Math.round(c === 0 ? 80 : 45),
-        });
-      }
-
-      const gap = Math.max(config.minObstacleGap, Math.round(config.minObstacleGap + rng() * 220));
-      cursorX += gap;
-      continue;
-    }
-
-    if (roll < 0.85) {
-      // Upper aerial challenge: overhead branch or hovering technological drone
-      const subRoll = rng();
-      const kind = subRoll < 0.55 ? 'branch' : 'drone';
-      const obsX = Math.round(cursorX);
-      items.push({ id: `air-${itemId++}`, x: obsX, kind, y: kind === 'drone' ? 55 : 47 });
-
-      // Low ground coins that reward ducking / sliding underneath
-      for (let c = -1; c <= 2; c++) {
-        items.push({
-          id: `sc-${itemId++}`,
-          x: Math.round(obsX + c * 50),
-          kind: 'coin',
-          y: 20,
-        });
-      }
-
-      const gap = Math.max(config.minObstacleGap, Math.round(config.minObstacleGap + rng() * 200));
-      cursorX += gap;
-      continue;
-    }
-
-    // Powerup / power-orb / coin run corridor
-    const powerRoll = rng();
-    let pKind: ItemKind;
-    if (powerRoll < 0.25) {
-      const powers: ItemKind[] = [
-        'power_fire',
-        'power_water',
-        'power_leaf',
-        'power_thunder',
-        'power_star',
-      ];
-      pKind = powers[Math.floor(rng() * powers.length)];
-    } else {
-      pKind = rng() > 0.6 ? 'shield' : rng() > 0.5 ? 'boost' : 'time';
-    }
-    items.push({
-      id: `pw-${itemId++}`,
-      x: Math.round(cursorX + 80),
-      kind: pKind,
-    });
-
-    for (let c = 0; c < 3; c++) {
-      items.push({
-        id: `pwc-${itemId++}`,
-        x: Math.round(cursorX + 160 + c * 55),
-        kind: 'coin',
-      });
-    }
-
-    cursorX += Math.max(config.minObstacleGap, 520 + Math.round(rng() * 150));
-  }
-
-  // Create official Boss for the level
+export function generateProceduralBoss(
+  world: WorldId,
+  levelNumber: number,
+  seed: number,
+  customTitle?: string,
+): BossConfig {
+  const rng = createRNG(seed + 999);
   const bossElement =
-    config.world === 'volcano'
+    world === 'volcano'
       ? 'fire'
-      : config.world === 'alpine'
+      : world === 'alpine'
         ? 'water'
-        : config.world === 'forest'
+        : world === 'forest'
           ? 'nature'
-          : config.world === 'neon'
+          : world === 'neon'
             ? 'electric'
-            : config.world === 'night'
+            : world === 'night'
               ? 'cosmic'
               : 'fire';
+
+  const bossArchetype: BossArchetype =
+    world === 'forest'
+      ? 'treant'
+      : world === 'sunset'
+        ? 'sphinx'
+        : world === 'night'
+          ? 'void_dragon'
+          : world === 'neon'
+            ? 'cyber_titan'
+            : world === 'alpine'
+              ? 'frost_behemoth'
+              : 'magma_dragon';
+
+  let bossName = customTitle;
+  if (!bossName) {
+    const isOfficial = levelNumber >= 1 && levelNumber <= 3;
+    if (isOfficial && WORLD_BOSS_NAMES[world]?.[levelNumber - 1]) {
+      bossName = WORLD_BOSS_NAMES[world][levelNumber - 1];
+    } else {
+      const titles = PROCEDURAL_BOSS_TITLES[world] || PROCEDURAL_BOSS_TITLES.forest;
+      const prefix = titles.prefixes[Math.floor(rng() * titles.prefixes.length)];
+      const epithet = titles.epithets[Math.floor(rng() * titles.epithets.length)];
+      bossName = `${prefix}, ${epithet}`;
+    }
+  }
 
   const weakness =
     bossElement === 'fire'
@@ -506,6 +460,200 @@ function attemptGeneration(config: LevelConfig, seed: number): Track {
               ? 'light'
               : 'nature';
 
+  const health = 120 + levelNumber * 60;
+  const attackFreq = Math.max(1.8, Number((3.0 - levelNumber * 0.3).toFixed(2)));
+
+  return {
+    id: `boss-${world}-${levelNumber}-${seed}`,
+    name: bossName,
+    element: bossElement,
+    archetype: bossArchetype,
+    size: levelNumber >= 3 ? 2.0 : levelNumber === 2 ? 1.5 : 1.2,
+    health,
+    maxHealth: health,
+    damage: 1,
+    speed: 300,
+    attackFrequency: attackFreq,
+    projectileType:
+      bossElement === 'fire'
+        ? 'fireball'
+        : bossElement === 'water'
+          ? 'ice_spike'
+          : bossElement === 'electric'
+            ? 'lightning_orb'
+            : 'boulder',
+    projectileSpeed: 380 + levelNumber * 25,
+    weakness,
+    resistance: bossElement,
+  };
+}
+
+/**
+ * Procedural generation algorithm for a level with controlled randomness,
+ * macro pacing curves (Warmup -> Escalation -> Breather -> Gauntlet -> Climax),
+ * and structured tactical obstacle/enemy encounters.
+ */
+function attemptGeneration(config: LevelConfig, seed: number): Track {
+  const rng = createRNG(seed);
+  const items: TrackItem[] = [];
+  const length = config.length;
+  let cursorX = 650;
+  let itemId = 0;
+
+  while (cursorX < length - 950) {
+    const progress = cursorX / length;
+    const isWarmup = progress < 0.16;
+    const isEscalation = progress >= 0.16 && progress < 0.42;
+    const isBreather = progress >= 0.42 && progress < 0.54;
+    const isGauntlet = progress >= 0.54 && progress < 0.86;
+
+    // Phase 3: Breather / Power cache zone
+    if (isBreather && rng() < 0.65) {
+      const powers: ItemKind[] = [
+        'power_fire',
+        'power_water',
+        'power_leaf',
+        'power_thunder',
+        'power_star',
+      ];
+      const pKind = rng() < 0.35 ? powers[Math.floor(rng() * powers.length)] : rng() > 0.5 ? 'shield' : 'boost';
+      items.push({
+        id: `pw-${itemId++}`,
+        x: Math.round(cursorX + 60),
+        kind: pKind,
+      });
+
+      // Reward coin trail along breather corridor
+      for (let c = 0; c < 4; c++) {
+        items.push({
+          id: `pwc-${itemId++}`,
+          x: Math.round(cursorX + 160 + c * 55),
+          kind: 'coin',
+          y: 25,
+        });
+      }
+
+      cursorX += Math.max(config.minObstacleGap, 680 + Math.round(rng() * 150));
+      continue;
+    }
+
+    const roll = rng();
+
+    // Vertical aerial launcher (Spring) pattern
+    if (config.allowVerticals && (isEscalation || isGauntlet) && roll < 0.22 && cursorX < length - 1300) {
+      const springX = Math.round(cursorX);
+      items.push({ id: `sp-${itemId++}`, x: springX, kind: 'spring' });
+
+      // Arc of high coins in leap parabola
+      for (let c = 1; c <= 4; c++) {
+        items.push({
+          id: `spc-${itemId++}`,
+          x: Math.round(springX + c * 100),
+          kind: 'coin',
+          y: Math.round(110 + Math.sin((c / 5) * Math.PI) * 70),
+        });
+      }
+
+      // Air boost ring at apex
+      if (rng() > 0.3) {
+        items.push({
+          id: `rg-${itemId++}`,
+          x: Math.round(springX + 280),
+          kind: 'ring',
+          y: 150,
+        });
+      }
+
+      // Safe landing envelope: clear ahead by 860px (strictly outside 750px envelope)
+      cursorX += 860 + Math.round(rng() * 180);
+      continue;
+    }
+
+    // Ground challenge (hurdles, rocks, armored golems)
+    const groundChance = isWarmup ? 0.65 : isGauntlet ? 0.45 : 0.52;
+    if (roll < groundChance) {
+      const subRoll = rng();
+      // Only introduce golems in escalation or gauntlet
+      const kind = isWarmup
+        ? (subRoll < 0.55 ? 'log' : 'rock')
+        : (subRoll < 0.35 ? 'log' : subRoll < 0.68 ? 'rock' : 'golem');
+      const obsX = Math.round(cursorX);
+      items.push({ id: `obs-${itemId++}`, x: obsX, kind });
+
+      // Coin parabola over ground hurdle
+      for (let c = -2; c <= 2; c++) {
+        if (c === 0) continue;
+        items.push({
+          id: `cn-${itemId++}`,
+          x: Math.round(obsX + c * 60),
+          kind: 'coin',
+          y: Math.round(c === 0 ? 80 : 45),
+        });
+      }
+
+      const minGap = isWarmup ? Math.max(540, config.minObstacleGap * 1.2) : config.minObstacleGap;
+      cursorX += Math.max(minGap, Math.round(minGap + rng() * 200));
+      continue;
+    }
+
+    // Aerial challenge (branches, surveillance drones)
+    if (roll < (isGauntlet ? 0.88 : 0.82)) {
+      const subRoll = rng();
+      // In warmup, only simple overhead branches; drones appear in escalation and gauntlet
+      const kind = isWarmup ? 'branch' : (subRoll < 0.5 ? 'branch' : 'drone');
+      const obsX = Math.round(cursorX);
+      items.push({ id: `air-${itemId++}`, x: obsX, kind, y: kind === 'drone' ? 55 : 47 });
+
+      // Low ground coins rewarding ducking / sliding underneath
+      for (let c = -1; c <= 2; c++) {
+        items.push({
+          id: `sc-${itemId++}`,
+          x: Math.round(obsX + c * 50),
+          kind: 'coin',
+          y: 20,
+        });
+      }
+
+      const minGap = isWarmup ? Math.max(520, config.minObstacleGap * 1.15) : config.minObstacleGap;
+      cursorX += Math.max(minGap, Math.round(minGap + rng() * 180));
+      continue;
+    }
+
+    // Powerup / coin sprint corridor
+    const powers: ItemKind[] = [
+      'power_fire',
+      'power_water',
+      'power_leaf',
+      'power_thunder',
+      'power_star',
+    ];
+    const pKind = rng() < 0.28 ? powers[Math.floor(rng() * powers.length)] : rng() > 0.55 ? 'shield' : rng() > 0.5 ? 'boost' : 'time';
+    items.push({
+      id: `pw-${itemId++}`,
+      x: Math.round(cursorX + 80),
+      kind: pKind,
+    });
+
+    for (let c = 0; c < 3; c++) {
+      items.push({
+        id: `pwc-${itemId++}`,
+        x: Math.round(cursorX + 160 + c * 55),
+        kind: 'coin',
+      });
+    }
+
+    cursorX += Math.max(config.minObstacleGap, 520 + Math.round(rng() * 160));
+  }
+
+  // Generate official or procedural Boss for the level
+  const boss = generateProceduralBoss(
+    config.world,
+    config.levelNumber,
+    seed,
+    WORLD_BOSS_NAMES[config.world]?.[config.levelNumber - 1],
+  );
+  boss.id = `boss-${config.id}`;
+
   return {
     id: config.id,
     name: config.title,
@@ -513,28 +661,7 @@ function attemptGeneration(config: LevelConfig, seed: number): Track {
     length: config.length,
     items: items.sort((a, b) => a.x - b.x),
     levelMusicId: config.levelMusicId,
-    boss: {
-      id: `boss-${config.id}`,
-      name: `Guardián de ${config.title}`,
-      element: bossElement,
-      size: config.levelNumber === 3 ? 2.0 : config.levelNumber === 2 ? 1.5 : 1.2,
-      health: 120 + config.levelNumber * 60,
-      maxHealth: 120 + config.levelNumber * 60,
-      damage: 1,
-      speed: 300,
-      attackFrequency: Math.max(1.8, 3.0 - config.levelNumber * 0.3),
-      projectileType:
-        bossElement === 'fire'
-          ? 'fireball'
-          : bossElement === 'water'
-            ? 'ice_spike'
-            : bossElement === 'electric'
-              ? 'lightning_orb'
-              : 'boulder',
-      projectileSpeed: 380 + config.levelNumber * 25,
-      weakness,
-      resistance: bossElement,
-    },
+    boss,
   };
 }
 
@@ -554,6 +681,15 @@ function createSafeFallback(config: LevelConfig): Track {
       items.push({ id: `fbp-${id++}`, x: x + Math.round(gap * 0.5), kind: 'shield' });
     }
   }
+
+  const boss = generateProceduralBoss(
+    config.world,
+    config.levelNumber,
+    config.baseSeed,
+    WORLD_BOSS_NAMES[config.world]?.[config.levelNumber - 1],
+  );
+  boss.id = `boss-${config.id}`;
+
   return {
     id: config.id,
     name: config.title,
@@ -561,6 +697,7 @@ function createSafeFallback(config: LevelConfig): Track {
     length: config.length,
     items: items.sort((a, b) => a.x - b.x),
     levelMusicId: config.levelMusicId,
+    boss,
   };
 }
 
@@ -586,4 +723,31 @@ export function generateProceduralLevel(config: LevelConfig, customSeed?: number
 
   // Fallback to verified safe layout if all attempts fail validation
   return createSafeFallback(config);
+}
+
+/**
+ * Generates an unpredictable, endless or custom-seeded procedural level
+ * with balanced progression curves, enemy encounters, and a synthesized boss.
+ */
+export function generateRandomSeedLevel(
+  world: WorldId,
+  difficulty: 1 | 2 | 3 = 2,
+  seed?: number,
+): Track {
+  const s = seed ?? Math.floor(Math.random() * 1000000);
+  const length = 7500 + difficulty * 2500;
+  const config: LevelConfig = {
+    id: `proc-${world}-${difficulty}-${s}`,
+    world,
+    levelNumber: difficulty,
+    title: `Nivel Aleatorio: ${world.toUpperCase()} #${s % 10000}`,
+    subtitle: `Aventura procedural balanceada con generación dinámica.`,
+    length,
+    baseSeed: s,
+    minObstacleGap: Math.max(450, 560 - difficulty * 35),
+    allowVerticals: difficulty >= 2,
+    density: 0.75 + difficulty * 0.15,
+    levelMusicId: 'bmg-bounding-through-the-blooms',
+  };
+  return generateProceduralLevel(config, s);
 }

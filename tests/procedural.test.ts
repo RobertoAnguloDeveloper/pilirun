@@ -5,8 +5,10 @@ import {
   OFFICIAL_LEVELS,
   generateProceduralLevel,
   validateLevelPlayability,
+  generateRandomSeedLevel,
+  generateProceduralBoss,
 } from '../src/lib/procedural';
-import { validateTrack } from '../src/lib/worlds';
+import { validateTrack, WORLDS } from '../src/lib/worlds';
 import { BUILTIN_MUSIC } from '../src/lib/builtin-music';
 import type { Track, TrackItem } from '../src/lib/types';
 
@@ -93,5 +95,97 @@ describe('procedural generation and deterministic replayability', () => {
       expect(result.valid).toBe(true);
       expect(validateTrack(track)).toBeNull();
     }
+  });
+});
+
+describe('generateRandomSeedLevel (dynamic procedural runner)', () => {
+  it('generates deterministic tracks for identical world, difficulty, and seed', () => {
+    const track1 = generateRandomSeedLevel('forest', 2, 77777);
+    const track2 = generateRandomSeedLevel('forest', 2, 77777);
+
+    expect(track1.name).toBe(track2.name);
+    expect(track1.length).toBe(track2.length);
+    expect(track1.items).toEqual(track2.items);
+    expect(track1.boss).toEqual(track2.boss);
+  });
+
+  it('generates different tracks for different seeds', () => {
+    const trackA = generateRandomSeedLevel('sunset', 2, 10101);
+    const trackB = generateRandomSeedLevel('sunset', 2, 20202);
+
+    expect(trackA.items).not.toEqual(trackB.items);
+  });
+
+  it('scales track length and min obstacle gap with difficulty', () => {
+    const easy = generateRandomSeedLevel('neon', 1, 42);
+    const hard = generateRandomSeedLevel('neon', 3, 42);
+
+    expect(easy.length).toBe(10000); // 7500 + 1 * 2500
+    expect(hard.length).toBe(15000); // 7500 + 3 * 2500
+    expect(hard.length).toBeGreaterThan(easy.length);
+  });
+
+  it('produces 100% playable tracks across all world types and difficulty levels', () => {
+    const worlds = Object.keys(WORLDS) as (keyof typeof WORLDS)[];
+    const difficulties: (1 | 2 | 3)[] = [1, 2, 3];
+
+    for (const world of worlds) {
+      for (const diff of difficulties) {
+        const seed = 88800 + diff * 100;
+        const track = generateRandomSeedLevel(world, diff, seed);
+        const validation = validateLevelPlayability(track);
+
+        expect(validation.valid).toBe(true);
+        expect(validateTrack(track)).toBeNull();
+        expect(track.boss).toBeDefined();
+        expect(track.boss?.health).toBeGreaterThanOrEqual(180);
+      }
+    }
+  });
+});
+
+describe('generateProceduralBoss (boss synthesis)', () => {
+  it('assigns correct archetypes and elemental weaknesses per world', () => {
+    const forestBoss = generateProceduralBoss('forest', 1, 123);
+    expect(forestBoss.archetype).toBe('treant');
+    expect(forestBoss.element).toBe('nature');
+    expect(forestBoss.weakness).toBe('fire');
+
+    const alpineBoss = generateProceduralBoss('alpine', 1, 123);
+    expect(alpineBoss.archetype).toBe('frost_behemoth');
+    expect(alpineBoss.element).toBe('water');
+    expect(alpineBoss.weakness).toBe('electric');
+
+    const neonBoss = generateProceduralBoss('neon', 1, 123);
+    expect(neonBoss.archetype).toBe('cyber_titan');
+    expect(neonBoss.element).toBe('electric');
+    expect(neonBoss.weakness).toBe('nature');
+
+    const volcanoBoss = generateProceduralBoss('volcano', 1, 123);
+    expect(volcanoBoss.archetype).toBe('magma_dragon');
+    expect(volcanoBoss.element).toBe('fire');
+    expect(volcanoBoss.weakness).toBe('water');
+  });
+
+  it('scales health, speed, and attack frequency with level number', () => {
+    const bossLvl1 = generateProceduralBoss('sunset', 1, 999);
+    const bossLvl3 = generateProceduralBoss('sunset', 3, 999);
+
+    expect(bossLvl1.health).toBe(180); // 120 + 1 * 60
+    expect(bossLvl3.health).toBe(300); // 120 + 3 * 60
+    expect(bossLvl3.attackFrequency).toBeLessThan(bossLvl1.attackFrequency); // Attacks faster
+    expect(bossLvl3.projectileSpeed).toBeGreaterThan(bossLvl1.projectileSpeed);
+    expect(bossLvl3.size).toBeGreaterThan(bossLvl1.size);
+  });
+
+  it('honors customTitle parameter when provided', () => {
+    const custom = generateProceduralBoss('forest', 1, 123, 'El Titán Ancestral');
+    expect(custom.name).toBe('El Titán Ancestral');
+  });
+
+  it('generates procedural grammar prefix/epithet for procedural runs (level > 3)', () => {
+    const proceduralBoss = generateProceduralBoss('night', 4, 555);
+    expect(proceduralBoss.name).toContain(',');
+    expect(proceduralBoss.health).toBe(360); // 120 + 4 * 60
   });
 });

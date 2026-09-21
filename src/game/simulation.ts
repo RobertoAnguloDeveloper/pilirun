@@ -20,7 +20,17 @@ export const GRAVITY = 1900;
 export const JUMP = 720;
 export const SPEED = 290;
 export const CHECKPOINT = 3000;
-export type GameEvent = 'jump' | 'coin' | 'hit' | 'power' | 'win' | 'destroy-shield' | 'ricochet';
+export type GameEvent =
+  | 'jump'
+  | 'coin'
+  | 'hit'
+  | 'power'
+  | 'win'
+  | 'destroy-shield'
+  | 'ricochet'
+  | 'empty_ammo';
+
+let projectileSequence = 0;
 
 export class Simulation {
   phase: GamePhase = 'MENU';
@@ -34,6 +44,10 @@ export class Simulation {
   damageFeedbacks: DamageFeedback[] = [];
   destroyed = new Set<string>();
   get inBossFight() { return this.encounterStarted && !!this.bossEntity && !this.bossEntity.defeated; }
+  get speed(): number {
+    if (this.phase !== 'PLAYING') return 0;
+    return Math.max(0, (SPEED + (this.boost > 0 ? 120 : 0) - (this.hurt > 1.0 ? 90 : 0)) * (this.boost > 0 ? 1.3 : 1));
+  }
   setMoveAxis(axis: -1 | 0 | 1) {
     this.moveAxis = this.phase === 'PLAYING' ? axis : 0;
     if (this.inBossFight && this.moveAxis) this.facing = this.moveAxis;
@@ -66,6 +80,7 @@ export class Simulation {
   stats: CharacterStats;
   activePowerId: PowerId = 'flame_burst';
   powerCooldown = 0;
+  muzzleFlash = 0;
   isChargingPower = false;
   powerChargeTime = 0;
   powerChargeRatio = 0;
@@ -98,6 +113,7 @@ export class Simulation {
   characterScale = 1.0;
   cameraZoom = 1.0;
   collectedPowers: Set<PowerId> = new Set();
+  powerCharges: Map<PowerId, number> = new Map();
 
   constructor(
     public track: Track,
@@ -107,6 +123,7 @@ export class Simulation {
     initialCharacterScale = 1.0,
     initialCameraZoom = 1.0,
     initialUnlockedPowers?: PowerId[],
+    initialPowerCharges?: Record<string, number>,
   ) {
     this.time = track.length / SPEED + 12;
     this.stats = playerStats || calculateCharacterStats(1);
@@ -114,6 +131,21 @@ export class Simulation {
     this.energy = this.maxEnergy;
     this.characterScale = Math.max(0.5, Math.min(2.2, initialCharacterScale));
     this.cameraZoom = Math.max(0.6, Math.min(2.0, initialCameraZoom));
+
+    // Initialize power ammo charges
+    const defaultCharges: Record<PowerId, number> = {
+      flame_burst: 10,
+      aqua_shield: 5,
+      leaf_storm: 5,
+      thunder_dash: 5,
+      starlight_beam: 5,
+    };
+    const chargesSource = initialPowerCharges || defaultCharges;
+    for (const [k, v] of Object.entries(chargesSource)) {
+      if (POWERS[k as PowerId]) {
+        this.powerCharges.set(k as PowerId, Math.max(0, Number(v) || 0));
+      }
+    }
 
     if (initialUnlockedPowers && initialUnlockedPowers.length > 0) {
       for (const p of initialUnlockedPowers) {
@@ -229,7 +261,7 @@ export class Simulation {
   startChargingPower() {
     if (this.phase !== 'PLAYING') return;
     const power = POWERS[this.activePowerId];
-    if (!power || this.energy < power.energyCost) return;
+    if (this.energy < 10) return;
     this.isChargingPower = true;
     this.powerChargeTime = 0;
     this.powerChargeRatio = 0;
@@ -264,20 +296,34 @@ export class Simulation {
   castPower(chargeRatio = 0) {
     if (this.phase !== 'PLAYING') return;
     if (this.powerCooldown > 0) {
-      // Buffer input during cooldown (< 240ms) to eliminate perceived latency and fire instantly on frame 0
-      if (this.powerCooldown <= 0.24) {
+      // Buffer input during cooldown (< 160ms) to eliminate perceived latency and fire instantly on frame 0
+      if (this.powerCooldown <= 0.16) {
         this.queuedPowerCharge = chargeRatio;
       }
       return;
     }
-    const power = POWERS[this.activePowerId];
-    if (!power || this.energy < power.energyCost) return;
+
+    const currentCharges = this.powerCharges.get(this.activePowerId) ?? 0;
+    const power = POWERS[this.activePowerId] || POWERS.flame_burst;
+    const isOutOfAmmo = currentCharges <= 0;
+
+    if (isOutOfAmmo && this.energy < 15) {
+      this.events.push('empty_ammo');
+      return;
+    }
+    if (!isOutOfAmmo && this.energy < power.energyCost) return;
     this.queuedPowerCharge = null;
+
+    if (!isOutOfAmmo) {
+      // Deduct ammo charge
+      this.powerCharges.set(this.activePowerId, currentCharges - 1);
+    }
 
     // Energy cost: scales moderately with charge, but never consumes more than available energy
     const effectiveCost = Math.min(this.energy, Math.round(power.energyCost * (1 + Math.min(chargeRatio, 2.5) * 0.7)));
     this.energy = Math.max(0, this.energy - effectiveCost);
     this.powerCooldown = power.cooldown;
+    this.muzzleFlash = 0.08;
     this.events.push('power');
 
     // Calculate environmental modifier
@@ -298,7 +344,7 @@ export class Simulation {
 
     // Spawn Player Projectile: Player projectiles persist until hitting an obstacle, the boss, or leaving the track boundaries
     this.projectiles.push({
-      id: crypto.randomUUID(),
+      id: `p-${++projectileSequence}`,
       sender: 'player',
       x: this.distance + (35 + Math.min(chargeRatio, 4) * 10) * this.facing,
       y: this.height + 25,
@@ -322,7 +368,12 @@ export class Simulation {
     if (this.bossEntity && this.distance >= Math.max(0, this.track.length - 800)) this.encounterStarted = true;
     const isClimax = this.inBossFight;
     if (isClimax) {
-      if (this.moveAxis) this.facing = this.moveAxis;
+      if (this.moveAxis) {
+        this.facing = this.moveAxis;
+      } else if (this.bossEntity) {
+        // Automatically face the boss when standing still so powers always target the boss
+        this.facing = this.bossEntity.x >= this.distance ? 1 : -1;
+      }
       this.distance = Math.max(0, Math.min(this.track.length - 1, this.distance + this.moveAxis * currentSpeed * dt));
     } else {
       this.facing = 1;
@@ -360,6 +411,7 @@ export class Simulation {
     this.hurt = Math.max(0, this.hurt - dt);
     this.slide = Math.max(0, this.slide - dt);
     this.shake = Math.max(0, this.shake - dt * 2.8);
+    this.muzzleFlash = Math.max(0, this.muzzleFlash - dt);
     this.powerCooldown = Math.max(0, this.powerCooldown - dt);
     if (this.powerCooldown === 0 && this.queuedPowerCharge !== null) {
       const q = this.queuedPowerCharge;
@@ -495,7 +547,9 @@ export class Simulation {
       return;
     }
     if (boss.recoveryTimer > 0) { boss.recoveryTimer -= dt; return; }
-    const dx = this.distance - boss.x, dy = playerY - boss.y;
+    // Maintain tactical standoff distance in front of player (280px) rather than rushing on top of player!
+    const targetX = this.distance + 280;
+    const dx = targetX - boss.x, dy = playerY - boss.y;
     const length = Math.max(1, Math.hypot(dx, dy));
     const speed = boss.isTelegraphing ? 45 : Math.max(45, this.boss.speed || 145);
     boss.x += dx / length * Math.min(length, speed * dt);
@@ -581,14 +635,30 @@ export class Simulation {
         let nearest = Infinity;
         let target: TrackItem | undefined;
         let hitBoss = false;
-        if (this.bossEntity && !this.bossEntity.defeated) {
+
+        // Viewport bounds: items within camera range can be hit
+        const forwardViewRange = this.cameraView === 'first_person' ? 1000 : 850;
+        const minVisibleX = this.distance - 120;
+        const maxVisibleX = this.distance + forwardViewRange;
+
+        // Boss can be hit in arena whenever encounter is active or within arena range
+        const isBossTargetable = !!(
+          this.bossEntity &&
+          !this.bossEntity.defeated &&
+          (this.encounterStarted || (this.bossEntity.x >= minVisibleX && this.bossEntity.x <= maxVisibleX))
+        );
+
+        if (isBossTargetable && this.bossEntity) {
           const radius = 45 * (this.boss?.size ?? 1) + p.size / 2;
           nearest = segmentHit(previousX, previousY, p.x, p.y, this.bossEntity.x - radius, this.bossEntity.x + radius, this.bossEntity.y - radius, this.bossEntity.y + radius);
           hitBoss = nearest !== Infinity;
         }
+
         for (const item of this.track.items) {
           if (!['log', 'branch', 'rock', 'drone', 'golem'].includes(item.kind) || this.destroyed.has(item.id)) continue;
           if (item.id === p.ignoredObstacleId && (p.ignoreObstacleTime ?? 0) > 0) continue;
+          // Only visible obstacles or closest enemies on-screen can be hit
+          if (item.x < minVisibleX || item.x > maxVisibleX) continue;
           // Skip obstacles behind the moving projectile
           if (p.vx > 0 && item.x < previousX - 25) continue;
           if (p.vx < 0 && item.x > previousX + 25) continue;
@@ -744,6 +814,8 @@ export class Simulation {
         if (unlockedId) {
           this.collectedPowers.add(unlockedId);
           this.activePowerId = unlockedId;
+          const current = this.powerCharges.get(unlockedId) ?? 0;
+          this.powerCharges.set(unlockedId, current + 3);
         }
       }
       return;
@@ -836,10 +908,18 @@ export class Simulation {
       bossHealth: this.bossEntity ? Math.round(this.bossEntity.health) : undefined,
       bossMaxHealth: this.bossEntity?.maxHealth,
       bossName: this.boss?.name,
+      bossArchetype: this.boss?.archetype,
+      bossElement: this.boss?.element,
+      bossDefeated: this.bossEntity?.defeated,
+      bossAttackTell: this.bossEntity?.isTelegraphing,
+      bossAttackName: this.bossEntity?.isTelegraphing
+        ? (this.bossEntity.nextAttackType === 'high' ? 'Ataque Aéreo' : 'Barrido Sísmico')
+        : undefined,
       isBossFight: this.inBossFight,
       powerCooldown: Math.max(0, this.powerCooldown),
       activePowerId: this.activePowerId,
       unlockedPowers: Array.from(this.collectedPowers),
+      powerCharges: Object.fromEntries(this.powerCharges.entries()),
       isChargingPower: this.isChargingPower,
       powerChargeRatio: this.powerChargeRatio,
       timeOfDay: this.timeOfDay,

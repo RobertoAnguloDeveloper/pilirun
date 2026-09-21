@@ -138,6 +138,118 @@ try {
     .extract({ left: 300, top: 10, width: 180, height: 234 })
     .webp({ quality: 80 })
     .toFile('public/assets/pili-idle-0.webp');
+
+  // ──────────────── Copito (Conejito Blanco) Extraction from SVG ────────────────
+  for (let i = 0; i < 6; i++) {
+    await sharp('assets/rabbit_platformer_sprite_sheet.svg')
+      .extract({ left: i * 256, top: 256, width: 256, height: 256 })
+      .webp({ quality: 85 })
+      .toFile(`public/assets/copito-run-${i}.webp`);
+  }
+  await sharp('assets/rabbit_platformer_sprite_sheet.svg')
+    .extract({ left: 1024, top: 0, width: 256, height: 256 })
+    .webp({ quality: 85 })
+    .toFile('public/assets/copito-jump-0.webp');
+  await sharp('assets/rabbit_platformer_sprite_sheet.svg')
+    .extract({ left: 0, top: 512, width: 256, height: 256 })
+    .webp({ quality: 85 })
+    .toFile('public/assets/copito-jump-1.webp');
+  await sharp('assets/rabbit_platformer_sprite_sheet.svg')
+    .extract({ left: 1024, top: 512, width: 256, height: 256 })
+    .webp({ quality: 85 })
+    .toFile('public/assets/copito-slide-0.webp');
+  await sharp('assets/rabbit_platformer_sprite_sheet.svg')
+    .extract({ left: 1280, top: 512, width: 256, height: 256 })
+    .webp({ quality: 85 })
+    .toFile('public/assets/copito-slide-1.webp');
+  await sharp('assets/rabbit_platformer_sprite_sheet.svg')
+    .extract({ left: 0, top: 0, width: 256, height: 256 })
+    .webp({ quality: 85 })
+    .toFile('public/assets/copito-idle-0.webp');
+  await sharp('assets/rabbit_platformer_sprite_sheet.svg')
+    .extract({ left: 0, top: 0, width: 256, height: 256 })
+    .webp({ quality: 85 })
+    .toFile('public/assets/copito-avatar.webp');
+
+  // ──────────────── Posho (Pollito Dorado) Extraction ────────────────
+  const poshoCols = [
+    { left: 20, width: 110 },
+    { left: 165, width: 108 },
+    { left: 310, width: 108 },
+    { left: 455, width: 108 },
+    { left: 595, width: 115 },
+    { left: 740, width: 110 },
+  ];
+  for (let i = 0; i < 6; i++) {
+    await sharp('assets/PoshoAnimated-removebg-preview.png')
+      .extract({ left: poshoCols[i].left, top: 10, width: poshoCols[i].width, height: 265 })
+      .webp({ quality: 85 })
+      .toFile(`public/assets/posho-run-${i}.webp`);
+  }
+  await sharp('assets/PoshoAnimated-removebg-preview.png')
+    .extract({ left: poshoCols[4].left, top: 10, width: poshoCols[4].width, height: 265 })
+    .webp({ quality: 85 })
+    .toFile('public/assets/posho-jump-0.webp');
+  await sharp('assets/PoshoAnimated-removebg-preview.png')
+    .extract({ left: poshoCols[5].left, top: 10, width: poshoCols[5].width, height: 265 })
+    .webp({ quality: 85 })
+    .toFile('public/assets/posho-jump-1.webp');
+  await sharp('assets/PoshoAnimated-removebg-preview.png')
+    .extract({ left: poshoCols[2].left, top: 10, width: poshoCols[2].width, height: 265 })
+    .webp({ quality: 85 })
+    .toFile('public/assets/posho-slide-0.webp');
+  await sharp('assets/PoshoAnimated-removebg-preview.png')
+    .extract({ left: poshoCols[3].left, top: 10, width: poshoCols[3].width, height: 265 })
+    .webp({ quality: 85 })
+    .toFile('public/assets/posho-slide-1.webp');
+  await sharp('assets/PoshoAnimated-removebg-preview.png')
+    .extract({ left: poshoCols[0].left, top: 10, width: poshoCols[0].width, height: 265 })
+    .webp({ quality: 85 })
+    .toFile('public/assets/posho-idle-0.webp');
+  await sharp('assets/PoshoAnimated-removebg-preview.png')
+    .extract({ left: poshoCols[0].left, top: 10, width: poshoCols[0].width, height: 265 })
+    .webp({ quality: 85 })
+    .toFile('public/assets/posho-avatar.webp');
+
+  // ──────────────── Mimi (Gatita Rosa) Extraction ────────────────
+  const mimiCols = [
+    { left: 75, width: 445 },
+    { left: 650, width: 470 },
+    { left: 1240, width: 480 },
+    { left: 1845, width: 475 },
+    { left: 2430, width: 515 },
+    { left: 3050, width: 460 },
+  ];
+  for (let i = 0; i < 6; i++) {
+    await sharp('assets/Pink Cat2.png')
+      .extract({ left: mimiCols[i].left, top: 140, width: mimiCols[i].width, height: 320 })
+      .webp({ quality: 85 })
+      .toFile(`public/assets/mimi-run-${i}.webp`);
+  }
+  await sharp('assets/Pink Cat2.png')
+    .extract({ left: mimiCols[3].left, top: 630, width: mimiCols[3].width, height: 460 })
+    .webp({ quality: 85 })
+    .toFile('public/assets/mimi-jump-0.webp');
+  await sharp('assets/Pink Cat2.png')
+    .extract({ left: mimiCols[4].left, top: 630, width: mimiCols[4].width, height: 460 })
+    .webp({ quality: 85 })
+    .toFile('public/assets/mimi-jump-1.webp');
+  await sharp('assets/Pink Cat2.png')
+    .extract({ left: mimiCols[0].left, top: 630, width: mimiCols[0].width, height: 460 })
+    .webp({ quality: 85 })
+    .toFile('public/assets/mimi-slide-0.webp');
+  await sharp('assets/Pink Cat2.png')
+    .extract({ left: mimiCols[1].left, top: 630, width: mimiCols[1].width, height: 460 })
+    .webp({ quality: 85 })
+    .toFile('public/assets/mimi-slide-1.webp');
+  await sharp('assets/Pink Cat2.png')
+    .extract({ left: mimiCols[0].left, top: 140, width: mimiCols[0].width, height: 320 })
+    .webp({ quality: 85 })
+    .toFile('public/assets/mimi-idle-0.webp');
+  await sharp('assets/Pink Cat2.png')
+    .extract({ left: mimiCols[0].left, top: 140, width: mimiCols[0].width, height: 320 })
+    .webp({ quality: 85 })
+    .toFile('public/assets/mimi-avatar.webp');
 } catch (err) {
   console.error('Error extracting character frames:', err);
 }

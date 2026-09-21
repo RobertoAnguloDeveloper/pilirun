@@ -39,6 +39,7 @@ export class GameEngine {
     levelMusicBuffer?: AudioTrack,
     bossMusicBuffer?: AudioTrack,
     private onAudioError: (message: string) => void = () => {},
+    powerCharges?: Record<string, number>,
   ) {
     this.levelMusicBuffer = levelMusicBuffer;
     this.bossMusicBuffer = bossMusicBuffer;
@@ -51,6 +52,7 @@ export class GameEngine {
       initialScale,
       cameraZoom ?? 1,
       unlockedPowers,
+      powerCharges,
     );
     if (initialCameraView) this.simulation.setCameraView(initialCameraView);
     const ctx = canvas.getContext('2d', { alpha: false });
@@ -129,23 +131,22 @@ export class GameEngine {
   setMoveAxis(axis: -1 | 0 | 1) { this.simulation.setMoveAxis(axis); }
   jump() {
     this.simulation.jump();
+    for (const event of this.simulation.events.splice(0)) audioEngine.effect(event);
   }
   slide() {
     this.simulation.duck();
+    for (const event of this.simulation.events.splice(0)) audioEngine.effect(event);
   }
   castPower() {
     this.simulation.castPower();
-    this.onHud(this.simulation.hud());
-    this.draw();
+    for (const event of this.simulation.events.splice(0)) audioEngine.effect(event);
   }
   startChargePower() {
     this.simulation.startChargingPower();
-    this.onHud(this.simulation.hud());
   }
   releaseChargePower() {
     this.simulation.releaseChargedPower();
-    this.onHud(this.simulation.hud());
-    this.draw();
+    for (const event of this.simulation.events.splice(0)) audioEngine.effect(event);
   }
   respawnAtCheckpoint(): boolean {
     const success = this.simulation.respawnAtCheckpoint();

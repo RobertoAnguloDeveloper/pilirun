@@ -544,35 +544,61 @@ describe('runner physics and progression', () => {
     expect(game.destroyed.has('golem-1')).toBe(false); // still alive
   });
 
-  it('allows fireballs to hit boss from afar before inBossFight is reached and triggers encounter', () => {
+  it('prevents power balls from harming the boss when the boss is not on screen yet and allows hits when visible', () => {
     const track: Track = {
       ...empty(),
       length: 5000,
       boss: {
         id: 'test-boss',
-        name: 'Boss',
+        name: 'Test Boss',
         element: 'fire',
         size: 1.5,
         health: 200,
         maxHealth: 200,
         damage: 1,
-        speed: 200,
+        speed: 100,
         attackFrequency: 2,
         projectileType: 'fireball',
-        projectileSpeed: 300,
+        projectileSpeed: 200,
         weakness: 'water',
         resistance: 'fire',
       },
     };
     const game = new Simulation(track);
     game.start();
-    // Distance far from boss encounter threshold (threshold is 5000 - 800 = 4200)
+    // Distance far from boss (boss is at 5000 - 160 = 4840; player is at 3500; boss is off-screen)
     game.distance = 3500;
     expect(game.inBossFight).toBe(false);
 
-    // Fire player projectile towards boss (boss is at 5000 - 280 = 4720)
+    // Fire player projectile towards boss while boss is NOT on screen
     game.projectiles.push({
       id: 'sniper-shot',
+      sender: 'player',
+      x: 4800,
+      y: 60,
+      vx: 15000,
+      vy: 0,
+      damage: 40,
+      element: 'water',
+      type: 'aqua_shield',
+      size: 20,
+      color: '#06b6d4',
+      life: 2,
+    });
+
+    game.update(STEP);
+
+    // Boss was NOT on screen: boss must NOT be harmed!
+    expect(game.bossEntity?.health).toBe(200);
+    expect(game.hitFlashes.has('boss')).toBe(false);
+
+    // Now player moves close so the boss encounter is active and boss is visible on screen
+    game.distance = 4300;
+    game.update(STEP); // triggers encounterStarted = true since distance >= 5000 - 800
+
+    // Fire player projectile towards boss while boss IS on screen
+    game.projectiles.push({
+      id: 'visible-shot',
       sender: 'player',
       x: 4600,
       y: 60,
@@ -588,10 +614,9 @@ describe('runner physics and progression', () => {
 
     game.update(STEP);
 
-    // Boss must be damaged, hit flash set, and encounter triggered!
+    // Now that boss is visible on screen, it takes damage!
     expect(game.bossEntity?.health).toBe(160);
     expect(game.hitFlashes.has('boss')).toBe(true);
-    expect(game.encounterStarted).toBe(true);
   });
 
   it('buffers fire input during cooldown and fires immediately when cooldown finishes', () => {
@@ -621,6 +646,114 @@ describe('runner physics and progression', () => {
 
     game.startChargingPower();
     expect(game.isChargingPower).toBe(true);
+  });
+
+  it('generates monotonic high-speed projectile IDs without uuid collisions', () => {
+    const game = new Simulation(empty());
+    game.start();
+
+    game.castPower();
+    expect(game.projectiles).toHaveLength(1);
+    const id1 = game.projectiles[0].id;
+    expect(id1).toMatch(/^p-\d+$/);
+
+    // Reset cooldown and cast second projectile
+    game.powerCooldown = 0;
+    game.castPower();
+    expect(game.projectiles).toHaveLength(2);
+    const id2 = game.projectiles[1].id;
+    expect(id2).toMatch(/^p-\d+$/);
+
+    const num1 = parseInt(id1.replace('p-', ''), 10);
+    const num2 = parseInt(id2.replace('p-', ''), 10);
+    expect(num2).toBe(num1 + 1);
+  });
+
+  it('triggers muzzleFlash on cast and decays correctly with physics microsteps', () => {
+    const game = new Simulation(empty());
+    game.start();
+    expect(game.muzzleFlash).toBe(0);
+
+    game.castPower();
+    expect(game.muzzleFlash).toBe(0.08);
+
+    // Decay by 30ms
+    game.update(0.03);
+    expect(game.muzzleFlash).toBeCloseTo(0.05, 5);
+
+    // Decay past expiration
+    game.update(0.06);
+    expect(game.muzzleFlash).toBe(0);
+  });
+
+  it('discards queued fire input if cooldown remaining is greater than 160ms window', () => {
+    const game = new Simulation(empty());
+    game.start();
+    game.powerCooldown = 0.25; // 250ms remaining, outside the 160ms buffer window
+
+    game.castPower();
+    expect(game.queuedPowerCharge).toBeNull();
+    expect(game.projectiles).toHaveLength(0);
+  });
+
+  it('preserves charge ratio in queued shot when releasing charge during cooldown', () => {
+    const game = new Simulation(empty());
+    game.start();
+    game.powerCooldown = 0.08; // 80ms remaining
+
+    // Start charging and simulate 1.5 charge ratio
+    game.startChargingPower();
+    game.powerChargeRatio = 1.5;
+
+    // Release charge while still in cooldown (< 160ms)
+    game.releaseChargedPower();
+    expect(game.queuedPowerCharge).toBeCloseTo(1.5, 4);
+    expect(game.projectiles).toHaveLength(0);
+
+    // Advance 90ms: cooldown expires and queued charged shot fires
+    game.update(0.09);
+    expect(game.projectiles).toHaveLength(1);
+    expect(game.projectiles[0].size).toBeGreaterThan(30); // Charged projectile is enlarged
+    expect(game.queuedPowerCharge).toBeNull();
+  });
+
+  it('only hits visible obstacles in screen range and strikes the closest target first', () => {
+    const track: Track = {
+      ...empty(),
+      items: [
+        { id: 'near-log', x: 700, kind: 'log' },
+        { id: 'mid-branch', x: 950, kind: 'branch' },
+        { id: 'far-offscreen-drone', x: 2500, kind: 'drone' },
+      ],
+    };
+    const game = new Simulation(track);
+    game.start();
+    game.distance = 500; // Visible range is ~380 to 1350
+
+    // Fire player projectile
+    game.projectiles.push({
+      id: 'test-shot',
+      sender: 'player',
+      x: 550,
+      y: 0,
+      vx: 20000,
+      vy: 0,
+      damage: 40,
+      element: 'fire',
+      type: 'flame_burst',
+      size: 20,
+      color: '#f97316',
+      life: 2,
+    });
+
+    game.update(STEP);
+
+    // The shot must hit the closest visible obstacle (near-log at 700)
+    expect(game.obstacleDurability.get('near-log')).toBeDefined();
+    // mid-branch was further, so it wasn't hit by this projectile
+    expect(game.obstacleDurability.get('mid-branch')).toBeUndefined();
+    // far-offscreen-drone is off-screen, must NOT be hit
+    expect(game.obstacleDurability.get('far-offscreen-drone')).toBeUndefined();
   });
 });
 describe('playable track validation', () => {

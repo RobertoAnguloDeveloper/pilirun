@@ -75,6 +75,9 @@ const boundsCache = new WeakMap<HTMLImageElement, SpriteBounds>();
 export function measureSprite(image: HTMLImageElement): SpriteBounds {
   const cached = boundsCache.get(image);
   if (cached) return cached;
+  if (!image.complete || !image.naturalWidth || !image.naturalHeight) {
+    return { x: 0, y: 0, width: Math.max(1, image.width || 64), height: Math.max(1, image.height || 64) };
+  }
   const canvas = document.createElement('canvas');
   canvas.width = image.naturalWidth;
   canvas.height = image.naturalHeight;
@@ -90,7 +93,9 @@ export function measureSprite(image: HTMLImageElement): SpriteBounds {
   } catch {
     /* An unreadable image retains its original bounds. */
   }
-  boundsCache.set(image, bounds);
+  if (bounds.width > 0 && bounds.height > 0) {
+    boundsCache.set(image, bounds);
+  }
   return bounds;
 }
 
@@ -103,11 +108,14 @@ export function drawGroundedSprite(
   options: { hideShadow?: boolean } = {},
 ) {
   const b = measureSprite(image);
+  const naturalH = image.naturalHeight || image.height || 64;
   const feet =
     baseline === undefined
       ? b.y + b.height
-      : Math.max(b.y + 1, Math.min(image.naturalHeight, baseline * image.naturalHeight));
-  const scale = height / (feet - b.y);
+      : Math.max(b.y + 1, Math.min(naturalH, baseline * naturalH));
+  const diff = Math.max(1, feet - b.y);
+  const scale = height / diff;
+  if (!Number.isFinite(scale) || scale <= 0) return;
 
   if (!options.hideShadow) {
     ctx.drawImage(

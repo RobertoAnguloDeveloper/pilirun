@@ -399,16 +399,35 @@ class AudioEngine {
     return buffer;
   }
 
-  effect(kind: 'jump' | 'coin' | 'hit' | 'power' | 'win' | 'destroy-shield' | 'ricochet') {
+  effect(kind: 'jump' | 'coin' | 'hit' | 'power' | 'win' | 'destroy-shield' | 'ricochet' | 'empty_ammo') {
     if (!this.context || this.preferences.muted || this.preferences.sfxVolume <= 0) return;
     const ctx = this.context,
       oscillator = ctx.createOscillator(),
       gain = ctx.createGain();
-    const notes = { jump: 420, coin: 1000, hit: 110, power: 700, win: 880, 'destroy-shield': 520, ricochet: 1320 };
+    const notes: Record<typeof kind, number> = {
+      jump: 420,
+      coin: 1000,
+      hit: 110,
+      power: 700,
+      win: 880,
+      'destroy-shield': 520,
+      ricochet: 1320,
+      empty_ammo: 180,
+    };
+    // Defensive: a malformed event kind or a corrupted `sfxPitch` could push a
+    // non-finite float into AudioParam, which the Web Audio API rejects with
+    // "non-finite" errors. Bail out cleanly if that ever happens.
+    const pitch = Number(this.preferences.sfxPitch);
+    const baseFreq = notes[kind] * (Number.isFinite(pitch) && pitch > 0 ? pitch : 1);
+    if (!Number.isFinite(baseFreq) || baseFreq <= 0) {
+      oscillator.disconnect();
+      gain.disconnect();
+      return;
+    }
     oscillator.type = kind === 'destroy-shield' ? 'sawtooth' : kind === 'hit' ? 'triangle' : 'sine';
-    oscillator.frequency.setValueAtTime(notes[kind] * this.preferences.sfxPitch, ctx.currentTime);
+    oscillator.frequency.setValueAtTime(baseFreq, ctx.currentTime);
     oscillator.frequency.exponentialRampToValueAtTime(
-      notes[kind] * this.preferences.sfxPitch * (kind === 'hit' ? 0.5 : kind === 'destroy-shield' ? 0.35 : 1.5),
+      baseFreq * (kind === 'hit' ? 0.5 : kind === 'destroy-shield' ? 0.35 : 1.5),
       ctx.currentTime + (kind === 'destroy-shield' ? 0.18 : 0.12),
     );
     gain.gain.setValueAtTime(

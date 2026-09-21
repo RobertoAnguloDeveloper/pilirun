@@ -48,11 +48,13 @@ import {
   Info,
   Share2,
   Swords,
+  ShoppingBag,
 } from 'lucide-react';
+import { PowerStoreModal } from './power-store-modal';
 import { Avatar, Landscape } from './art';
 import { BackgroundRunner } from './background-runner';
 import { CHARACTERS, TRACKS, WORLDS, mergeCharacters } from '@/lib/worlds';
-import { OFFICIAL_LEVELS, type LevelConfig } from '@/lib/procedural';
+import { OFFICIAL_LEVELS, generateRandomSeedLevel, type LevelConfig } from '@/lib/procedural';
 import {
   DEFAULT_PREFERENCES,
   type Backend,
@@ -67,7 +69,16 @@ import {
   type DatabaseSection,
   type StorageDetails,
   type BossConfig,
+  type LevelProgress,
+  type LevelScoreRecord,
 } from '@/lib/types';
+import {
+  loadCachedLevelProgress,
+  saveCachedLevelProgress,
+  mergeLevelProgress,
+  applyRunProgression,
+  DEFAULT_LEVEL_PROGRESS,
+} from '@/lib/progression';
 import { localStore } from '@/lib/storage';
 import { audioEngine } from '@/lib/audio';
 import { scenarioToTrack } from '@/lib/scenario';
@@ -109,15 +120,27 @@ const NAV = [
   { id: 'stats', name: 'Mis aventuras', icon: Trophy },
 ] as const;
 export default function PiliRun() {
+  // Guard against SSR/client hydration mismatches caused by client-only state
+  // (e.g. localStorage-backed level progress). Both server and first client
+  // render must produce identical markup, so any value sourced from
+  // localStorage must be gated behind this flag.
+  const [hydrated, setHydrated] = useState(false);
+  useEffect(() => {
+    setHydrated(true);
+  }, []);
+  const [levelProgress, setLevelProgress] = useState<LevelProgress>(DEFAULT_LEVEL_PROGRESS);
   const [page, setPage] = useState<Page>('home'),
-    [data, setData] = useState<SavedData>({
+    [data, setData] = useState<SavedData>(() => ({
       characters: [],
       tracks: [],
       scenarios: [],
       runs: [],
       music: [],
       preferences: DEFAULT_PREFERENCES,
-    });
+      levelProgress: DEFAULT_LEVEL_PROGRESS,
+      characterLevel: DEFAULT_LEVEL_PROGRESS.characterLevel,
+      unlockedPowers: DEFAULT_LEVEL_PROGRESS.unlockedPowers,
+    }));
   const [backend, setBackend] = useState<Backend>(),
     [ready, setReady] = useState(false),
     [error, setError] = useState(''),
@@ -132,7 +155,7 @@ export default function PiliRun() {
   const [bossAssignBusy, setBossAssignBusy] = useState(false);
   const [bossAssignError, setBossAssignError] = useState('');
   const startTicket = useRef(0);
-  const [cumulativePowers, setCumulativePowers] = useState<import('../lib/combat').PowerId[]>([]);
+  const [cumulativePowers, setCumulativePowers] = useState<import('../lib/combat').PowerId[]>(['flame_burst']);
   const [playing, setPlaying] = useState<{
       sessionId: string;
       sequence: string[];
@@ -152,6 +175,7 @@ export default function PiliRun() {
   const [installModalOpen, setInstallModalOpen] = useState(false);
   const [installedToastShown, setInstalledToastShown] = useState(false);
   const [quickCustomizeOpen, setQuickCustomizeOpen] = useState(false);
+  const [powerStoreOpen, setPowerStoreOpen] = useState(false);
   const initialized = useRef(false),
     prefTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const currentPrefs = useRef(data.preferences);
@@ -189,7 +213,19 @@ export default function PiliRun() {
       .init()
       .then(({ backend, data }) => {
         setBackend(backend);
-        setData(data);
+        const cached = loadCachedLevelProgress();
+        const merged = mergeLevelProgress(cached, data.levelProgress);
+        saveCachedLevelProgress(merged);
+        setLevelProgress(merged);
+        if (merged.unlockedPowers.length > 0) {
+          setCumulativePowers(merged.unlockedPowers as import('../lib/combat').PowerId[]);
+        }
+        setData({
+          ...data,
+          levelProgress: merged,
+          characterLevel: merged.characterLevel,
+          unlockedPowers: merged.unlockedPowers,
+        });
         currentPrefs.current = data.preferences;
         audioEngine.configure(data.preferences);
         setReady(true);
@@ -524,12 +560,35 @@ export default function PiliRun() {
 
   const saveRun = async (run: RunResult) => {
     await localStore.request({ action: 'save', collection: 'runs', id: run.id, value: run });
-    let newLevel = data.characterLevel ?? 1;
+    const campaignTrackIds = tracks.map((t) => t.id);
+    const updatedProgress = applyRunProgression(
+      levelProgress,
+      run,
+      campaignTrackIds,
+      cumulativePowers,
+    );
+    saveCachedLevelProgress(updatedProgress);
+    setLevelProgress(updatedProgress);
+
+    void localStore.request({
+      action: 'save',
+      collection: 'preferences',
+      id: 'level_progress',
+      value: updatedProgress,
+    });
+
     if (run.won) {
-      newLevel = Math.min(20, newLevel + 1);
-      setToast(`¡NIVEL AUMENTADO! Tu personaje ahora es Nivel ${newLevel} (Aura más intensa)`);
+      setToast(
+        `¡NIVEL SUPERADO! Personaje Nivel ${updatedProgress.characterLevel} · Total: ${updatedProgress.totalStars} ⭐`,
+      );
     }
-    setData((d) => ({ ...d, runs: [...d.runs, run], characterLevel: newLevel }));
+    setData((d) => ({
+      ...d,
+      runs: [...d.runs, run],
+      characterLevel: updatedProgress.characterLevel,
+      levelProgress: updatedProgress,
+      unlockedPowers: updatedProgress.unlockedPowers,
+    }));
   };
   const saveMusic = async (track: AudioTrack, blob: Blob) => {
     await localStore.request({ action: 'music-put', track, blob });
@@ -618,10 +677,28 @@ export default function PiliRun() {
         </nav>
 
         <div className="arcade-header-stats">
-          <span className="arcade-stat-badge" title="Monedas recolectadas">
+          <button
+            type="button"
+            className="arcade-stat-badge"
+            style={{ cursor: 'pointer', border: '1px solid rgba(251, 191, 36, 0.4)' }}
+            onClick={() => setPowerStoreOpen(true)}
+            title="Bazar de Poderes: Intercambia monedas por recargas de superpoderes"
+            aria-label="Abrir Bazar de Poderes"
+          >
             <Coins size={16} />
             <strong>{totalCoins.toLocaleString('es')}</strong>
-          </span>
+          </button>
+
+          <button
+            type="button"
+            className="arcade-icon-btn"
+            style={{ color: '#fbbf24', borderColor: 'rgba(251, 191, 36, 0.4)' }}
+            onClick={() => setPowerStoreOpen(true)}
+            title="Bazar de Poderes: Comprar superpoderes con monedas"
+            aria-label="Bazar de Poderes"
+          >
+            <ShoppingBag size={18} />
+          </button>
 
           {!isStandalone && (
             <button
@@ -715,15 +792,44 @@ export default function PiliRun() {
               startTicket.current++;
               const returnPage = playing.returnPage;
               setPlaying(null);
-              setCumulativePowers([]);
+              saveCachedLevelProgress(levelProgress);
               setPage(returnPage);
             }}
             onResult={saveRun}
+            progress={levelProgress}
+            onProgressChange={(next) => {
+              saveCachedLevelProgress(next);
+              setLevelProgress(next);
+            }}
             onNextLevel={(chosenPower, updatedCumulative) => {
               setCumulativePowers(updatedCumulative);
               preferences({ ...data.preferences, selectedPowerId: chosenPower });
 
-              const nextId = playing.sequence[playing.sequenceIndex + 1];
+              const updated = {
+                ...levelProgress,
+                unlockedPowers: Array.from(
+                  new Set([...levelProgress.unlockedPowers, ...updatedCumulative, chosenPower]),
+                ),
+              };
+              saveCachedLevelProgress(updated);
+              setLevelProgress(updated);
+              void localStore.request({
+                action: 'save',
+                collection: 'preferences',
+                id: 'level_progress',
+                value: updated,
+              });
+
+              // Look up the next level. If we're at the end of the campaign
+              // (volcano-3 on the default 18-track sequence), loop back to
+              // level 1 so the player has a clear "continue" path instead of
+              // getting stuck on the game-over screen with no forward option.
+              let nextIndex = playing.sequenceIndex + 1;
+              if (nextIndex >= playing.sequence.length) {
+                nextIndex = 0;
+                setToast('¡Campaña completada! Comenzando una nueva ronda desde el primer mundo.');
+              }
+              const nextId = playing.sequence[nextIndex];
               const nextTrack = tracks.find((track) => track.id === nextId);
               if (!nextTrack) { setToast('La siguiente pista ya no está disponible.'); return; }
               void start(nextTrack, undefined, undefined, playing.returnPage, playing.sequence, true);
@@ -789,6 +895,20 @@ export default function PiliRun() {
                     <div className="status-divider" />
 
                     <button
+                      className="status-preview-item"
+                      onClick={() => setPowerStoreOpen(true)}
+                      title="Bazar de Poderes: Intercambia monedas por recargas de superpoderes"
+                    >
+                      <span className="status-label">Bazar</span>
+                      <strong className="status-val text-amber-300">
+                        <ShoppingBag size={14} /> Poderes
+                      </strong>
+                      <span className="status-sub">Tienda de Magias</span>
+                    </button>
+
+                    <div className="status-divider" />
+
+                    <button
                       className="status-preview-item quick-customize-trigger"
                       onClick={() => setQuickCustomizeOpen(true)}
                       title="Edición rápida de personaje y entorno en 1 clic"
@@ -813,25 +933,66 @@ export default function PiliRun() {
                   )}
                 </div>
 
+                {/* Campaign Progress Strip */}
+                <div className="arcade-campaign-strip">
+                  <span className="campaign-strip-badge" title="Progreso total en los niveles oficiales de la campaña">
+                    <Trophy size={14} className="text-amber-400" />
+                    <span>
+                      CAMPAÑA: {hydrated ? levelProgress.completedLevelIds.length : 0} / {tracks.length} COMPLETADOS
+                    </span>
+                  </span>
+                  <span className="campaign-stars-badge" title="Estrellas totales acumuladas">
+                    <Sparkles size={14} className="text-amber-300" />
+                    <span>{hydrated ? levelProgress.totalStars : 0} ESTRELLAS ⭐</span>
+                  </span>
+                  <span className="campaign-level-badge" title="Nivel de personaje persistente">
+                    <span>HÉROE NV. {hydrated ? levelProgress.characterLevel : 1}</span>
+                  </span>
+                </div>
+
                 <div className="arcade-center-actions">
-                  <button
-                    className="arcade-big-play-btn"
-                    tabIndex={-1}
-                    disabled={!ready}
-                    onPointerDown={(e) => e.currentTarget.blur()}
-                    onClick={(e) => {
-                      e.currentTarget.blur();
-                      void start();
-                    }}
-                    title="Empezar a correr"
-                  >
-                    {ready ? (
-                      <Play size={26} fill="currentColor" />
-                    ) : (
-                      <LoaderCircle size={26} className="spin" />
+                  <div className="arcade-action-buttons-group">
+                    {levelProgress.completedLevelIds.length > 0 && (
+                      <button
+                        className="arcade-continue-btn"
+                        disabled={!ready}
+                        onClick={() => {
+                          const targetTrack = tracks[levelProgress.currentLevelIndex] || tracks[0];
+                          void start(
+                            targetTrack,
+                            undefined,
+                            undefined,
+                            'home',
+                            tracks.map((t) => t.id),
+                            true,
+                          );
+                        }}
+                        title={`Continuar aventura en ${tracks[levelProgress.currentLevelIndex]?.name || 'Nivel Siguiente'}`}
+                      >
+                        <Trophy size={20} className="text-amber-300" />
+                        <span>CONTINUAR CAMPAÑA (NV. {levelProgress.currentLevelIndex + 1})</span>
+                      </button>
                     )}
-                    <span>{ready ? 'JUGAR AHORA' : 'PREPARANDO…'}</span>
-                  </button>
+
+                    <button
+                      className="arcade-big-play-btn"
+                      tabIndex={-1}
+                      disabled={!ready}
+                      onPointerDown={(e) => e.currentTarget.blur()}
+                      onClick={(e) => {
+                        e.currentTarget.blur();
+                        void start();
+                      }}
+                      title="Empezar a correr"
+                    >
+                      {ready ? (
+                        <Play size={26} fill="currentColor" />
+                      ) : (
+                        <LoaderCircle size={26} className="spin" />
+                      )}
+                      <span>{ready ? (levelProgress.completedLevelIds.length > 0 ? 'PARTIDA RÁPIDA' : 'JUGAR AHORA') : 'PREPARANDO…'}</span>
+                    </button>
+                  </div>
 
                   {/* Instructions Bar */}
                   <div className="arcade-footer-bar">
@@ -1059,6 +1220,21 @@ export default function PiliRun() {
                             <small>{WORLDS[trk.world]?.name || trk.world}</small>
                           </button>
                         ))}
+                        <button
+                          className="quick-world-chip procedural-chip"
+                          onClick={() => {
+                            const worldIds = Object.keys(WORLDS) as (keyof typeof WORLDS)[];
+                            const randWorld = worldIds[Math.floor(Math.random() * worldIds.length)];
+                            const randDiff = (Math.floor(Math.random() * 3) + 1) as 1 | 2 | 3;
+                            const procTrack = generateRandomSeedLevel(randWorld, randDiff);
+                            void saveTrack(procTrack);
+                            preferences({ ...data.preferences, trackId: procTrack.id });
+                          }}
+                          title="Genera una nueva pista procedural con semilla aleatoria y jefe dinámico"
+                        >
+                          <span>🎲 Pista Procedural</span>
+                          <small>Generar con IA</small>
+                        </button>
                       </div>
                     </div>
                   </div>
@@ -1108,6 +1284,23 @@ export default function PiliRun() {
                             <h1>Elige tu próximo escenario</h1>
                             <p>6 mundos con físicas, saltos y atmósfera 3D única.</p>
                           </div>
+                          <div className="procedural-action-box">
+                            <button
+                              className="primary procedural-btn"
+                              onClick={() => {
+                                const worldIds = Object.keys(WORLDS) as (keyof typeof WORLDS)[];
+                                const randWorld = worldIds[Math.floor(Math.random() * worldIds.length)];
+                                const randDiff = (Math.floor(Math.random() * 3) + 1) as 1 | 2 | 3;
+                                const procTrack = generateRandomSeedLevel(randWorld, randDiff);
+                                void saveTrack(procTrack);
+                                preferences({ ...data.preferences, trackId: procTrack.id });
+                                void start(procTrack);
+                              }}
+                              title="Genera un nivel con semillas procedurales infinitas, ritmos equilibrados y jefes dinámicos"
+                            >
+                              <Sparkles size={18} /> Generar Pista Procedural 🎲
+                            </button>
+                          </div>
                         </div>
                         <div className="world-grid worlds-full">
                           {tracks.map((track, index) => (
@@ -1116,6 +1309,8 @@ export default function PiliRun() {
                               track={track}
                               index={index}
                               selected={selectedTrack.id === track.id}
+                              levelScore={levelProgress.levelScores[track.id]}
+                              isNextMission={levelProgress.currentLevelIndex === index}
                               onClick={() => {
                                 preferences({ ...data.preferences, trackId: track.id });
                                 void start(track);
@@ -2006,6 +2201,37 @@ export default function PiliRun() {
           </div>
         </div>
       )}
+
+      {powerStoreOpen && (
+        <PowerStoreModal
+          progress={levelProgress}
+          onUpdateProgress={(updated) => {
+            saveCachedLevelProgress(updated);
+            setLevelProgress(updated);
+            if (updated.unlockedPowers && updated.unlockedPowers.length > 0) {
+              setCumulativePowers(updated.unlockedPowers as import('../lib/combat').PowerId[]);
+            }
+            void localStore.request({
+              action: 'save',
+              collection: 'preferences',
+              id: 'level_progress',
+              value: updated,
+            });
+            setData((d) => ({
+              ...d,
+              levelProgress: updated,
+              characterLevel: updated.characterLevel,
+              unlockedPowers: updated.unlockedPowers,
+            }));
+          }}
+          onClose={() => setPowerStoreOpen(false)}
+          onPlaySfx={(sound) => {
+            if (sound === 'coin') audioEngine.effect('coin');
+            else if (sound === 'power') audioEngine.effect('power');
+            else audioEngine.effect('hit');
+          }}
+        />
+      )}
     </div>
   );
 }
@@ -2016,6 +2242,8 @@ function WorldCard({
   onClick,
   onConfigureMusic,
   onConfigureBoss,
+  levelScore,
+  isNextMission,
 }: {
   track: Track;
   index: number;
@@ -2023,6 +2251,8 @@ function WorldCard({
   onClick: () => void;
   onConfigureMusic?: () => void;
   onConfigureBoss?: () => void;
+  levelScore?: LevelScoreRecord;
+  isNextMission?: boolean;
 }) {
   const levelInfo = OFFICIAL_LEVELS.find((lvl) => lvl.id === track.id);
   return (
@@ -2034,6 +2264,16 @@ function WorldCard({
         {selected && (
           <span className="selected-tag">
             <Check size={11} /> ELEGIDO
+          </span>
+        )}
+        {levelScore?.completed && (
+          <span className="world-stars-badge" title={`Nivel superado · ${levelScore.stars} estrellas`}>
+            {'⭐'.repeat(levelScore.stars)}
+          </span>
+        )}
+        {isNextMission && !levelScore?.completed && (
+          <span className="world-next-mission-badge">
+            <Sparkles size={11} /> SIGUIENTE
           </span>
         )}
         <span className="world-distance">{track.length / 10} m</span>
@@ -2102,6 +2342,12 @@ function WorldCard({
           <span>
             <i className={`difficulty-dot ${track.world}`} />
             {WORLDS[track.world].difficulty}
+            {levelScore?.highScore ? (
+              <>
+                <span className="world-separator">·</span>
+                <strong style={{ color: '#fde047' }}>Récord: {levelScore.highScore.toLocaleString('es')}</strong>
+              </>
+            ) : null}
             <span className="world-separator">·</span>
             {track.custom
               ? 'Creado por ti'

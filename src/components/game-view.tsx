@@ -19,6 +19,7 @@ import {
   Sun,
   Moon,
   Swords,
+  Trophy,
   X,
   Zap,
   ZoomIn,
@@ -51,10 +52,38 @@ import {
   getCurrentDeviceTimeOfDay,
   type TimeOfDay,
 } from '@/lib/environment';
+import {
+  DEFAULT_POWER_CHARGES,
+  POWER_STORE_CATALOG,
+  POWER_UNLOCK_COSTS,
+  buyPowerCharges,
+  unlockPowerWithCoins,
+} from '@/lib/progression';
+import type { LevelProgress } from '@/lib/types';
+import { PowerStoreModal } from './power-store-modal';
 
 const EMPTY_SCENARIO_ASSETS: ScenarioAsset[] = [];
 const EMPTY_MUSIC: MusicTrack[] = [];
 const EMPTY_POWERS: PowerId[] = [];
+
+const BOSS_ELEMENT_META: Record<string, { label: string; icon: string }> = {
+  nature: { label: 'Naturaleza', icon: '🌿' },
+  earth: { label: 'Solar / Tierra', icon: '☀️' },
+  cosmic: { label: 'Vacío Cósmico', icon: '🌌' },
+  tech: { label: 'Cibernético', icon: '⚡' },
+  ice: { label: 'Glacial', icon: '❄️' },
+  fire: { label: 'Magma', icon: '🔥' },
+};
+
+const BOSS_ARCHETYPE_ICONS: Record<string, string> = {
+  treant: '🌲',
+  sphinx: '🦁',
+  void_dragon: '🐉',
+  cyber_titan: '🤖',
+  frost_behemoth: '❄️',
+  magma_dragon: '🌋',
+  custom: '👾',
+};
 
 export function GameView({
   track,
@@ -76,6 +105,8 @@ export function GameView({
   autoStart = false,
   hasNextLevel = false,
   campaign = false,
+  progress,
+  onProgressChange,
 }: {
   track: Track;
   scenario?: Scenario;
@@ -96,6 +127,8 @@ export function GameView({
   hasNextLevel?: boolean;
   campaign?: boolean;
   onNextLevel?: (selectedPower: PowerId, cumulative: PowerId[]) => void;
+  progress: LevelProgress;
+  onProgressChange: (next: LevelProgress) => void;
 }) {
   const canvas = useRef<HTMLCanvasElement>(null),
     engine = useRef<GameEngine | null>(null),
@@ -135,6 +168,8 @@ export function GameView({
   const activeJoystickPointerId = useRef<number | null>(null);
   const activeFirePointerId = useRef<number | null>(null);
   const joystickStart = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
+  // Same as joystickStart but in viewport coords, for absolutely-positioned overlays.
+  const joystickStartView = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
   const touchDownTime = useRef<number>(0);
 
   const [joystickTouch, setJoystickTouch] = useState<{
@@ -155,9 +190,51 @@ export function GameView({
 
   // Auto-progression modal state (shown only on victory)
   const [showAutoNextModal, setShowAutoNextModal] = useState<boolean>(false);
+  const [showStore, setShowStore] = useState<boolean>(false);
   const [completedResult, setCompletedResult] = useState<RunResult | null>(null);
   const [countdown, setCountdown] = useState(3);
   const transitioned = useRef(false);
+
+  // Bazar de Poderes: keep mutable handles so callbacks always see latest progress.
+  const progressRef = useRef<LevelProgress>(progress);
+  progressRef.current = progress;
+  const handleProgressChange = (next: LevelProgress) => {
+    progressRef.current = next;
+    onProgressChange(next);
+  };
+  const handleBuyCharges = (powerId: PowerId, amount: number, cost: number) => {
+    const res = buyPowerCharges(progressRef.current, powerId, amount, cost);
+    if (res.success) {
+      // Push the new charges into the live simulation immediately so the
+      // player can fire without restarting the run.
+      const fresh = res.progress.powerCharges?.[powerId] ?? 0;
+      const sim = engine.current?.simulation as any | undefined;
+      sim?.powerCharges?.set?.(powerId as any, fresh);
+      handleProgressChange(res.progress);
+      setPowerToast(`¡+${amount} cargas de ${POWERS[powerId]?.icon ?? powerId}!`);
+      clearTimeout(powerToastTimer.current);
+      powerToastTimer.current = setTimeout(() => setPowerToast(''), 2400);
+    } else {
+      setPowerToast(res.reason ?? 'Monedas insuficientes');
+      clearTimeout(powerToastTimer.current);
+      powerToastTimer.current = setTimeout(() => setPowerToast(''), 2400);
+    }
+  };
+  const handleUnlockPower = (powerId: PowerId, cost: number) => {
+    const res = unlockPowerWithCoins(progressRef.current, powerId, cost);
+    if (res.success) {
+      const sim = engine.current?.simulation as any | undefined;
+      sim?.collectedPowers?.add?.(powerId as any);
+      handleProgressChange(res.progress);
+      setPowerToast(`¡${POWERS[powerId]?.icon ?? ''} ${POWERS[powerId]?.name ?? powerId} desbloqueado!`);
+      clearTimeout(powerToastTimer.current);
+      powerToastTimer.current = setTimeout(() => setPowerToast(''), 2400);
+    } else {
+      setPowerToast(res.reason ?? 'Monedas insuficientes');
+      clearTimeout(powerToastTimer.current);
+      powerToastTimer.current = setTimeout(() => setPowerToast(''), 2400);
+    }
+  };
   const continueLevel = () => {
     if (transitioned.current || !hasNextLevel || !completedResult) return;
     transitioned.current = true;
@@ -260,6 +337,11 @@ export function GameView({
 
       if (isDisposed) return;
 
+      // Snapshot the starting charges so the run is repeatable.
+      const startingCharges: Record<string, number> = {
+        ...(progressRef.current.powerCharges ?? DEFAULT_POWER_CHARGES),
+      };
+
       const game = new GameEngine(
         canvas.current!,
         track,
@@ -284,6 +366,24 @@ export function GameView({
           completedSession.current = { track, round };
           setResult(r);
           setSaved('Guardando carrera…');
+          // Persist live power charges to progress so the next run picks them up.
+          try {
+            const liveCharges = Object.fromEntries(
+              (game.simulation as any).powerCharges as Map<string, number>,
+            ) as Record<string, number>;
+            const liveUnlocked = Array.from(
+              (game.simulation as any).collectedPowers as Set<string>,
+            ) as PowerId[];
+            handleProgressChange({
+              ...progressRef.current,
+              powerCharges: { ...progressRef.current.powerCharges, ...liveCharges },
+              unlockedPowers: Array.from(
+                new Set([...(progressRef.current.unlockedPowers ?? []), ...liveUnlocked]),
+              ) as PowerId[],
+            });
+          } catch {
+            /* non-fatal */
+          }
           void resultHandler
             .current(r)
             .then(() => { if (!isDisposed) setSaved('Carrera guardada'); })
@@ -308,6 +408,7 @@ export function GameView({
         levelMusicBuffer,
         bossMusicBuffer,
         setAudioMessage,
+        startingCharges,
       );
 
       gameInstance = game;
@@ -467,6 +568,12 @@ export function GameView({
     setCompletedResult(null);
     setResult(null);
     setSaved('');
+    // Clear any leftover dynamic touch indicators so the fire/joystick circles
+    // don't persist into the next run when the player releases mid-game.
+    setJoystickTouch(null);
+    setFireTouch(null);
+    activeJoystickPointerId.current = null;
+    activeFirePointerId.current = null;
     setRound((n) => n + 1);
   };
 
@@ -539,53 +646,69 @@ export function GameView({
           <canvas
             ref={canvas}
             className="game-canvas"
+            style={{ touchAction: 'none', userSelect: 'none' }}
             tabIndex={0}
             aria-label="Juego: espacio o flecha arriba para saltar; flecha abajo para deslizar; C para cámara; P para pausar"
             onPointerDown={(e) => {
               void audioEngine.unlock();
+              if (e.pointerType === 'mouse') return;
+              try {
+                (e.target as HTMLElement)?.setPointerCapture?.(e.pointerId);
+              } catch {}
               const rect = e.currentTarget.getBoundingClientRect();
-              const localX = e.clientX - rect.left;
-              const localY = e.clientY - rect.top;
+              // Viewport coords (for fixed-positioned overlays).
+              const viewX = e.clientX;
+              const viewY = e.clientY;
+              // Canvas-local coords (for input split-half detection and delta math).
+              const localX = viewX - rect.left;
+              const localY = viewY - rect.top;
               const isLeftHalf = localX <= rect.width / 2;
 
               if (isLeftHalf) {
-                // Left half to center: Virtual Joystick appears exactly where touched
+                // Left half: start tracking virtual joystick gesture
                 activeJoystickPointerId.current = e.pointerId;
                 joystickStart.current = { x: localX, y: localY };
-                setJoystickTouch({
-                  active: true,
-                  pointerId: e.pointerId,
-                  startX: localX,
-                  startY: localY,
-                  curX: localX,
-                  curY: localY,
-                });
+                joystickStartView.current = { x: viewX, y: viewY };
+                // Keep visual hidden until player actually drags beyond deadzone
               } else {
-                // Right half: Dynamic Fire Button appears exactly where touched
+                // Right half: Dynamic Fire Button appears on touch & starts charging
                 activeFirePointerId.current = e.pointerId;
                 touchDownTime.current = performance.now();
                 setFireTouch({
                   active: true,
                   pointerId: e.pointerId,
-                  x: localX,
-                  y: localY,
+                  x: viewX,
+                  y: viewY,
                 });
-                // Instant firing response: Fire projectile immediately on touch with zero latency!
-                engine.current?.castPower();
-                // Simultaneously begin accumulating charge for holding
+                // Begin accumulating charge for holding (buster charge)
                 engine.current?.startChargePower();
               }
             }}
             onPointerMove={(e) => {
+              if (e.pointerType === 'mouse') return;
               const rect = e.currentTarget.getBoundingClientRect();
-              const localX = e.clientX - rect.left;
-              const localY = e.clientY - rect.top;
+              const viewX = e.clientX;
+              const viewY = e.clientY;
+              const localX = viewX - rect.left;
+              const localY = viewY - rect.top;
 
               // Handle left half virtual joystick drag
               if (activeJoystickPointerId.current === e.pointerId) {
                 const dx = localX - joystickStart.current.x;
                 const dy = localY - joystickStart.current.y;
-                setJoystickTouch((prev) => (prev ? { ...prev, curX: localX, curY: localY } : null));
+                const dist = Math.hypot(dx, dy);
+
+                // Only show the joystick visual once the player drags past an 8px deadzone
+                if (dist > 8) {
+                  setJoystickTouch({
+                    active: true,
+                    pointerId: e.pointerId,
+                    startX: joystickStartView.current.x,
+                    startY: joystickStartView.current.y,
+                    curX: viewX,
+                    curY: viewY,
+                  });
+                }
 
                 // Horizontal movement (moveAxis)
                 if (Math.abs(dx) > 18) {
@@ -604,14 +727,28 @@ export function GameView({
 
               // Handle right half fire indicator drag/position
               if (activeFirePointerId.current === e.pointerId) {
-                setFireTouch((prev) => (prev ? { ...prev, x: localX, y: localY } : null));
+                setFireTouch((prev) =>
+                  prev ? { ...prev, x: viewX, y: viewY } : null
+                );
               }
             }}
             onPointerUp={(e) => {
               void audioEngine.unlock();
+              if (e.pointerType === 'mouse') return;
+              try {
+                (e.target as HTMLElement)?.releasePointerCapture?.(e.pointerId);
+              } catch {}
 
               // Clear Left Joystick if this pointer released
               if (activeJoystickPointerId.current === e.pointerId) {
+                const rect = e.currentTarget.getBoundingClientRect();
+                const localX = e.clientX - rect.left;
+                const localY = e.clientY - rect.top;
+                const dist = Math.hypot(localX - joystickStart.current.x, localY - joystickStart.current.y);
+                // If it was a quick tap without drag, interpret as jump
+                if (dist < 8) {
+                  engine.current?.jump();
+                }
                 activeJoystickPointerId.current = null;
                 moveInput(`joystick:${e.pointerId}`);
                 setJoystickTouch(null);
@@ -622,14 +759,24 @@ export function GameView({
                 activeFirePointerId.current = null;
                 setFireTouch(null);
                 const holdDuration = performance.now() - touchDownTime.current;
-                if (holdDuration >= 200 || (engine.current?.simulation.powerChargeRatio ?? 0) >= 0.25) {
+                const ratio = engine.current?.simulation.powerChargeRatio ?? 0;
+                if (holdDuration >= 180 || ratio >= 0.15) {
+                  // Release the charged buster projectile
                   engine.current?.releaseChargePower();
                 } else {
-                  engine.current?.simulation.cancelChargingPower();
+                  // Quick tap: release immediately or cast single power
+                  if (engine.current?.simulation.isChargingPower) {
+                    engine.current?.releaseChargePower();
+                  } else {
+                    engine.current?.castPower();
+                  }
                 }
               }
             }}
             onPointerCancel={(e) => {
+              try {
+                (e.target as HTMLElement)?.releasePointerCapture?.(e.pointerId);
+              } catch {}
               if (activeJoystickPointerId.current === e.pointerId) {
                 activeJoystickPointerId.current = null;
                 moveInput(`joystick:${e.pointerId}`);
@@ -638,13 +785,18 @@ export function GameView({
               if (activeFirePointerId.current === e.pointerId) {
                 activeFirePointerId.current = null;
                 setFireTouch(null);
-                engine.current?.simulation.cancelChargingPower();
+                const ratio = engine.current?.simulation.powerChargeRatio ?? 0;
+                if (ratio >= 0.15) {
+                  engine.current?.releaseChargePower();
+                } else {
+                  engine.current?.simulation.cancelChargingPower();
+                }
               }
             }}
           />
 
           {/* Dynamic Tablet Virtual Joystick (Appears on touch from left side to center) */}
-          {joystickTouch && joystickTouch.active && (
+          {joystickTouch && joystickTouch.active && hud.phase === 'PLAYING' && (
             <div
               className="dynamic-virtual-joystick-base"
               style={{
@@ -663,7 +815,7 @@ export function GameView({
           )}
 
           {/* Dynamic Tablet Fire Button (Appears on touch on right side) */}
-          {fireTouch && fireTouch.active && (
+          {fireTouch && fireTouch.active && hud.phase === 'PLAYING' && (
             <div
               className={`dynamic-fire-touch-indicator ${hud.isChargingPower ? 'charging' : ''}`}
               style={{
@@ -771,6 +923,59 @@ export function GameView({
             <i style={{ width: `${hud.progress * 100}%` }} />
           </div>
 
+          {/* Top-Screen Boss Health Bar during Boss Fights */}
+          {hud.isBossFight && hud.bossHealth !== undefined && !hud.bossDefeated && (
+            <div
+              className={`boss-health-banner ${hud.bossAttackTell ? 'boss-telegraphing' : ''} ${
+                (hud.bossHealth / (hud.bossMaxHealth || 1)) <= 0.35 ? 'boss-enraged' : ''
+              }`}
+              aria-label={`Jefe ${hud.bossName ?? 'Jefe de Zona'}, salud ${hud.bossHealth} de ${hud.bossMaxHealth}`}
+            >
+              <div className="boss-banner-header">
+                <div className="boss-identity">
+                  <span className="boss-archetype-icon">
+                    {hud.bossArchetype ? BOSS_ARCHETYPE_ICONS[hud.bossArchetype] ?? '👾' : '👾'}
+                  </span>
+                  <span className="boss-name">{hud.bossName ?? 'Jefe de Zona'}</span>
+                  {hud.bossElement && (
+                    <span className={`boss-element-badge element-${hud.bossElement}`}>
+                      {BOSS_ELEMENT_META[hud.bossElement]?.icon ?? '⚡'}{' '}
+                      {BOSS_ELEMENT_META[hud.bossElement]?.label ?? hud.bossElement}
+                    </span>
+                  )}
+                </div>
+                {(hud.bossHealth / (hud.bossMaxHealth || 1)) <= 0.35 && (
+                  <span className="boss-rage-pill">
+                    ⚡ ¡ENRABIA!
+                  </span>
+                )}
+              </div>
+              <div
+                className="boss-health-track"
+                role="progressbar"
+                aria-valuenow={Math.round((hud.bossHealth / (hud.bossMaxHealth || 1)) * 100)}
+                aria-valuemin={0}
+                aria-valuemax={100}
+              >
+                <div
+                  className={`boss-health-fill element-fill-${hud.bossElement ?? 'fire'}`}
+                  style={{
+                    width: `${Math.max(0, Math.min(100, Math.round((hud.bossHealth / (hud.bossMaxHealth || 1)) * 100)))}%`,
+                  }}
+                />
+                <span className="boss-health-text">
+                  {hud.bossHealth} / {hud.bossMaxHealth} (
+                  {Math.round((hud.bossHealth / (hud.bossMaxHealth || 1)) * 100)}%)
+                </span>
+              </div>
+              {hud.bossAttackTell && hud.bossAttackName && (
+                <div className="boss-tell-banner">
+                  ⚠️ ¡Ataque inminente: {hud.bossAttackName}!
+                </div>
+              )}
+            </div>
+          )}
+
           {/* Active Buffs (Shield, Boost) */}
           {(hud.shield > 0 || hud.boost > 0) && (
             <div className="buffs">
@@ -814,6 +1019,18 @@ export function GameView({
                     }}
                   >
                     <Play size={18} fill="currentColor" /> Reanudar [P]
+                  </button>
+                  <button
+                    className="secondary power-store-cta"
+                    tabIndex={-1}
+                    onPointerDown={(e) => e.currentTarget.blur()}
+                    onClick={(e) => {
+                      e.currentTarget.blur();
+                      // Open the PowerStoreModal (mounted outside the pause overlay).
+                      setShowStore(true);
+                    }}
+                  >
+                    <Sparkles size={18} /> Bazar de Poderes
                   </button>
                   <button
                     className="secondary"
@@ -922,6 +1139,36 @@ export function GameView({
                   </div>
                 </div>
                 <div className="game-over-actions-grid">
+                  {/* Show a "Continue to next level" button whenever the player is in
+                      a campaign run. Covers three situations:
+                      1) The auto-next modal was dismissed via "Cancelar"
+                      2) The auto-next modal didn't trigger for any reason
+                      3) The user just finished the LAST level of the campaign —
+                         `onNextLevel` in pilirun.tsx now loops back to the first
+                         level so this button keeps working even at the end.
+
+                      IMPORTANT: We don't gate on `transitioned.current` here —
+                      that ref is set when the user cancels the auto-next modal
+                      to prevent the countdown timer from firing `continueLevel`.
+                      If we also checked it on this button, the user would be
+                      stuck: the Cancel path would lock them out of advancing. */}
+                  {result.won && campaign && nextLevelHandler.current && (
+                    <button
+                      className="primary continue-next-level-btn"
+                      onClick={() => {
+                        transitioned.current = true;
+                        const collected = Array.from(
+                          new Set([
+                            ...cumulativePowers,
+                            ...((result.collectedPowers ?? []) as PowerId[]),
+                          ]),
+                        ) as PowerId[];
+                        nextLevelHandler.current?.(selectedPower, collected);
+                      }}
+                    >
+                      <Trophy size={18} /> {hasNextLevel ? 'Continuar al siguiente nivel' : 'Nueva ronda (volver a empezar)'}
+                    </button>
+                  )}
                   {(hud.checkpoint ?? 0) > 0 && (
                     <button
                       className="primary checkpoint-respawn-btn"
@@ -1089,16 +1336,25 @@ export function GameView({
               onPointerDown={(e) => {
                 e.preventDefault();
                 e.currentTarget.setPointerCapture(e.pointerId);
+                engine.current?.castPower();
                 engine.current?.startChargePower();
               }}
               onPointerUp={() => {
-                engine.current?.releaseChargePower();
+                if ((engine.current?.simulation.powerChargeRatio ?? 0) >= 0.25) {
+                  engine.current?.releaseChargePower();
+                } else {
+                  engine.current?.simulation.cancelChargingPower();
+                }
               }}
               onPointerCancel={() => {
-                engine.current?.releaseChargePower();
+                engine.current?.simulation.cancelChargingPower();
               }}
               onLostPointerCapture={() => {
-                engine.current?.releaseChargePower();
+                if ((engine.current?.simulation.powerChargeRatio ?? 0) >= 0.25) {
+                  engine.current?.releaseChargePower();
+                } else {
+                  engine.current?.simulation.cancelChargingPower();
+                }
               }}
               title="Mantén presionado para cargar el disparo mágico (estilo Mega Buster)"
             >
@@ -1136,6 +1392,43 @@ export function GameView({
             perderás vida y energía, pero los obstáculos superados seguirán existiendo en el mundo.
           </p>
         </div>
+
+        {/* Power ammo indicator — also doubles as a "open shop" hint */}
+        {hasConfirmedPower && (
+          <button
+            type="button"
+            className="power-ammo-pill"
+            onClick={() => setShowStore(true)}
+            aria-label="Abrir Bazar de Poderes — ver cargas de poderes"
+            title="Abrir Bazar de Poderes Mágicos"
+          >
+            <span className="power-ammo-icon">{POWERS[selectedPower]?.icon ?? '⚡'}</span>
+            <span className="power-ammo-label">Cargas</span>
+            <strong className={`power-ammo-count ${
+              (progress.powerCharges?.[selectedPower] ?? 0) <= 2 ? 'is-low' : ''
+            }`}>
+              {progress.powerCharges?.[selectedPower] ?? 0}
+            </strong>
+            <span className="power-ammo-shop-cta" aria-hidden="true">+ Comprar</span>
+          </button>
+        )}
+
+        {/* Bazar de Poderes Mágicos — overlay */}
+        {showStore && (
+          <PowerStoreModal
+            progress={progress}
+            onUpdateProgress={handleProgressChange}
+            onClose={() => {
+              setShowStore(false);
+              canvas.current?.focus();
+            }}
+            onPlaySfx={(kind) => {
+              if (kind === 'coin') audioEngine.effect('coin');
+              else if (kind === 'power') audioEngine.effect('power');
+              else audioEngine.effect('hit');
+            }}
+          />
+        )}
       </section>
     </div>
   );

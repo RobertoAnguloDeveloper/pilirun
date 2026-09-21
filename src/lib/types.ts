@@ -38,6 +38,8 @@ export interface TrackItem {
   height?: number;
   visual?: ScenarioObjectVisual;
 }
+export type WeatherCondition = 'clear' | 'rain' | 'storm' | 'snow' | 'petals' | 'embers';
+
 export interface Track {
   id: string;
   name: string;
@@ -49,6 +51,7 @@ export interface Track {
   boss?: BossConfig;
   levelMusicId?: string;
   bossMusicId?: string;
+  weather?: WeatherCondition;
 }
 
 export type ScenarioLayerType =
@@ -122,10 +125,20 @@ export interface CharacterStats {
   auraLevel: number;
 }
 
+export type BossArchetype =
+  | 'treant'
+  | 'sphinx'
+  | 'void_dragon'
+  | 'cyber_titan'
+  | 'frost_behemoth'
+  | 'magma_dragon'
+  | 'custom';
+
 export interface BossConfig {
   id: string;
   name: string;
   element: 'fire' | 'water' | 'nature' | 'electric' | 'cosmic' | 'light';
+  archetype?: BossArchetype;
   size: number;
   health: number;
   maxHealth: number;
@@ -218,6 +231,26 @@ export interface AudioTrack {
   duration: number;
   category?: 'adventure' | 'boss' | 'chill' | 'retro' | 'custom';
 }
+export interface LevelScoreRecord {
+  completed: boolean;
+  stars: number;
+  highScore: number;
+  bestDistance: number;
+  bossDefeated?: boolean;
+  completedAt?: number;
+}
+
+export interface LevelProgress {
+  currentLevelIndex: number;
+  completedLevelIds: string[];
+  levelScores: Record<string, LevelScoreRecord>;
+  characterLevel: number;
+  unlockedPowers: string[];
+  totalStars: number;
+  coins?: number;
+  powerCharges?: Record<string, number>;
+}
+
 export interface SavedData {
   characters: Character[];
   tracks: Track[];
@@ -228,6 +261,7 @@ export interface SavedData {
   music: AudioTrack[];
   unlockedPowers?: string[];
   characterLevel?: number;
+  levelProgress?: LevelProgress;
 }
 export interface Hud {
   distance: number;
@@ -253,11 +287,17 @@ export interface Hud {
   bossHealth?: number;
   bossMaxHealth?: number;
   bossName?: string;
+  bossArchetype?: BossArchetype;
+  bossElement?: BossConfig['element'];
+  bossDefeated?: boolean;
+  bossAttackTell?: boolean;
+  bossAttackName?: string;
   isBossFight?: boolean;
   powerCooldown?: number;
   activePowerId?: string;
   unlockedPowers?: string[];
   collectedPowers?: import('./combat').PowerId[];
+  powerCharges?: Record<string, number>;
   isChargingPower?: boolean;
   powerChargeRatio?: number;
   timeOfDay?: string;

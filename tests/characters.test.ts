@@ -12,10 +12,17 @@ describe('editable built-in characters', () => {
     expect(merged.at(-1)).toEqual(custom);
   });
 
-  it('has Conejito as the only built-in character and removes Menta and Luna', () => {
-    expect(CHARACTERS).toHaveLength(1);
-    expect(CHARACTERS[0].id).toBe('pili');
-    expect(CHARACTERS[0].name).toBe('Conejito');
+  it('has 5 distinct built-in characters and removes legacy Menta and Luna', () => {
+    expect(CHARACTERS).toHaveLength(5);
+    const ids = CHARACTERS.map((c) => c.id);
+    expect(ids).toEqual(['pili', 'copito', 'mimi', 'posho', 'kuro']);
+
+    expect(CHARACTERS[0].name).toBe('Conejito Ámbar');
+    expect(CHARACTERS[1].name).toBe('Copito Blanco');
+    expect(CHARACTERS[2].name).toBe('Mimi Gatita');
+    expect(CHARACTERS[3].name).toBe('Pollito Posho');
+    expect(CHARACTERS[4].name).toBe('Zorro Sombrío');
+
     expect(CHARACTERS.find((c) => c.id === 'menta')).toBeUndefined();
     expect(CHARACTERS.find((c) => c.id === 'luna')).toBeUndefined();
 
@@ -27,5 +34,6 @@ describe('editable built-in characters', () => {
     const merged = mergeCharacters(CHARACTERS, legacySaved);
     expect(merged.some((c) => c.id === 'menta')).toBe(false);
     expect(merged.some((c) => c.id === 'luna')).toBe(false);
+    expect(merged).toHaveLength(5);
   });
 });
