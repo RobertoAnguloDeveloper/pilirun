@@ -175,7 +175,7 @@ export function drawLandscape(
   skyGrad.addColorStop(0, env.skyTop);
   skyGrad.addColorStop(1, env.skyBottom);
   ctx.fillStyle = skyGrad;
-  ctx.fillRect(0, 0, width, height);
+  ctx.fillRect(-60, -60, width + 120, height + 120);
 
   // 2. Stars rendering (active during late_night, night, dusk, dawn)
   if (env.starAlpha > 0.05) {
@@ -547,11 +547,12 @@ export class Renderer {
     this.updateParticles(Math.max(0, Math.min(0.05, game.elapsed - this.particleTime)));
     this.particleTime = game.elapsed;
 
+    ctx.clearRect(0, 0, width, height);
     ctx.save();
 
     // Screen Shake effect when hit or shield smash
     if (game.shake > 0 && !reduced) {
-      const s = game.shake * 14;
+      const s = Math.min(24, game.shake * 12);
       const shakeX = (Math.random() - 0.5) * s;
       const shakeY = (Math.random() - 0.5) * s;
       ctx.translate(shakeX, shakeY);
@@ -580,7 +581,7 @@ export class Renderer {
       vig.addColorStop(0, 'rgba(255, 0, 0, 0)');
       vig.addColorStop(1, `rgba(230, 20, 20, ${alpha})`);
       ctx.fillStyle = vig;
-      ctx.fillRect(0, 0, width, height);
+      ctx.fillRect(-60, -60, width + 120, height + 120);
     }
 
     ctx.restore();
@@ -739,7 +740,7 @@ export class Renderer {
     sky.addColorStop(0, palette.sky);
     sky.addColorStop(1, game.track.world === 'night' ? '#5c6f91' : '#f7e3bf');
     ctx.fillStyle = sky;
-    ctx.fillRect(0, 0, width, horizon + 2);
+    ctx.fillRect(-60, -60, width + 120, horizon + 62);
     ctx.globalAlpha = 0.8;
     ctx.fillStyle = palette.accent;
     ctx.beginPath();
@@ -778,7 +779,7 @@ export class Renderer {
     ground.addColorStop(0, palette.trees);
     ground.addColorStop(1, palette.ground);
     ctx.fillStyle = ground;
-    ctx.fillRect(0, horizon, width, height - horizon);
+    ctx.fillRect(-60, horizon - 2, width + 120, height - horizon + 62);
 
     // Curved road slices share the same projection as objects, so depth remains coherent.
     const slices = 28;

@@ -370,7 +370,7 @@ function attemptGeneration(config: LevelConfig, seed: number): Track {
   let cursorX = 650;
   let itemId = 0;
 
-  while (cursorX < length - 500) {
+  while (cursorX < length - 950) {
     const roll = rng();
 
     if (config.allowVerticals && roll < 0.22 && cursorX < length - 1200) {
@@ -545,7 +545,7 @@ function createSafeFallback(config: LevelConfig): Track {
   const items: TrackItem[] = [];
   let id = 0;
   const gap = Math.max(560, config.minObstacleGap);
-  for (let x = 700; x < config.length - 500; x += gap) {
+  for (let x = 700; x < config.length - 950; x += gap) {
     const kind: ItemKind = id % 3 === 2 ? 'branch' : id % 3 === 1 ? 'rock' : 'log';
     items.push({ id: `fb-${id++}`, x, kind });
     items.push({ id: `fbc-${id++}`, x: x - 80, kind: 'coin' });

@@ -60,15 +60,15 @@ export const COLOR_PALETTES: { name: string; colors: string[] }[] = [
 ];
 
 const COLORS = Array.from(new Set(COLOR_PALETTES.flatMap((p) => p.colors)));
-const BUILTIN_CHARACTER_IDS = new Set(['pili', 'menta', 'luna']);
+const BUILTIN_CHARACTER_IDS = new Set(['pili']);
 
 // Presets from the project's assets folder (/assets/1.png and /assets/2.png)
 const ASSET_PRESETS = [
   {
-    name: 'Pili Animado (Assets)',
+    name: 'Conejito Animado',
     src: '/assets/character-sprite-1.webp',
     fallbackSrc: '/assets/2.png',
-    icon: '🦊',
+    icon: '🐰',
     frames: {
       run: [
         '/assets/pili-run-0.webp',
@@ -91,19 +91,13 @@ const ASSET_PRESETS = [
       ],
     },
   },
-  {
-    name: 'Paladín Sprite 2',
-    src: '/assets/character-sprite-2.webp',
-    fallbackSrc: '/assets/2.png',
-    icon: '🛡️',
-  },
 ];
 
 // Curated starter sprite archetypes
 const SPRITE_TEMPLATES: { name: string; icon: string; pixels: string[] }[] = [
   {
-    name: 'Zorro Pili',
-    icon: '🦊',
+    name: 'Conejito',
+    icon: '🐰',
     pixels: createTemplatePixels([
       '................',
       '...o......o.....',
@@ -207,127 +201,11 @@ function findClosestPaletteColor(r: number, g: number, b: number): string {
 }
 
 /**
- * Freehand character isolation algorithm:
- * In freehand drawing mode, the black brush (#000000 or near-black) defines the character's outer boundary/outline.
- * Any strokes or artifacts outside the shapes enclosed by the black outline are cleared/masked out.
+ * Freehand character image capture:
+ * Exports current canvas cleanly as PNG data URL without destructive pixel loss.
  */
 function isolateBlackOutlineContour(canvas: HTMLCanvasElement): string {
-  const w = canvas.width;
-  const h = canvas.height;
-  const ctx = canvas.getContext('2d', { willReadFrequently: true });
-  if (!ctx) return canvas.toDataURL('image/png');
-
-  const imgData = ctx.getImageData(0, 0, w, h);
-  const data = imgData.data;
-
-  // Identify black outline pixels (r < 50, g < 50, b < 50, a > 180)
-  const isBlackBarrier = (x: number, y: number): boolean => {
-    const idx = (y * w + x) * 4;
-    const a = data[idx + 3];
-    if (a < 180) return false;
-    const r = data[idx];
-    const g = data[idx + 1];
-    const b = data[idx + 2];
-    return r < 55 && g < 55 && b < 55;
-  };
-
-  // Check if there is any black outline drawn at all
-  let hasBlackOutline = false;
-  for (let i = 0; i < w * h; i++) {
-    const idx = i * 4;
-    if (data[idx + 3] >= 180 && data[idx] < 55 && data[idx + 1] < 55 && data[idx + 2] < 55) {
-      hasBlackOutline = true;
-      break;
-    }
-  }
-
-  // If no black outline was drawn, return as-is
-  if (!hasBlackOutline) {
-    return canvas.toDataURL('image/png');
-  }
-
-  // Flood fill from all 4 borders inward. Any pixel reached without crossing a black barrier is OUTSIDE the character
-  const visited = new Uint8Array(w * h);
-  const queue: number[] = [];
-
-  // Seed with all border coordinates that are not black barriers
-  for (let x = 0; x < w; x++) {
-    const topIdx = 0 * w + x;
-    if (!isBlackBarrier(x, 0)) {
-      visited[topIdx] = 1;
-      queue.push(topIdx);
-    }
-    const bottomIdx = (h - 1) * w + x;
-    if (!isBlackBarrier(x, h - 1)) {
-      visited[bottomIdx] = 1;
-      queue.push(bottomIdx);
-    }
-  }
-
-  for (let y = 0; y < h; y++) {
-    const leftIdx = y * w + 0;
-    if (!visited[leftIdx] && !isBlackBarrier(0, y)) {
-      visited[leftIdx] = 1;
-      queue.push(leftIdx);
-    }
-    const rightIdx = y * w + (w - 1);
-    if (!visited[rightIdx] && !isBlackBarrier(w - 1, y)) {
-      visited[rightIdx] = 1;
-      queue.push(rightIdx);
-    }
-  }
-
-  let head = 0;
-  while (head < queue.length) {
-    const curr = queue[head++];
-    const cx = curr % w;
-    const cy = Math.floor(curr / w);
-
-    const neighbors = [
-      cx > 0 ? curr - 1 : -1,
-      cx < w - 1 ? curr + 1 : -1,
-      cy > 0 ? curr - w : -1,
-      cy < h - 1 ? curr + w : -1,
-    ];
-
-    for (const n of neighbors) {
-      if (n === -1 || visited[n]) continue;
-      const nx = n % w;
-      const ny = Math.floor(n / w);
-      if (!isBlackBarrier(nx, ny)) {
-        visited[n] = 1;
-        queue.push(n);
-      }
-    }
-  }
-
-  // Check if flood fill reaches the entire canvas or if a protected closed interior exists
-  let reachedCount = 0;
-  for (let i = 0; i < w * h; i++) {
-    if (visited[i]) reachedCount++;
-  }
-
-  // If flood-fill reached practically the whole canvas (unclosed loop or open strokes),
-  // DO NOT destructively erase the user's drawing!
-  // Only isolate if there is an actual enclosed non-barrier region.
-  const totalPixels = w * h;
-  if (reachedCount > totalPixels * 0.985) {
-    return canvas.toDataURL('image/png');
-  }
-
-  // Clear every pixel that was reached by the exterior flood fill
-  for (let i = 0; i < w * h; i++) {
-    if (visited[i]) {
-      data[i * 4 + 3] = 0; // Transparent (outside the enclosed shape)
-    }
-  }
-
-  const resultCanvas = document.createElement('canvas');
-  resultCanvas.width = w;
-  resultCanvas.height = h;
-  const rCtx = resultCanvas.getContext('2d')!;
-  rCtx.putImageData(imgData, 0, 0);
-  return resultCanvas.toDataURL('image/png');
+  return canvas.toDataURL('image/png');
 }
 
 /**
@@ -382,7 +260,7 @@ function floodFillFreehand(
   startX: number,
   startY: number,
   fillColor: string,
-  tolerance = 32,
+  tolerance = 18,
 ): void {
   const w = ctx.canvas.width;
   const h = ctx.canvas.height;
@@ -1668,27 +1546,6 @@ export function CharacterEditor({
             </div>
           </article>
         ))}
-        <button
-          className="new-character"
-          onClick={() => {
-            baseSpriteRef.current = null;
-            setEditing({
-              id: '',
-              name: 'Mi explorador',
-              color: COLORS[0],
-              pixels: defaultPixels(),
-            });
-            setMode('pixel');
-            setPhoto(undefined);
-            setMessage('Nuevo personaje: dale vida.');
-            undo.current = [];
-            setFreeRotation(0);
-          }}
-        >
-          <Plus size={26} />
-          <strong>Nueva aventura</strong>
-          <span>Crea o importa un personaje</span>
-        </button>
       </div>
 
       {/* Guided Sprite Assistant Banner */}

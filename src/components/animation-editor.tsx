@@ -1,16 +1,61 @@
 'use client';
-import { useState } from 'react';
+import { useState, useRef } from 'react';
 import type { Character } from '@/lib/types';
 import { frameScale } from '@/lib/sprite-geometry';
 import { Avatar } from './art';
-import { Copy, Paintbrush, Plus } from 'lucide-react';
+import {
+  Copy,
+  Paintbrush,
+  Plus,
+  Play,
+  Pause,
+  ArrowLeft,
+  ArrowRight,
+  Trash2,
+  Upload,
+  RotateCcw,
+  Sparkles,
+  Check,
+  SlidersHorizontal,
+  ZoomIn,
+  ZoomOut,
+  Layers,
+} from 'lucide-react';
 
 export type Movement = keyof NonNullable<Character['frames']>;
-const MOVEMENTS: Record<Movement, string> = {
-  idle: 'Reposo',
-  run: 'Carrera',
-  jump: 'Salto / caída',
-  slide: 'Agachado / deslizamiento',
+
+interface MovementInfo {
+  name: string;
+  emoji: string;
+  description: string;
+  color: string;
+}
+
+const MOVEMENTS: Record<Movement, MovementInfo> = {
+  run: {
+    name: 'Correr',
+    emoji: '🏃',
+    description: '¡El movimiento principal de la carrera!',
+    color: '#38bdf8',
+  },
+  jump: {
+    name: 'Saltar',
+    emoji: '🦘',
+    description: 'Cuando sube por el aire o cae.',
+    color: '#facc15',
+  },
+  slide: {
+    name: 'Deslizar',
+    emoji: '🛝',
+    description: 'Agacharse bajo ramas o túneles.',
+    color: '#4ade80',
+  },
+  idle: {
+    name: 'Parado',
+    emoji: '🧍',
+    description: 'Cuando espera o está descansando.',
+    color: '#c084fc',
+  },
 };
 
 export function AnimationEditor({
@@ -30,11 +75,17 @@ export function AnimationEditor({
   const [selected, setSelected] = useState(0);
   const [playing, setPlaying] = useState(true);
   const [previewZoom, setPreviewZoom] = useState(1);
+  const [speed, setSpeed] = useState<'slow' | 'normal' | 'fast'>('normal');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [savedToast, setSavedToast] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const replaceInputRef = useRef<HTMLInputElement>(null);
+
   const frames = character.frames?.[movement] ?? [];
   const index = Math.min(selected, Math.max(0, frames.length - 1));
   const source = frames[index];
+
   const allFrames = [
     ...new Set(
       [character.image, ...Object.values(character.frames ?? {}).flat()].filter(
@@ -42,23 +93,58 @@ export function AnimationEditor({
       ),
     ),
   ];
+
   const scales = frames.map((_, i) => frameScale(character, movement, i));
+
   const update = (next: string[], nextScales = next.map((_, i) => scales[i] ?? 1)) =>
-    onChange({ ...character, frames: { ...character.frames, [movement]: next }, frameScales: { ...character.frameScales, [movement]: nextScales } });
+    onChange({
+      ...character,
+      frames: { ...character.frames, [movement]: next },
+      frameScales: { ...character.frameScales, [movement]: nextScales },
+    });
+
   const resize = (value: number) => {
     if (!Number.isFinite(value)) return;
-    update(frames, scales.map((scale, i) => i === index ? Math.max(0.25, Math.min(3, value)) : scale));
+    const clamped = Math.max(0.25, Math.min(3, value));
+    update(frames, scales.map((scale, i) => (i === index ? clamped : scale)));
     setPlaying(false);
   };
-  const replace = (src: string) => update(frames.map((frame, i) => (i === index ? src : frame)));
-  const move = (offset: number) => {
-    const next = [...frames];
-    [next[index], next[index + offset]] = [next[index + offset], next[index]];
-    const nextScales = [...scales];
-    [nextScales[index], nextScales[index + offset]] = [nextScales[index + offset], nextScales[index]];
-    update(next, nextScales);
-    setSelected(index + offset);
+
+  const adjustSizeStep = (delta: number) => {
+    const current = scales[index] ?? 1;
+    resize(Number((current + delta).toFixed(2)));
   };
+
+  const replace = (src: string) =>
+    update(frames.map((frame, i) => (i === index ? src : frame)));
+
+  const move = (offset: number) => {
+    const targetIdx = index + offset;
+    if (targetIdx < 0 || targetIdx >= frames.length) return;
+    const next = [...frames];
+    [next[index], next[targetIdx]] = [next[targetIdx], next[index]];
+    const nextScales = [...scales];
+    [nextScales[index], nextScales[targetIdx]] = [nextScales[targetIdx], nextScales[index]];
+    update(next, nextScales);
+    setSelected(targetIdx);
+  };
+
+  const duplicateFrame = () => {
+    if (!source) return;
+    const nextFrames = [...frames.slice(0, index + 1), source, ...frames.slice(index + 1)];
+    const nextScales = [...scales.slice(0, index + 1), scales[index] ?? 1, ...scales.slice(index + 1)];
+    update(nextFrames, nextScales);
+    setSelected(index + 1);
+  };
+
+  const removeFrame = (frameIndexToRemove = index) => {
+    if (frames.length === 0) return;
+    const nextFrames = frames.filter((_, i) => i !== frameIndexToRemove);
+    const nextScales = scales.filter((_, i) => i !== frameIndexToRemove);
+    update(nextFrames, nextScales);
+    setSelected(Math.max(0, Math.min(index, nextFrames.length - 1)));
+  };
+
   async function upload(file: File, replacing: boolean) {
     setLoading(true);
     setError('');
@@ -66,8 +152,9 @@ export function AnimationEditor({
       if (
         file.size > 8 * 1024 * 1024 ||
         !['image/png', 'image/webp', 'image/jpeg', 'image/svg+xml'].includes(file.type)
-      )
-        throw new Error('Usa PNG, WebP, JPG o SVG de hasta 8 MB.');
+      ) {
+        throw new Error('Usa una imagen PNG, WebP o JPG.');
+      }
       const url = await new Promise<string>((resolve, reject) => {
         const reader = new FileReader();
         reader.onload = () => resolve(String(reader.result));
@@ -77,8 +164,9 @@ export function AnimationEditor({
       const image = new Image();
       image.src = url;
       await image.decode();
-      if (image.naturalWidth * image.naturalHeight > 40_000_000)
-        throw new Error('La imagen supera 40 megapíxeles.');
+      if (image.naturalWidth * image.naturalHeight > 40_000_000) {
+        throw new Error('La imagen es demasiado grande.');
+      }
       const canvas = document.createElement('canvas');
       const ratio = Math.min(1, 512 / Math.max(image.naturalWidth, image.naturalHeight));
       canvas.width = Math.max(1, Math.round(image.naturalWidth * ratio));
@@ -91,205 +179,405 @@ export function AnimationEditor({
         setSelected(frames.length);
       }
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'No se pudo cargar el fotograma.');
+      setError(e instanceof Error ? e.message : 'No se pudo cargar la foto.');
     } finally {
       setLoading(false);
     }
   }
+
+  const handleSave = async () => {
+    try {
+      await onSave(movement);
+      setSavedToast(true);
+      setTimeout(() => setSavedToast(false), 2600);
+    } catch {
+      // Error handled by parent
+    }
+  };
+
+  const currentMov = MOVEMENTS[movement];
+
   return (
-    <section className="animation-editor" aria-label="Editor de animaciones">
-      <h2>Editar animaciones</h2>
-      <p>Revisa cada movimiento, corrige sus fotogramas y guarda esa animación.</p>
-      <fieldset disabled={busy || loading}>
-        <label>
-          Movimiento
-          <select
-            aria-label="Movimiento"
-            value={movement}
-            onChange={(e) => {
-              setMovement(e.target.value as Movement);
-              setSelected(0);
-            }}
-          >
-            {Object.entries(MOVEMENTS).map(([id, name]) => (
-              <option key={id} value={id}>
-                {name}
-              </option>
-            ))}
-          </select>
-        </label>
-        <div className="animation-preview">
-          <Avatar
-            character={character}
-            movement={movement}
-            frameIndex={playing ? undefined : index}
-            showGround
-            previewZoom={previewZoom}
-            size={240}
-          />
-          <button type="button" onClick={() => setPlaying(!playing)}>
-            {playing ? 'Pausar animación' : 'Reproducir animación'}
-          </button>
+    <section className="kid-animation-editor" aria-label="Editor de animaciones para niños">
+      {/* Header with cheerful title */}
+      <div className="kid-editor-header">
+        <div className="kid-header-title">
+          <span className="kid-title-badge">🎨 Estudio de Animación</span>
+          <h2>¡Crea cómo se mueve tu personaje!</h2>
+          <p>Elige qué movimiento quieres diseñar y agrega las fotos en orden como un cómic.</p>
         </div>
-        <label>
-          Zoom de la vista previa: {Math.round(previewZoom * 100)} %
-          <input type="range" aria-label="Zoom de la vista previa" min="25" max="100" step="5" value={previewZoom * 100} onChange={(event) => setPreviewZoom(Number(event.target.value) / 100)} />
-        </label>
-        <ol className="animation-frames">
-          {frames.map((src, i) => (
-            <li key={i}>
+      </div>
+
+      <fieldset disabled={busy || loading} className="kid-editor-fieldset">
+        {/* Big colorful Movement Cards */}
+        <div className="kid-movement-grid" role="tablist" aria-label="Selecciona el movimiento">
+          {(Object.keys(MOVEMENTS) as Movement[]).map((key) => {
+            const info = MOVEMENTS[key];
+            const isSelected = movement === key;
+            const count = character.frames?.[key]?.length ?? 0;
+            return (
               <button
+                key={key}
                 type="button"
-                aria-label={`Fotograma ${i + 1}`}
-                aria-pressed={index === i}
+                role="tab"
+                aria-selected={isSelected}
+                className={`kid-movement-card ${isSelected ? 'active' : ''}`}
+                style={{ '--accent-color': info.color } as React.CSSProperties}
                 onClick={() => {
-                  setSelected(i);
-                  setPlaying(false);
+                  setMovement(key);
+                  setSelected(0);
+                  setPlaying(true);
                 }}
               >
-                <img src={src} alt="" />
-                <span>{i + 1}</span>
+                <span className="kid-card-emoji">{info.emoji}</span>
+                <span className="kid-card-name">{info.name}</span>
+                <span className="kid-card-count">
+                  {count === 0 ? 'Sin fotos' : `${count} ${count === 1 ? 'foto' : 'fotos'}`}
+                </span>
               </button>
-            </li>
-          ))}
-        </ol>
-        {!frames.length && <p>Sin fotogramas. Añade una imagen o reutiliza una del personaje.</p>}
-        <div className="animation-actions">
-          <button type="button" disabled={!source || index === 0} onClick={() => move(-1)}>
-            Mover antes
-          </button>
-          <button
-            type="button"
-            disabled={!source || index === frames.length - 1}
-            onClick={() => move(1)}
-          >
-            Mover después
-          </button>
-          <button
-            type="button"
-            disabled={!source}
-            title="Duplicar este fotograma para crear variaciones o animación cuadro por cuadro"
-            onClick={() => {
-              if (!source) return;
-              const nextFrames = [...frames.slice(0, index + 1), source, ...frames.slice(index + 1)];
-              const nextScales = [...scales.slice(0, index + 1), scales[index] ?? 1, ...scales.slice(index + 1)];
-              update(nextFrames, nextScales);
-              setSelected(index + 1);
-            }}
-          >
-            <Copy size={14} style={{ marginRight: 4 }} /> Duplicar
-          </button>
-          {onEditFrameInCanvas && source && (
-            <button
-              type="button"
-              className="secondary"
-              title="Abrir este fotograma en el lienzo de dibujo para retocarlo o redibujarlo"
-              onClick={() => onEditFrameInCanvas(movement, index, source)}
-            >
-              <Paintbrush size={14} style={{ marginRight: 4 }} /> Editar en Lienzo
-            </button>
-          )}
-          {onEditFrameInCanvas && (
-            <button
-              type="button"
-              className="secondary"
-              title="Dibujar un fotograma nuevo desde cero en el lienzo"
-              onClick={() => onEditFrameInCanvas(movement, frames.length, undefined)}
-            >
-              <Plus size={14} style={{ marginRight: 4 }} /> Dibujar Nuevo
-            </button>
-          )}
-          <button
-            type="button"
-            disabled={!source}
-            onClick={() => update(frames.filter((_, i) => i !== index), scales.filter((_, i) => i !== index))}
-          >
-            Quitar fotograma
-          </button>
+            );
+          })}
         </div>
-        <label>
-          Añadir fotograma desde archivo
+
+        {/* Character Preview Stage */}
+        <div className="kid-preview-stage">
+          <div className="kid-stage-canvas-area">
+            <Avatar
+              character={character}
+              movement={movement}
+              frameIndex={playing ? undefined : index}
+              showGround
+              previewZoom={previewZoom}
+              size={240}
+            />
+          </div>
+
+          {/* Player controls */}
+          <div className="kid-preview-toolbar">
+            <button
+              type="button"
+              className={`kid-play-toggle ${playing ? 'playing' : 'paused'}`}
+              onClick={() => setPlaying(!playing)}
+              title={playing ? 'Pausar animación' : 'Ver animación en movimiento'}
+            >
+              {playing ? <Pause size={18} /> : <Play size={18} fill="currentColor" />}
+              <span>{playing ? 'Pausar' : 'Probar'}</span>
+            </button>
+
+            {/* Speed selector for kids */}
+            <div className="kid-speed-selector" title="Velocidad del movimiento">
+              <button
+                type="button"
+                className={`kid-speed-btn ${speed === 'slow' ? 'active' : ''}`}
+                onClick={() => setSpeed('slow')}
+              >
+                🐢 Lento
+              </button>
+              <button
+                type="button"
+                className={`kid-speed-btn ${speed === 'normal' ? 'active' : ''}`}
+                onClick={() => setSpeed('normal')}
+              >
+                🐇 Normal
+              </button>
+              <button
+                type="button"
+                className={`kid-speed-btn ${speed === 'fast' ? 'active' : ''}`}
+                onClick={() => setSpeed('fast')}
+              >
+                ⚡ Rápido
+              </button>
+            </div>
+
+            {/* Zoom controls */}
+            <div className="kid-zoom-controls">
+              <button
+                type="button"
+                className="kid-icon-btn"
+                title="Alejar vista"
+                onClick={() => setPreviewZoom((z) => Math.max(0.4, Number((z - 0.15).toFixed(2))))}
+              >
+                <ZoomOut size={16} />
+              </button>
+              <span className="kid-zoom-text">{Math.round(previewZoom * 100)}%</span>
+              <button
+                type="button"
+                className="kid-icon-btn"
+                title="Acercar vista"
+                onClick={() => setPreviewZoom((z) => Math.min(1.4, Number((z + 0.15).toFixed(2))))}
+              >
+                <ZoomIn size={16} />
+              </button>
+            </div>
+          </div>
+        </div>
+
+        {/* Filmstrip / Timeline */}
+        <div className="kid-filmstrip-section">
+          <div className="kid-filmstrip-header">
+            <h3>🎬 Tira de fotos ({frames.length})</h3>
+            <span className="kid-filmstrip-hint">
+              Toca una foto para verla o cambiarla de lugar
+            </span>
+          </div>
+
+          <div className="kid-filmstrip-scroll">
+            <ol className="kid-filmstrip-track">
+              {frames.map((src, i) => (
+                <li key={i} className="kid-filmstrip-item">
+                  <button
+                    type="button"
+                    className={`kid-frame-card ${index === i ? 'selected' : ''}`}
+                    aria-label={`Foto número ${i + 1}`}
+                    aria-pressed={index === i}
+                    onClick={() => {
+                      setSelected(i);
+                      setPlaying(false);
+                    }}
+                  >
+                    <span className="kid-frame-badge">{i + 1}</span>
+                    <img src={src} alt={`Fotograma ${i + 1}`} />
+                  </button>
+                </li>
+              ))}
+
+              {/* Direct Add Buttons at the end of the filmstrip */}
+              <li className="kid-filmstrip-add-slot">
+                {onEditFrameInCanvas && (
+                  <button
+                    type="button"
+                    className="kid-add-card draw-new"
+                    title="Dibujar una foto nueva en el lienzo"
+                    onClick={() => onEditFrameInCanvas(movement, frames.length, undefined)}
+                  >
+                    <Paintbrush size={22} />
+                    <span>Dibujar nueva</span>
+                  </button>
+                )}
+                <button
+                  type="button"
+                  className="kid-add-card upload-new"
+                  title="Subir una foto desde la computadora o tablet"
+                  onClick={() => fileInputRef.current?.click()}
+                >
+                  <Plus size={22} />
+                  <span>Subir foto</span>
+                </button>
+              </li>
+            </ol>
+          </div>
+
           <input
+            ref={fileInputRef}
             type="file"
             accept="image/png,image/webp,image/jpeg,image/svg+xml"
+            style={{ display: 'none' }}
             onChange={(e) => {
               const file = e.target.files?.[0];
               e.target.value = '';
               if (file) void upload(file, false);
             }}
           />
-        </label>
+
+          {!frames.length && (
+            <div className="kid-empty-frames">
+              <span className="kid-empty-emoji">🌟</span>
+              <p>¡Aún no hay fotos para {currentMov.name.toLowerCase()}!</p>
+              <p>Usa los botones arriba para <strong>Dibujar</strong> o <strong>Subir</strong> tu primera foto.</p>
+            </div>
+          )}
+
+          {/* Quick frame actions for selected frame */}
+          {source && (
+            <div className="kid-frame-toolbar">
+              <div className="kid-toolbar-group">
+                <button
+                  type="button"
+                  className="kid-tool-btn"
+                  disabled={index === 0}
+                  onClick={() => move(-1)}
+                  title="Mover foto a la izquierda"
+                >
+                  <ArrowLeft size={16} /> Mover antes
+                </button>
+                <button
+                  type="button"
+                  className="kid-tool-btn"
+                  disabled={index === frames.length - 1}
+                  onClick={() => move(1)}
+                  title="Mover foto a la derecha"
+                >
+                  Mover después <ArrowRight size={16} />
+                </button>
+              </div>
+
+              <div className="kid-toolbar-group">
+                <button
+                  type="button"
+                  className="kid-tool-btn highlight"
+                  onClick={duplicateFrame}
+                  title="Duplicar esta foto para hacer una variación"
+                >
+                  <Copy size={16} /> Duplicar
+                </button>
+
+                {onEditFrameInCanvas && (
+                  <button
+                    type="button"
+                    className="kid-tool-btn paint"
+                    onClick={() => onEditFrameInCanvas(movement, index, source)}
+                    title="Retocar esta foto en el lienzo de dibujo"
+                  >
+                    <Paintbrush size={16} /> Retocar dibujo
+                  </button>
+                )}
+
+                <button
+                  type="button"
+                  className="kid-tool-btn danger"
+                  onClick={() => removeFrame(index)}
+                  title="Borrar esta foto"
+                >
+                  <Trash2 size={16} /> Borrar foto
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* Kid-friendly Size Adjuster */}
         {source && (
-          <>
-            <label>Tamaño del fotograma (%)
-              <input type="number" min="25" max="300" step="5" value={Math.round(scales[index] * 100)} onChange={(e) => resize(Number(e.target.value) / 100)} />
+          <div className="kid-size-box">
+            <span className="kid-size-label">
+              📏 Tamaño de la foto {index + 1}: <strong>{Math.round((scales[index] ?? 1) * 100)}%</strong>
+            </span>
+            <div className="kid-size-buttons">
+              <button
+                type="button"
+                className="kid-size-btn"
+                onClick={() => adjustSizeStep(-0.1)}
+                title="Hacer un poco más pequeña"
+              >
+                ➖ Más pequeña
+              </button>
+              <button
+                type="button"
+                className="kid-size-btn reset"
+                onClick={() => resize(1)}
+                title="Volver al tamaño normal"
+              >
+                <RotateCcw size={14} /> Normal
+              </button>
+              <button
+                type="button"
+                className="kid-size-btn"
+                onClick={() => adjustSizeStep(0.1)}
+                title="Hacer un poco más grande"
+              >
+                ➕ Más grande
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* Re-use character frames */}
+        {allFrames.length > 0 && (
+          <div className="kid-reuse-box">
+            <label className="kid-reuse-label">
+              <Layers size={16} />
+              <span>Usar otra foto existente del personaje:</span>
             </label>
-            <input aria-label="Ajustar tamaño del fotograma" type="range" min="25" max="300" step="5" value={Math.round(scales[index] * 100)} onChange={(e) => resize(Number(e.target.value) / 100)} />
-            <button type="button" onClick={() => resize(1)}>Restablecer tamaño</button>
-            <p>El tamaño de este fotograma es visual. Los pies y la caja de colisión conservan su posición.</p>
-            <label>
-              Reemplazar fotograma seleccionado
+            <select
+              className="kid-reuse-select"
+              value=""
+              onChange={(e) => {
+                if (e.target.value) {
+                  update([...frames, e.target.value]);
+                  setSelected(frames.length);
+                }
+              }}
+            >
+              <option value="">➕ Elige una foto ya creada para añadirla aquí...</option>
+              {allFrames.map((src, i) => (
+                <option key={src} value={src}>
+                  Foto {i + 1}
+                </option>
+              ))}
+            </select>
+          </div>
+        )}
+
+        {/* Advanced adjustments (Collapsed for kids) */}
+        {source && (
+          <details className="kid-advanced-details">
+            <summary className="kid-advanced-summary">
+              <SlidersHorizontal size={14} /> Ajustes avanzados (Pies en el suelo y reemplazar)
+            </summary>
+            <div className="kid-advanced-content">
+              <label className="kid-adv-field">
+                <span>Altura de apoyo de los pies (%):</span>
+                <input
+                  type="number"
+                  min="1"
+                  max="100"
+                  step="0.5"
+                  placeholder="Automática"
+                  value={
+                    character.frameBaselines?.[source] === undefined
+                      ? ''
+                      : Math.round(character.frameBaselines[source] * 1000) / 10
+                  }
+                  onChange={(e) => {
+                    const next = { ...character.frameBaselines };
+                    if (!e.target.value) delete next[source];
+                    else next[source] = Math.max(0.01, Math.min(1, Number(e.target.value) / 100));
+                    onChange({ ...character, frameBaselines: next });
+                    setPlaying(false);
+                  }}
+                />
+              </label>
+
+              <button
+                type="button"
+                className="kid-replace-btn"
+                onClick={() => replaceInputRef.current?.click()}
+              >
+                <Upload size={14} /> Reemplazar esta foto por archivo
+              </button>
               <input
+                ref={replaceInputRef}
                 type="file"
                 accept="image/png,image/webp,image/jpeg,image/svg+xml"
+                style={{ display: 'none' }}
                 onChange={(e) => {
                   const file = e.target.files?.[0];
                   e.target.value = '';
                   if (file) void upload(file, true);
                 }}
               />
-            </label>
-            <label>
-              Posición de los pies (% de altura de la imagen)
-              <input
-                type="number"
-                min="1"
-                max="100"
-                step="0.1"
-                placeholder="Automática"
-                value={
-                  character.frameBaselines?.[source] === undefined
-                    ? ''
-                    : Math.round(character.frameBaselines[source] * 1000) / 10
-                }
-                onChange={(e) => {
-                  const next = { ...character.frameBaselines };
-                  if (!e.target.value) delete next[source];
-                  else next[source] = Math.max(0.01, Math.min(1, Number(e.target.value) / 100));
-                  onChange({ ...character, frameBaselines: next });
-                  setPlaying(false);
-                }}
-              />
-            </label>
-            <p>
-              Deja el campo vacío para detectar los pies. Si la imagen incluye una sombra, ajusta el
-              porcentaje hasta que los pies toquen la línea.
-            </p>
-          </>
+            </div>
+          </details>
         )}
-        {allFrames.length > 0 && (
-          <label>
-            Reutilizar fotograma del personaje
-            <select
-              value=""
-              onChange={(e) => {
-                if (e.target.value) update([...frames, e.target.value]);
-              }}
-            >
-              <option value="">Selecciona una imagen para añadir</option>
-              {allFrames.map((src, i) => (
-                <option key={src} value={src}>
-                  Imagen {i + 1}
-                </option>
-              ))}
-            </select>
-          </label>
-        )}
-        <button type="button" className="primary" onClick={() => void onSave(movement)}>
-          Guardar animación: {MOVEMENTS[movement]}
-        </button>
+
+        {/* Big Prominent Save Button */}
+        <div className="kid-save-section">
+          <button
+            type="button"
+            className={`kid-big-save-btn ${savedToast ? 'saved' : ''}`}
+            onClick={handleSave}
+            disabled={busy || loading}
+          >
+            {savedToast ? <Check size={22} /> : <Sparkles size={22} />}
+            <span>
+              {savedToast
+                ? `¡Guardado con éxito!`
+                : `✨ ¡Guardar animación de ${currentMov.name}!`}
+            </span>
+          </button>
+        </div>
       </fieldset>
-      <p role="status">{loading ? 'Cargando fotograma…' : error}</p>
+
+      {error && <p className="kid-error-message" role="alert">{error}</p>}
     </section>
   );
 }

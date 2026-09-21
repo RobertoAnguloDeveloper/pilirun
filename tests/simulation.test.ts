@@ -543,6 +543,85 @@ describe('runner physics and progression', () => {
     expect(game.obstacleDurability.get('golem-1')).toBe(38); // 80 - 42 = 38 remaining
     expect(game.destroyed.has('golem-1')).toBe(false); // still alive
   });
+
+  it('allows fireballs to hit boss from afar before inBossFight is reached and triggers encounter', () => {
+    const track: Track = {
+      ...empty(),
+      length: 5000,
+      boss: {
+        id: 'test-boss',
+        name: 'Boss',
+        element: 'fire',
+        size: 1.5,
+        health: 200,
+        maxHealth: 200,
+        damage: 1,
+        speed: 200,
+        attackFrequency: 2,
+        projectileType: 'fireball',
+        projectileSpeed: 300,
+        weakness: 'water',
+        resistance: 'fire',
+      },
+    };
+    const game = new Simulation(track);
+    game.start();
+    // Distance far from boss encounter threshold (threshold is 5000 - 800 = 4200)
+    game.distance = 3500;
+    expect(game.inBossFight).toBe(false);
+
+    // Fire player projectile towards boss (boss is at 5000 - 280 = 4720)
+    game.projectiles.push({
+      id: 'sniper-shot',
+      sender: 'player',
+      x: 4600,
+      y: 60,
+      vx: 15000,
+      vy: 0,
+      damage: 40,
+      element: 'water',
+      type: 'aqua_shield',
+      size: 20,
+      color: '#06b6d4',
+      life: 2,
+    });
+
+    game.update(STEP);
+
+    // Boss must be damaged, hit flash set, and encounter triggered!
+    expect(game.bossEntity?.health).toBe(160);
+    expect(game.hitFlashes.has('boss')).toBe(true);
+    expect(game.encounterStarted).toBe(true);
+  });
+
+  it('buffers fire input during cooldown and fires immediately when cooldown finishes', () => {
+    const game = new Simulation(empty());
+    game.start();
+    game.powerCooldown = 0.1; // 100ms left on cooldown
+
+    // Attempt to cast while cooling down
+    game.castPower();
+    expect(game.queuedPowerCharge).toBe(0);
+    expect(game.projectiles).toHaveLength(0);
+
+    // Advance 60ms: cooldown not done yet
+    game.update(0.06);
+    expect(game.projectiles).toHaveLength(0);
+
+    // Advance 60ms more: cooldown expired, buffered shot should have cast!
+    game.update(0.06);
+    expect(game.projectiles).toHaveLength(1);
+    expect(game.queuedPowerCharge).toBeNull();
+  });
+
+  it('allows charging power even when powerCooldown is active', () => {
+    const game = new Simulation(empty());
+    game.start();
+    game.powerCooldown = 0.4;
+
+    game.startChargingPower();
+    expect(game.isChargingPower).toBe(true);
+  });
 });
 describe('playable track validation', () => {
   it('accepts all 18 built-in official progression levels', () => {

@@ -59,6 +59,7 @@ export class GameEngine {
     this.observer = new ResizeObserver(() => {
       const rect = canvas.getBoundingClientRect(),
         dpr = Math.min(window.devicePixelRatio || 1, 2);
+      if (this.width > 0 && this.height > 0 && Math.abs(rect.width - this.width) < 2 && Math.abs(rect.height - this.height) < 2) return;
       this.width = rect.width;
       this.height = rect.height;
       canvas.width = Math.round(rect.width * dpr);
@@ -135,6 +136,7 @@ export class GameEngine {
   castPower() {
     this.simulation.castPower();
     this.onHud(this.simulation.hud());
+    this.draw();
   }
   startChargePower() {
     this.simulation.startChargingPower();
@@ -143,6 +145,7 @@ export class GameEngine {
   releaseChargePower() {
     this.simulation.releaseChargedPower();
     this.onHud(this.simulation.hud());
+    this.draw();
   }
   respawnAtCheckpoint(): boolean {
     const success = this.simulation.respawnAtCheckpoint();

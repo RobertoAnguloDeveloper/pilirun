@@ -69,6 +69,7 @@ export class Simulation {
   isChargingPower = false;
   powerChargeTime = 0;
   powerChargeRatio = 0;
+  queuedPowerCharge: number | null = null;
   projectiles: Projectile[] = [];
   boss: BossConfig | null = null;
   bossEntity: {
@@ -227,7 +228,6 @@ export class Simulation {
    */
   startChargingPower() {
     if (this.phase !== 'PLAYING') return;
-    if (this.powerCooldown > 0) return;
     const power = POWERS[this.activePowerId];
     if (!power || this.energy < power.energyCost) return;
     this.isChargingPower = true;
@@ -255,6 +255,7 @@ export class Simulation {
     this.isChargingPower = false;
     this.powerChargeTime = 0;
     this.powerChargeRatio = 0;
+    this.queuedPowerCharge = null;
   }
 
   /**
@@ -262,9 +263,16 @@ export class Simulation {
    */
   castPower(chargeRatio = 0) {
     if (this.phase !== 'PLAYING') return;
-    if (this.powerCooldown > 0) return;
+    if (this.powerCooldown > 0) {
+      // Buffer input during cooldown (< 240ms) to eliminate perceived latency and fire instantly on frame 0
+      if (this.powerCooldown <= 0.24) {
+        this.queuedPowerCharge = chargeRatio;
+      }
+      return;
+    }
     const power = POWERS[this.activePowerId];
     if (!power || this.energy < power.energyCost) return;
+    this.queuedPowerCharge = null;
 
     // Energy cost: scales moderately with charge, but never consumes more than available energy
     const effectiveCost = Math.min(this.energy, Math.round(power.energyCost * (1 + Math.min(chargeRatio, 2.5) * 0.7)));
@@ -353,6 +361,11 @@ export class Simulation {
     this.slide = Math.max(0, this.slide - dt);
     this.shake = Math.max(0, this.shake - dt * 2.8);
     this.powerCooldown = Math.max(0, this.powerCooldown - dt);
+    if (this.powerCooldown === 0 && this.queuedPowerCharge !== null) {
+      const q = this.queuedPowerCharge;
+      this.queuedPowerCharge = null;
+      this.castPower(q);
+    }
 
     // Decay damage flash timers
     for (const [id, timer] of this.hitFlashes.entries()) {
@@ -568,7 +581,7 @@ export class Simulation {
         let nearest = Infinity;
         let target: TrackItem | undefined;
         let hitBoss = false;
-        if (this.bossEntity && !this.bossEntity.defeated && this.inBossFight) {
+        if (this.bossEntity && !this.bossEntity.defeated) {
           const radius = 45 * (this.boss?.size ?? 1) + p.size / 2;
           nearest = segmentHit(previousX, previousY, p.x, p.y, this.bossEntity.x - radius, this.bossEntity.x + radius, this.bossEntity.y - radius, this.bossEntity.y + radius);
           hitBoss = nearest !== Infinity;
@@ -576,6 +589,9 @@ export class Simulation {
         for (const item of this.track.items) {
           if (!['log', 'branch', 'rock', 'drone', 'golem'].includes(item.kind) || this.destroyed.has(item.id)) continue;
           if (item.id === p.ignoredObstacleId && (p.ignoreObstacleTime ?? 0) > 0) continue;
+          // Skip obstacles behind the moving projectile
+          if (p.vx > 0 && item.x < previousX - 25) continue;
+          if (p.vx < 0 && item.x > previousX + 25) continue;
           const y = item.y ?? (item.kind === 'branch' ? 47 : item.kind === 'drone' ? 55 : 0);
           const half = (item.width ?? (item.kind === 'drone' ? 44 : item.kind === 'golem' ? 46 : 40)) / 2 + p.size / 2;
           const height = item.height ?? (item.kind === 'drone' ? 36 : item.kind === 'golem' ? 50 : 40);
@@ -588,7 +604,6 @@ export class Simulation {
           if (target) {
             const damage = obstacleDamage(target, p.type);
             if (damage > 0) {
-              this.projectiles.splice(i, 1);
               const maxHealth = obstacleHealth(target);
               const remaining = Math.max(0, (this.obstacleDurability.get(target.id) ?? maxHealth) - damage);
               this.obstacleDurability.set(target.id, remaining);
@@ -611,7 +626,15 @@ export class Simulation {
                   this.events.push('coin');
                 }
                 this.destroyObstacle(target);
+                // Heavy charged attacks pierce through destroyed obstacles toward the boss
+                if (p.damage >= 55) {
+                  p.damage = Math.max(25, Math.round(p.damage * 0.85));
+                  p.ignoredObstacleId = target.id;
+                  p.ignoreObstacleTime = 0.2;
+                  continue;
+                }
               }
+              this.projectiles.splice(i, 1);
             } else {
               p.x = previousX + (p.x - previousX) * Math.max(0, nearest - 0.02);
               p.y = previousY + (p.y - previousY) * Math.max(0, nearest - 0.02);
@@ -626,6 +649,7 @@ export class Simulation {
           } else if (hitBoss && this.bossEntity) {
             this.projectiles.splice(i, 1);
             this.bossEntity.health = Math.max(0, this.bossEntity.health - p.damage);
+            this.encounterStarted = true;
             this.hitFlashes.set('boss', 0.25);
             this.damageFeedbacks.push({
               id: crypto.randomUUID(),

@@ -77,7 +77,7 @@ export const WORLDS: Record<
 export const CHARACTERS: Character[] = [
   {
     id: 'pili',
-    name: 'Pili (Sprite Dinámico)',
+    name: 'Conejito',
     color: '#ec9565',
     image: '/assets/character-sprite-1.webp',
     frames: {
@@ -94,49 +94,21 @@ export const CHARACTERS: Character[] = [
       idle: ['/assets/pili-idle-0.webp'],
     },
   },
-  {
-    id: 'menta',
-    name: 'Menta',
-    color: '#82b79b',
-    image: '/assets/character-sprite-2.webp',
-  },
-  {
-    id: 'luna',
-    name: 'Luna',
-    color: '#b8a5d0',
-    pixels: [
-      'transparent','transparent','transparent','transparent','transparent','transparent','transparent','transparent','transparent','transparent','transparent','transparent','transparent','transparent','transparent','transparent',
-      'transparent','transparent','#b8a5d0','#b8a5d0','transparent','transparent','transparent','transparent','#b8a5d0','#b8a5d0','transparent','transparent','transparent','transparent','transparent','transparent',
-      'transparent','transparent','#b8a5d0','#b8a5d0','transparent','transparent','transparent','transparent','#b8a5d0','#b8a5d0','transparent','transparent','transparent','transparent','transparent','transparent',
-      'transparent','transparent','#b8a5d0','#b8a5d0','transparent','transparent','transparent','transparent','#b8a5d0','#b8a5d0','transparent','transparent','transparent','transparent','transparent','transparent',
-      'transparent','transparent','#b8a5d0','#b8a5d0','transparent','transparent','transparent','transparent','#b8a5d0','#b8a5d0','transparent','transparent','transparent','transparent','transparent','transparent',
-      'transparent','transparent','#b8a5d0','#b8a5d0','#b8a5d0','#b8a5d0','#b8a5d0','#b8a5d0','#b8a5d0','#b8a5d0','transparent','transparent','transparent','transparent','transparent','transparent',
-      'transparent','transparent','#b8a5d0','#b8a5d0','#243b32','transparent','transparent','#243b32','#b8a5d0','#b8a5d0','transparent','transparent','transparent','transparent','transparent','transparent',
-      'transparent','transparent','#b8a5d0','#b8a5d0','#b8a5d0','#b8a5d0','#b8a5d0','#b8a5d0','#b8a5d0','#b8a5d0','transparent','transparent','transparent','transparent','transparent','transparent',
-      'transparent','transparent','transparent','#b8a5d0','#b8a5d0','#b8a5d0','#b8a5d0','#b8a5d0','#b8a5d0','transparent','transparent','transparent','transparent','transparent','transparent','transparent',
-      'transparent','transparent','#b8a5d0','#b8a5d0','#b8a5d0','#b8a5d0','#b8a5d0','#b8a5d0','#b8a5d0','#b8a5d0','transparent','transparent','transparent','transparent','transparent','transparent',
-      'transparent','#b8a5d0','#b8a5d0','#b8a5d0','#b8a5d0','#b8a5d0','#b8a5d0','#b8a5d0','#b8a5d0','#b8a5d0','#b8a5d0','transparent','transparent','transparent','transparent','transparent',
-      'transparent','#b8a5d0','#b8a5d0','#b8a5d0','#b8a5d0','#b8a5d0','#b8a5d0','#b8a5d0','#b8a5d0','#b8a5d0','#b8a5d0','transparent','transparent','transparent','transparent','transparent',
-      'transparent','transparent','#b8a5d0','#b8a5d0','#b8a5d0','#b8a5d0','#b8a5d0','#b8a5d0','#b8a5d0','#b8a5d0','transparent','transparent','transparent','transparent','transparent','transparent',
-      'transparent','transparent','#b8a5d0','#b8a5d0','transparent','transparent','transparent','transparent','#b8a5d0','#b8a5d0','transparent','transparent','transparent','transparent','transparent','transparent',
-      'transparent','transparent','#b8a5d0','#b8a5d0','transparent','transparent','transparent','transparent','#b8a5d0','#b8a5d0','transparent','transparent','transparent','transparent','transparent','transparent',
-      'transparent','transparent','transparent','transparent','transparent','transparent','transparent','transparent','transparent','transparent','transparent','transparent','transparent','transparent','transparent','transparent',
-    ],
-  },
 ];
 
 export function mergeCharacters(
   builtins: readonly Character[],
   saved: readonly Character[],
 ): Character[] {
-  const savedById = new Map(saved.map((character) => [character.id, character]));
+  const allowedSaved = saved.filter((c) => c.id !== 'menta' && c.id !== 'luna');
+  const savedById = new Map(allowedSaved.map((character) => [character.id, character]));
   const builtinIds = new Set(builtins.map((character) => character.id));
   return [
     ...builtins.map((character) => ({
       ...character,
       ...savedById.get(character.id),
     })),
-    ...saved.filter((character) => !builtinIds.has(character.id)),
+    ...allowedSaved.filter((character) => !builtinIds.has(character.id)),
   ];
 }
 function makeTrack(

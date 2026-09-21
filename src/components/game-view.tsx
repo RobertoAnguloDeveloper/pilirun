@@ -132,6 +132,11 @@ export function GameView({
   // Tablet dynamic touch indicators:
   // Left half: Virtual joystick appears wherever touch begins
   // Right half: Fire button appears wherever touch begins
+  const activeJoystickPointerId = useRef<number | null>(null);
+  const activeFirePointerId = useRef<number | null>(null);
+  const joystickStart = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
+  const touchDownTime = useRef<number>(0);
+
   const [joystickTouch, setJoystickTouch] = useState<{
     active: boolean;
     pointerId: number;
@@ -361,7 +366,7 @@ export function GameView({
         if (event.stopImmediatePropagation) event.stopImmediatePropagation();
         engine.current?.slide();
       }
-      // Power Attack (E, J, X, or KeyQ) - Mega Man Buster charging
+      // Power Attack (E, J, X, or KeyQ) - Instant Tap Fire + Mega Man Buster Charging
       else if (
         ['e', 'E', 'j', 'J', 'x', 'X', 'q', 'Q'].includes(event.key) ||
         event.code === 'KeyE' ||
@@ -372,6 +377,9 @@ export function GameView({
         event.preventDefault();
         event.stopPropagation();
         if (!event.repeat) {
+          // Zero-latency: fire basic shot instantly on key press!
+          engine.current?.castPower();
+          // And begin accumulating charge if held down
           engine.current?.startChargePower();
         }
       }
@@ -424,7 +432,11 @@ export function GameView({
         ['e', 'E', 'j', 'J', 'x', 'X', 'q', 'Q'].includes(event.key) ||
         ['KeyE', 'KeyJ', 'KeyX', 'KeyQ'].includes(event.code)
       ) {
-        engine.current?.releaseChargePower();
+        if ((engine.current?.simulation.powerChargeRatio ?? 0) >= 0.25) {
+          engine.current?.releaseChargePower();
+        } else {
+          engine.current?.simulation.cancelChargingPower();
+        }
       }
     };
     const hidden = () => {
@@ -530,106 +542,103 @@ export function GameView({
             tabIndex={0}
             aria-label="Juego: espacio o flecha arriba para saltar; flecha abajo para deslizar; C para cámara; P para pausar"
             onPointerDown={(e) => {
-              const isLeftHalf = e.clientX < window.innerWidth / 2;
-              e.currentTarget.setPointerCapture(e.pointerId);
+              void audioEngine.unlock();
+              const rect = e.currentTarget.getBoundingClientRect();
+              const localX = e.clientX - rect.left;
+              const localY = e.clientY - rect.top;
+              const isLeftHalf = localX <= rect.width / 2;
 
               if (isLeftHalf) {
-                // Left half: Virtual Joystick appears exactly where touched
+                // Left half to center: Virtual Joystick appears exactly where touched
+                activeJoystickPointerId.current = e.pointerId;
+                joystickStart.current = { x: localX, y: localY };
                 setJoystickTouch({
                   active: true,
                   pointerId: e.pointerId,
-                  startX: e.clientX,
-                  startY: e.clientY,
-                  curX: e.clientX,
-                  curY: e.clientY,
+                  startX: localX,
+                  startY: localY,
+                  curX: localX,
+                  curY: localY,
                 });
               } else {
                 // Right half: Dynamic Fire Button appears exactly where touched
+                activeFirePointerId.current = e.pointerId;
+                touchDownTime.current = performance.now();
                 setFireTouch({
                   active: true,
                   pointerId: e.pointerId,
-                  x: e.clientX,
-                  y: e.clientY,
+                  x: localX,
+                  y: localY,
                 });
-                clearTimeout(touch.current.chargeTimer);
-                touch.current = {
-                  x: e.clientX,
-                  y: e.clientY,
-                  time: Date.now(),
-                  pointerId: e.pointerId,
-                  swipingHorizontal: false,
-                  chargeStarted: false,
-                  chargeTimer: undefined,
-                };
-                // Automatically begin Buster charging after holding 180ms
-                touch.current.chargeTimer = setTimeout(() => {
-                  touch.current.chargeStarted = true;
-                  engine.current?.startChargePower();
-                }, 180);
+                // Instant firing response: Fire projectile immediately on touch with zero latency!
+                engine.current?.castPower();
+                // Simultaneously begin accumulating charge for holding
+                engine.current?.startChargePower();
               }
             }}
             onPointerMove={(e) => {
+              const rect = e.currentTarget.getBoundingClientRect();
+              const localX = e.clientX - rect.left;
+              const localY = e.clientY - rect.top;
+
               // Handle left half virtual joystick drag
-              if (joystickTouch && joystickTouch.pointerId === e.pointerId) {
-                const dx = e.clientX - joystickTouch.startX;
-                const dy = e.clientY - joystickTouch.startY;
-                setJoystickTouch((prev) => (prev ? { ...prev, curX: e.clientX, curY: e.clientY } : null));
+              if (activeJoystickPointerId.current === e.pointerId) {
+                const dx = localX - joystickStart.current.x;
+                const dy = localY - joystickStart.current.y;
+                setJoystickTouch((prev) => (prev ? { ...prev, curX: localX, curY: localY } : null));
 
                 // Horizontal movement (moveAxis)
-                if (Math.abs(dx) > 20) {
+                if (Math.abs(dx) > 18) {
                   moveInput(`joystick:${e.pointerId}`, dx < 0 ? -1 : 1);
                 } else {
                   moveInput(`joystick:${e.pointerId}`);
                 }
 
                 // Vertical swipe gesture on joystick: Up = Jump, Down = Slide
-                if (dy < -38 && Math.abs(dy) > Math.abs(dx) * 1.2) {
+                if (dy < -35 && Math.abs(dy) > Math.abs(dx) * 1.1) {
                   engine.current?.jump();
-                } else if (dy > 38 && Math.abs(dy) > Math.abs(dx) * 1.2) {
+                } else if (dy > 35 && Math.abs(dy) > Math.abs(dx) * 1.1) {
                   engine.current?.slide();
                 }
               }
 
               // Handle right half fire indicator drag/position
-              if (fireTouch && fireTouch.pointerId === e.pointerId) {
-                setFireTouch((prev) => (prev ? { ...prev, x: e.clientX, y: e.clientY } : null));
+              if (activeFirePointerId.current === e.pointerId) {
+                setFireTouch((prev) => (prev ? { ...prev, x: localX, y: localY } : null));
               }
             }}
             onPointerUp={(e) => {
               void audioEngine.unlock();
 
               // Clear Left Joystick if this pointer released
-              if (joystickTouch && joystickTouch.pointerId === e.pointerId) {
+              if (activeJoystickPointerId.current === e.pointerId) {
+                activeJoystickPointerId.current = null;
                 moveInput(`joystick:${e.pointerId}`);
                 setJoystickTouch(null);
               }
 
               // Clear Right Fire Button if this pointer released
-              if (fireTouch && fireTouch.pointerId === e.pointerId) {
-                clearTimeout(touch.current.chargeTimer);
+              if (activeFirePointerId.current === e.pointerId) {
+                activeFirePointerId.current = null;
                 setFireTouch(null);
-
-                if (touch.current.chargeStarted) {
-                  touch.current.chargeStarted = false;
+                const holdDuration = performance.now() - touchDownTime.current;
+                if (holdDuration >= 200 || (engine.current?.simulation.powerChargeRatio ?? 0) >= 0.25) {
                   engine.current?.releaseChargePower();
                 } else {
-                  // Tap cast power
-                  engine.current?.castPower();
+                  engine.current?.simulation.cancelChargingPower();
                 }
               }
             }}
             onPointerCancel={(e) => {
-              if (joystickTouch && joystickTouch.pointerId === e.pointerId) {
+              if (activeJoystickPointerId.current === e.pointerId) {
+                activeJoystickPointerId.current = null;
                 moveInput(`joystick:${e.pointerId}`);
                 setJoystickTouch(null);
               }
-              if (fireTouch && fireTouch.pointerId === e.pointerId) {
-                clearTimeout(touch.current.chargeTimer);
-                if (touch.current.chargeStarted) {
-                  touch.current.chargeStarted = false;
-                  engine.current?.releaseChargePower();
-                }
+              if (activeFirePointerId.current === e.pointerId) {
+                activeFirePointerId.current = null;
                 setFireTouch(null);
+                engine.current?.simulation.cancelChargingPower();
               }
             }}
           />
