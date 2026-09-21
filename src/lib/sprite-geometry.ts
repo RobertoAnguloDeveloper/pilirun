@@ -28,7 +28,29 @@ export interface SpriteBounds {
   height: number;
 }
 
-/** Ignore transparent padding and faint contact shadows when locating the feet. */
+/**
+ * Heuristic: a pixel looks like a baked-in shadow when it is opaque,
+ * has very low chroma (gray-ish), and sits in a mid/dark luminance range.
+ * This catches the soft contact ovals that ship embedded in many
+ * sprite sheets (e.g. `pili-idle-0.webp`, `pili-run-*.webp`) without
+ * throwing away saturated character pixels like eyes or scarves.
+ */
+export function isShadowPixel(r: number, g: number, b: number, a: number): boolean {
+  if (a < 128) return false;
+  const max = Math.max(r, g, b);
+  const min = Math.min(r, g, b);
+  const chroma = max - min;
+  const lum = (r + g + b) / 3;
+  return chroma <= 18 && lum >= 55 && lum <= 215;
+}
+
+/** True when the pixel is part of the character art (not shadow, not transparent). */
+export function isCharacterPixel(r: number, g: number, b: number, a: number): boolean {
+  if (a < 128) return false;
+  return !isShadowPixel(r, g, b, a);
+}
+
+/** Bounds ignoring transparent padding and faint contact shadows. */
 export function alphaBounds(data: ArrayLike<number>, width: number, height: number): SpriteBounds {
   let left = width,
     top = height,
@@ -36,7 +58,9 @@ export function alphaBounds(data: ArrayLike<number>, width: number, height: numb
     bottom = -1;
   for (let y = 0; y < height; y++)
     for (let x = 0; x < width; x++) {
-      if (data[(y * width + x) * 4 + 3] < 128) continue;
+      const idx = (y * width + x) * 4;
+      if (data[idx + 3] < 128) continue;
+      if (isShadowPixel(data[idx], data[idx + 1], data[idx + 2], data[idx + 3])) continue;
       left = Math.min(left, x);
       right = Math.max(right, x);
       top = Math.min(top, y);
@@ -76,6 +100,7 @@ export function drawGroundedSprite(
   image: HTMLImageElement,
   height: number,
   baseline?: number,
+  options: { hideShadow?: boolean } = {},
 ) {
   const b = measureSprite(image);
   const feet =
@@ -83,12 +108,55 @@ export function drawGroundedSprite(
       ? b.y + b.height
       : Math.max(b.y + 1, Math.min(image.naturalHeight, baseline * image.naturalHeight));
   const scale = height / (feet - b.y);
+
+  if (!options.hideShadow) {
+    ctx.drawImage(
+      image,
+      -(b.x + b.width / 2) * scale,
+      -feet * scale,
+      image.naturalWidth * scale,
+      image.naturalHeight * scale,
+    );
+    return;
+  }
+
+  // Mask baked-in shadow pixels in-place so the preview shows a clean
+  // character silhouette without the soft oval that ships in many sprites.
+  const off = document.createElement('canvas');
+  off.width = image.naturalWidth;
+  off.height = image.naturalHeight;
+  const offCtx = off.getContext('2d', { willReadFrequently: true })!;
+  offCtx.drawImage(image, 0, 0);
+  let imgData: ImageData;
+  try {
+    imgData = offCtx.getImageData(0, 0, off.width, off.height);
+  } catch {
+    // Cross-origin or unreadable — fall back to unaltered draw.
+    ctx.drawImage(
+      image,
+      -(b.x + b.width / 2) * scale,
+      -feet * scale,
+      image.naturalWidth * scale,
+      image.naturalHeight * scale,
+    );
+    return;
+  }
+  const data = imgData.data;
+  let touched = false;
+  for (let i = 0; i < data.length; i += 4) {
+    if (isShadowPixel(data[i], data[i + 1], data[i + 2], data[i + 3])) {
+      data[i + 3] = 0;
+      touched = true;
+    }
+  }
+  if (touched) offCtx.putImageData(imgData, 0, 0);
+  ctx.imageSmoothingEnabled = false;
   ctx.drawImage(
-    image,
+    off,
     -(b.x + b.width / 2) * scale,
     -feet * scale,
-    image.naturalWidth * scale,
-    image.naturalHeight * scale,
+    off.width * scale,
+    off.height * scale,
   );
 }
 

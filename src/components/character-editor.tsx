@@ -1373,9 +1373,10 @@ export function CharacterEditor({
     }
     const hasPixels = pixels.current.some((p) => p !== 'transparent');
     const hasImage = Boolean(editing.image);
+    // Allow saving even with a blank canvas: new characters fall back to the
+    // Conejito default template so the user can always create a new runner.
     if (mode === 'pixel' && !hasPixels && !hasImage) {
-      setMessage('Dibuja al menos un trazo o un píxel en tu personaje.');
-      return;
+      pixels.current = defaultPixels();
     }
     setBusy(true);
     setMessage('');
@@ -1386,12 +1387,13 @@ export function CharacterEditor({
         finalImage = isolateBlackOutlineContour(freehandRef.current);
       }
 
+      const hasPixelsNow = pixels.current.some((p) => p !== 'transparent');
       const character: Character = {
         ...editing,
         id: editing.id || crypto.randomUUID(),
         name: editing.name.trim(),
         scale: editing.scale ?? 1.0,
-        pixels: hasPixels ? pixels.current : undefined,
+        pixels: hasPixelsNow ? pixels.current : undefined,
         image: finalImage || undefined,
         frames: editing.frames,
       };
@@ -1507,7 +1509,7 @@ export function CharacterEditor({
               }}
               aria-pressed={selected === c.id}
             >
-              <Avatar character={c} />
+              <Avatar character={c} hideShadow />
               <strong>{c.name}</strong>
               <small>
                 {selected === c.id ? (
@@ -1546,6 +1548,39 @@ export function CharacterEditor({
             </div>
           </article>
         ))}
+        {/* "+ Nuevo personaje" tile: always available so users can start a fresh character. */}
+        <article className="character-card new-character-card">
+          <button
+            type="button"
+            className="new-character-tile"
+            onClick={() => {
+              baseSpriteRef.current = null;
+              setFreeRotation(0);
+              const seed = defaultPixels();
+              pixels.current = seed;
+              setEditing({
+                id: '',
+                name: 'Mi explorador',
+                color: COLORS[0],
+                pixels: seed,
+              });
+              setMode('pixel');
+              setPhoto(undefined);
+              setDrawType('pixel');
+              setActiveTool('brush');
+              setSpriteMovement('idle');
+              setActiveFrameIdx(0);
+              undo.current = [];
+              freehandUndo.current = [];
+              setMessage('Lienzo en blanco listo. Dibuja tu nuevo personaje o usa una plantilla.');
+            }}
+            title="Crear un personaje nuevo desde cero"
+          >
+            <Plus size={28} />
+            <strong>Nuevo personaje</strong>
+            <small>Lienzo en blanco</small>
+          </button>
+        </article>
       </div>
 
       {/* Guided Sprite Assistant Banner */}
@@ -1921,7 +1956,7 @@ export function CharacterEditor({
                   marginBottom: '10px',
                 }}
               >
-                <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
+                <div className="transform-toolbar-buttons" style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
                   <span style={{ fontSize: '0.78rem', fontWeight: 700, color: 'var(--ink)', marginRight: '4px' }}>
                     Transformar:
                   </span>
@@ -1964,7 +1999,7 @@ export function CharacterEditor({
                 </div>
 
                 {/* Free Rotation Slider */}
-                <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.78rem', color: 'var(--ink)' }}>
+                <div className="transform-toolbar-slider" style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.78rem', color: 'var(--ink)' }}>
                   <span>Ángulo ({freeRotation}°):</span>
                   <input
                     type="range"
@@ -2115,12 +2150,12 @@ export function CharacterEditor({
               )}
 
               {/* Palette Category Selector Tabs */}
-              <div style={{ display: 'flex', gap: '6px', justifyContent: 'center', marginTop: '12px', flexWrap: 'wrap' }}>
+              <div className="palette-tabs" style={{ display: 'flex', gap: '6px', justifyContent: 'center', marginTop: '12px', flexWrap: 'wrap' }}>
                 {COLOR_PALETTES.map((pal, idx) => (
                   <button
                     key={pal.name}
                     type="button"
-                    className={`template-pill-btn ${paletteTab === idx ? 'selected' : ''}`}
+                    className={`template-pill-btn palette-tab-btn ${paletteTab === idx ? 'selected' : ''}`}
                     onClick={() => setPaletteTab(idx)}
                     style={{
                       fontSize: '0.75rem',
@@ -2808,18 +2843,19 @@ export function CharacterEditor({
               movement={previewMovement}
               frameIndex={previewPlaying ? undefined : 0}
               showGround
+              hideShadow
               size={145}
             />
             {/* Live Animation Controls */}
-            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', justifyContent: 'center', width: '100%' }}>
+            <div className="preview-controls">
               <button
                 type="button"
-                className="template-pill-btn"
+                className="template-pill-btn preview-play-btn"
                 onClick={() => setPreviewPlaying((p) => !p)}
                 title={previewPlaying ? 'Pausar animación' : 'Reproducir animación'}
                 aria-label={previewPlaying ? 'Pausar animación' : 'Reproducir animación'}
                 style={{
-                  padding: '4px 8px',
+                  padding: '4px 10px',
                   fontSize: '0.75rem',
                   display: 'inline-flex',
                   alignItems: 'center',
@@ -2834,7 +2870,7 @@ export function CharacterEditor({
                 <span>{previewPlaying ? 'Pausar' : 'Play'}</span>
               </button>
 
-              <div className="segmented" style={{ width: 'fit-content' }}>
+              <div className="segmented preview-segmented">
                 {(['run', 'jump', 'slide', 'idle'] as Movement[]).map((mov) => (
                   <button
                     key={mov}

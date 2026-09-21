@@ -49,6 +49,7 @@ export function Avatar({
   showGround = false,
   previewZoom = 1,
   centered = false,
+  hideShadow = false,
 }: {
   character: Character;
   size?: number;
@@ -57,6 +58,8 @@ export function Avatar({
   showGround?: boolean;
   previewZoom?: number;
   centered?: boolean;
+  /** Hide baked-in shadows in source sprite artwork (preview-only). */
+  hideShadow?: boolean;
 }) {
   const ref = useRef<HTMLCanvasElement>(null);
   useEffect(() => {
@@ -133,6 +136,7 @@ export function Avatar({
             activeImg,
             displayHeight * frameScale(character, movement, activeIndex),
             character.frameBaselines?.[activeImg.getAttribute('src')!],
+            { hideShadow },
           );
           ctx.restore();
         }
@@ -170,7 +174,7 @@ export function Avatar({
       for (const image of runFrames) image.onload = null;
       if (imgElement) imgElement.onload = null;
     };
-  }, [character, movement, frameIndex, showGround, previewZoom, centered]);
+  }, [character, movement, frameIndex, showGround, previewZoom, centered, hideShadow]);
 
   return (
     <canvas

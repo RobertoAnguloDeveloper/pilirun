@@ -1372,14 +1372,76 @@ kbd {
   color: #60705a;
 }
 
+/* "+ Nuevo personaje" tile — keeps the character-list grid layout intact. */
+.new-character-card {
+  border: 1px dashed #cad6bc;
+  background: #f0f4e9;
+  border-radius: 16px;
+  padding: 0;
+  min-height: 166px;
+  display: flex;
+}
+
+.new-character-card > button.new-character-tile {
+  width: 100%;
+  height: 100%;
+  border: 0;
+  background: transparent;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  padding: 18px 12px;
+  color: #2d4d3a;
+  font: inherit;
+  transition: background 0.15s ease, transform 0.15s ease;
+}
+
+.new-character-card > button.new-character-tile:hover,
+.new-character-card > button.new-character-tile:focus-visible {
+  background: rgba(216, 243, 106, 0.18);
+  outline: none;
+}
+
+.new-character-card > button.new-character-tile:active {
+  transform: scale(0.98);
+}
+
+.new-character-card > button.new-character-tile svg {
+  color: var(--lime);
+  background: rgba(216, 243, 106, 0.25);
+  border-radius: 50%;
+  padding: 8px;
+  width: 48px;
+  height: 48px;
+}
+
+.new-character-card > button.new-character-tile strong {
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.new-character-card > button.new-character-tile small {
+  font-size: 10.5px;
+  color: #60705a;
+}
+
 .new-character svg {
   color: #60705a;
 }
 
 .editor-card {
   display: grid;
-  grid-template-columns: 1fr 260px;
+  grid-template-columns: minmax(0, 1fr) 260px;
   overflow: hidden;
+}
+
+.editor-main,
+.editor-sidebar {
+  min-width: 0;
+  min-height: 0;
 }
 
 .editor-main {
@@ -1462,6 +1524,29 @@ kbd {
   align-items: center;
   min-height: 166px;
   margin-bottom: 10px;
+}
+
+/* Vista Previa Animada: Live Animation Controls
+   - Desktop/tablet (≥ 760px): play button + segmented control sit on a single row.
+   - Mobile/narrow: stack vertically and let the segmented control wrap to 2 rows
+     so neither control ever overflows the sidebar. */
+.preview-controls {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  width: 100%;
+  flex-wrap: wrap;
+}
+
+.preview-segmented {
+  flex-wrap: wrap;
+  justify-content: center;
+}
+
+.preview-play-btn {
+  flex-shrink: 0;
+  white-space: nowrap;
 }
 
 .editor-sidebar .primary {
@@ -3000,7 +3085,12 @@ input[type='checkbox'] {
   }
 
   .editor-card {
-    grid-template-columns: 1fr 225px;
+    grid-template-columns: minmax(0, 1fr) 225px;
+  }
+
+  .editor-main,
+  .editor-sidebar {
+    min-width: 0;
   }
 
   .editor-main {
@@ -3681,7 +3771,12 @@ input[type='checkbox'] {
   }
 
   .editor-card {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .editor-main,
+  .editor-sidebar {
+    min-width: 0;
   }
 
   .editor-main {
@@ -3700,20 +3795,14 @@ input[type='checkbox'] {
     border-left: 0;
     border-top: 1px solid var(--line);
     padding: 22px;
-    display: grid;
-    grid-template-columns: 95px 1fr;
-    gap: 10px 17px;
-  }
-
-  .editor-sidebar>.eyebrow {
-    grid-column: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
   }
 
   .avatar-preview {
-    grid-column: 1;
-    grid-row: 2/4;
-    min-height: 90px;
-    margin: 0;
+    min-height: 110px;
+    margin: 0 auto;
   }
 
   .avatar-preview>canvas {
@@ -3721,25 +3810,18 @@ input[type='checkbox'] {
     height: 110px !important;
   }
 
-  .editor-sidebar>label {
-    grid-column: 2;
-    grid-row: 1/3;
+  /* Right column: name, size slider, quick actions, primary button, message */
+  .editor-sidebar>label,
+  .editor-sidebar>.sidebar-quick-actions,
+  .editor-sidebar>.form-message,
+  .editor-sidebar>.subtle,
+  .editor-sidebar>.primary {
+    width: 100%;
   }
 
   .editor-sidebar>.subtle {
-    grid-column: 2;
     margin: 0;
     font-size: 10px;
-  }
-
-  .editor-sidebar>.primary {
-    grid-column: 1/-1;
-    margin-top: 10px;
-  }
-
-  .editor-sidebar>.form-message {
-    grid-column: 1/-1;
-    margin-top: 0;
   }
 
   .builder-fields {
@@ -5395,6 +5477,23 @@ input[type='checkbox'] {
   color: #a7cab8;
 }
 
+.in-game-drawer-panel .new-character-card {
+  background: rgba(255, 255, 255, 0.05);
+  border-color: rgba(255, 255, 255, 0.2);
+}
+
+.in-game-drawer-panel .new-character-card > button.new-character-tile {
+  color: #d8f36a;
+}
+
+.in-game-drawer-panel .new-character-card > button.new-character-tile strong {
+  color: #ffffff;
+}
+
+.in-game-drawer-panel .new-character-card > button.new-character-tile small {
+  color: #a7cab8;
+}
+
 /* World cards inside drawer */
 .in-game-drawer-panel .world-card {
   background: #142a22;
@@ -5840,7 +5939,12 @@ input[type='checkbox'] {
   }
 
   .editor-card {
-    grid-template-columns: 1fr 240px;
+    grid-template-columns: minmax(0, 1fr) 240px;
+  }
+
+  .editor-main,
+  .editor-sidebar {
+    min-width: 0;
   }
 
   /* Game HUD */
@@ -5913,7 +6017,12 @@ input[type='checkbox'] {
   }
 
   .editor-card {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .editor-main,
+  .editor-sidebar {
+    min-width: 0;
   }
 
   .editor-sidebar {
@@ -7743,6 +7852,25 @@ input[type='checkbox'] {
   background: #15382e;
   color: #f1f7f3;
   box-shadow: 0 16px 40px rgba(8, 26, 20, 0.35);
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+}
+
+.kid-editor-fieldset,
+.kid-editor-header,
+.kid-movement-grid,
+.kid-preview-stage,
+.kid-filmstrip-section,
+.kid-frame-toolbar,
+.kid-size-box,
+.kid-reuse-box,
+.kid-advanced-details,
+.kid-save-section,
+.kid-empty-frames,
+.kid-error-message {
+  min-width: 0;
+  max-width: 100%;
 }
 
 .kid-editor-header {
@@ -8665,7 +8793,12 @@ input[type='checkbox'] {
 
   .editor-card {
     border-radius: 12px !important;
-    grid-template-columns: 1fr !important;
+    grid-template-columns: minmax(0, 1fr) !important;
+  }
+
+  .editor-main,
+  .editor-sidebar {
+    min-width: 0 !important;
   }
 
   .pixel-editor,
@@ -8767,6 +8900,420 @@ input[type='checkbox'] {
     max-height: 110px !important;
   }
 
+  /* Vista Previa Animada — mobile-friendly stacking so the play/pause button
+     never overflows the segmented control off the left edge. */
+  .preview-controls {
+    flex-direction: column !important;
+    align-items: stretch !important;
+    gap: 8px !important;
+  }
+
+  .preview-play-btn {
+    width: 100% !important;
+    justify-content: center !important;
+  }
+
+  .preview-segmented {
+    width: 100% !important;
+  }
+
+  .preview-segmented button {
+    flex: 1 1 auto !important;
+    text-align: center !important;
+  }
+
+  /* ==========================================================================
+     KID-FRIENDLY ANIMATION STUDIO (animation-editor.tsx)
+     Keep every section inside the drawer panel on small screens.
+     ========================================================================== */
+  .kid-animation-editor {
+    margin-top: 12px !important;
+    padding: 12px !important;
+    border-radius: 14px !important;
+  }
+
+  .kid-editor-header h2 {
+    font-size: 18px !important;
+  }
+
+  .kid-editor-header p {
+    font-size: 12px !important;
+  }
+
+  .kid-movement-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+    gap: 8px !important;
+  }
+
+  .kid-movement-card {
+    padding: 10px 8px !important;
+    gap: 4px !important;
+    min-width: 0 !important;
+  }
+
+  .kid-card-emoji {
+    font-size: 26px !important;
+  }
+
+  .kid-card-name {
+    font-size: 12px !important;
+    white-space: nowrap !important;
+    overflow: hidden !important;
+    text-overflow: ellipsis !important;
+    max-width: 100%;
+  }
+
+  .kid-card-count {
+    font-size: 10px !important;
+  }
+
+  .kid-preview-stage {
+    flex-direction: column !important;
+    gap: 10px !important;
+  }
+
+  .kid-stage-canvas-area {
+    width: 100% !important;
+    min-height: 0 !important;
+  }
+
+  .kid-stage-canvas-area > div {
+    width: 100% !important;
+    display: flex !important;
+    justify-content: center !important;
+  }
+
+  .kid-stage-canvas-area canvas,
+  .kid-stage-canvas-area img {
+    max-width: 180px !important;
+    max-height: 180px !important;
+    width: auto !important;
+    height: auto !important;
+  }
+
+  .kid-preview-toolbar {
+    flex-direction: column !important;
+    align-items: stretch !important;
+    gap: 8px !important;
+    width: 100% !important;
+  }
+
+  .kid-play-toggle {
+    width: 100% !important;
+    justify-content: center !important;
+  }
+
+  .kid-speed-selector {
+    width: 100% !important;
+    display: grid !important;
+    grid-template-columns: repeat(auto-fit, minmax(78px, 1fr)) !important;
+    gap: 6px !important;
+  }
+
+  .kid-speed-btn {
+    flex: none !important;
+    min-width: 0 !important;
+    padding: 6px 6px !important;
+    font-size: 11px !important;
+    text-align: center !important;
+    white-space: nowrap !important;
+    overflow: hidden !important;
+    text-overflow: ellipsis !important;
+  }
+
+  .kid-zoom-controls {
+    width: 100% !important;
+    justify-content: center !important;
+    flex-wrap: wrap !important;
+  }
+
+  .kid-filmstrip-header {
+    flex-direction: column !important;
+    align-items: flex-start !important;
+    gap: 4px !important;
+  }
+
+  .kid-filmstrip-hint {
+    font-size: 11px !important;
+  }
+
+  .kid-filmstrip-track {
+    gap: 8px !important;
+  }
+
+  .kid-filmstrip-item {
+    flex: 0 0 76px !important;
+  }
+
+  .kid-frame-card {
+    width: 76px !important;
+    height: 86px !important;
+  }
+
+  .kid-frame-card img {
+    width: 50px !important;
+    height: 50px !important;
+  }
+
+  .kid-frame-badge {
+    font-size: 10px !important;
+    width: 18px !important;
+    height: 18px !important;
+  }
+
+  .kid-filmstrip-add-slot {
+    flex-wrap: wrap !important;
+    flex: 0 0 auto !important;
+  }
+
+  .kid-add-card {
+    padding: 8px !important;
+    font-size: 11px !important;
+    min-width: 76px !important;
+  }
+
+  .kid-frame-toolbar {
+    flex-direction: column !important;
+    gap: 8px !important;
+  }
+
+  .kid-toolbar-group {
+    width: 100% !important;
+    justify-content: stretch !important;
+    display: grid !important;
+    grid-template-columns: repeat(auto-fit, minmax(108px, 1fr)) !important;
+    gap: 6px !important;
+  }
+
+  .kid-tool-btn {
+    flex: none !important;
+    min-width: 0 !important;
+    padding: 6px 8px !important;
+    font-size: 11px !important;
+    white-space: nowrap !important;
+    overflow: hidden !important;
+    text-overflow: ellipsis !important;
+  }
+
+  .kid-size-box {
+    flex-direction: column !important;
+    align-items: stretch !important;
+    gap: 8px !important;
+  }
+
+  .kid-size-label {
+    font-size: 12px !important;
+    text-align: center !important;
+  }
+
+  .kid-size-buttons {
+    flex-wrap: wrap !important;
+    justify-content: stretch !important;
+    width: 100% !important;
+    display: grid !important;
+    grid-template-columns: repeat(auto-fit, minmax(96px, 1fr)) !important;
+    gap: 6px !important;
+  }
+
+  .kid-size-btn {
+    flex: none !important;
+    min-width: 0 !important;
+    padding: 6px 8px !important;
+    font-size: 11px !important;
+    white-space: nowrap !important;
+    overflow: hidden !important;
+    text-overflow: ellipsis !important;
+  }
+
+  .kid-reuse-select,
+  .kid-reuse-label {
+    width: 100% !important;
+  }
+
+  .kid-reuse-label {
+    flex-direction: row !important;
+    align-items: center !important;
+    gap: 6px !important;
+    font-size: 12px !important;
+  }
+
+  .kid-advanced-content {
+    flex-direction: column !important;
+    align-items: stretch !important;
+  }
+
+  .kid-adv-field {
+    width: 100% !important;
+  }
+
+  .kid-adv-field input,
+  .kid-replace-btn {
+    width: 100% !important;
+  }
+
+  .kid-big-save-btn {
+    font-size: 13px !important;
+    padding: 12px 14px !important;
+    width: 100% !important;
+  }
+
+  /* Section heading: keep h2 + segmented on its own row so the tabs never push
+     outside the panel and clip the heading on the left edge. */
+  .editor-main .section-heading {
+    flex-direction: column !important;
+    align-items: flex-start !important;
+    gap: 8px !important;
+    margin-bottom: 14px !important;
+  }
+
+  .editor-main .section-heading h2 {
+    width: 100% !important;
+  }
+
+  .editor-main .section-heading .segmented {
+    width: 100% !important;
+    flex-wrap: wrap !important;
+    display: grid !important;
+    grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)) !important;
+    gap: 6px !important;
+  }
+
+  .editor-main .section-heading .segmented button {
+    flex: none !important;
+    min-width: 0 !important;
+    padding: 6px 8px !important;
+    font-size: 10.5px !important;
+    white-space: nowrap !important;
+    overflow: hidden !important;
+    text-overflow: ellipsis !important;
+    justify-content: center !important;
+  }
+
+  /* Sprite movement shelf: stack the "Clasificar para movimiento:" label and the
+     Reposo/Carrera/Salto/Agachado selector on two rows, and shrink buttons so
+     they always fit. */
+  .sprite-movement-shelf > div:first-child {
+    flex-direction: column !important;
+    align-items: flex-start !important;
+    gap: 6px !important;
+  }
+
+  .sprite-movement-shelf .segmented {
+    width: 100% !important;
+    flex-wrap: wrap !important;
+    display: grid !important;
+    grid-template-columns: repeat(auto-fit, minmax(80px, 1fr)) !important;
+    gap: 4px !important;
+  }
+
+  .sprite-movement-shelf .segmented button {
+    flex: none !important;
+    min-width: 0 !important;
+    padding: 4px 6px !important;
+    font-size: 9.5px !important;
+    white-space: nowrap !important;
+    overflow: hidden !important;
+    text-overflow: ellipsis !important;
+    justify-content: center !important;
+  }
+
+  /* Sprite frames carousel: allow horizontal scroll so thumbs never overflow
+     the panel. */
+  .sprite-frames-row,
+  .sprite-movement-shelf > div:nth-child(2) {
+    flex-wrap: nowrap !important;
+    overflow-x: auto !important;
+    -webkit-overflow-scrolling: touch !important;
+    scrollbar-width: thin !important;
+    padding-bottom: 4px !important;
+    width: 100% !important;
+  }
+
+  /* Drawing toolbar (Píxel por píxel / Trazo a mano alzada / Pincel /
+     Relleno / Cuentagotas / Limpiar lienzo): wrap on small viewports so no
+     button is clipped on the left edge of the panel. */
+  .editor-main .pixel-tools-row,
+  .editor-main > div:has(> button:only-of-type),
+  .pixel-tools,
+  .toolbar-row {
+    flex-wrap: wrap !important;
+    width: 100% !important;
+  }
+
+  .pixel-tools button,
+  .toolbar-row button,
+  .editor-main > div button.template-pill-btn {
+    flex: 1 1 0 !important;
+    min-width: 0 !important;
+    padding: 6px 8px !important;
+    font-size: 10px !important;
+    white-space: nowrap !important;
+    overflow: hidden !important;
+    text-overflow: ellipsis !important;
+  }
+
+  /* Transform toolbar (90° Izq / 90° Der / Espejo H / Espejo V): wrap so it
+     always fits. */
+  .transform-toolbar {
+    flex-wrap: wrap !important;
+    width: 100% !important;
+    row-gap: 8px !important;
+    padding: 8px !important;
+  }
+
+  .transform-toolbar-buttons {
+    display: grid !important;
+    grid-template-columns: 1fr 1fr !important;
+    gap: 6px !important;
+    width: 100% !important;
+  }
+
+  .transform-toolbar-slider {
+    flex: 1 1 100% !important;
+    justify-content: space-between !important;
+    width: 100% !important;
+  }
+
+  .transform-toolbar button {
+    min-width: 0 !important;
+    padding: 6px 8px !important;
+    font-size: 10px !important;
+    white-space: nowrap !important;
+    overflow: hidden !important;
+    text-overflow: ellipsis !important;
+    justify-content: center !important;
+  }
+
+  /* Palette category tabs (Tierra & Bosque / Neón & Fantasía / etc.): wrap. */
+  .palette-tabs,
+  .editor-main > div > .segmented + .segmented,
+  .editor-main .palette-tabs-row {
+    display: grid !important;
+    grid-template-columns: 1fr 1fr !important;
+    column-gap: 6px !important;
+    row-gap: 6px !important;
+    width: 100% !important;
+  }
+
+  .palette-tabs .palette-tab-btn,
+  .editor-main .palette-tabs-row button {
+    min-width: 0 !important;
+    padding: 4px 8px !important;
+    font-size: 9.5px !important;
+    white-space: nowrap !important;
+    overflow: hidden !important;
+    text-overflow: ellipsis !important;
+    justify-content: center !important;
+  }
+
+  /* Color swatch row: keep the circles, but allow wrap so any extra tools
+     (eyedropper / undo) never overflow. */
+  .palette {
+    flex-wrap: wrap !important;
+    justify-content: center !important;
+    width: 100% !important;
+  }
+
   .photo-suite-panel {
     padding: 10px 8px !important;
   }
@@ -8823,6 +9370,64 @@ input[type='checkbox'] {
 
   .character-list {
     grid-template-columns: repeat(2, 1fr) !important;
+  }
+
+  /* Drawer header on very small screens: shrink the close button to icon-only,
+     shrink the title font, and allow the header to wrap so "Mis personajes"
+     never splits into two lines and never pushes the close button off-screen. */
+  .in-game-drawer-header {
+    flex-wrap: wrap !important;
+    gap: 6px !important;
+    padding: 12px 14px !important;
+  }
+
+  .drawer-title-group h2 {
+    font-size: 18px !important;
+    line-height: 1.2 !important;
+    white-space: nowrap !important;
+  }
+
+  .drawer-subtitle {
+    font-size: 10px !important;
+    line-height: 1.2 !important;
+  }
+
+  .arcade-close-btn {
+    padding: 6px 10px !important;
+    gap: 0 !important;
+  }
+
+  .arcade-close-btn > span {
+    display: none !important;
+  }
+
+  /* Animation editor toolbar groups: stack to one button per row at very small
+     screens so each button's full label is visible without ellipsis. */
+  .kid-toolbar-group {
+    grid-template-columns: 1fr !important;
+  }
+
+  .kid-size-buttons {
+    grid-template-columns: 1fr !important;
+  }
+
+  .kid-speed-selector {
+    grid-template-columns: 1fr !important;
+  }
+
+  .kid-preview-toolbar {
+    flex-direction: column !important;
+    align-items: stretch !important;
+    gap: 8px !important;
+  }
+
+  .kid-preview-toolbar .kid-play-toggle {
+    width: 100% !important;
+    justify-content: center !important;
+  }
+
+  .kid-zoom-controls {
+    width: 100% !important;
   }
 }
 
@@ -9253,4 +9858,4 @@ input[type='checkbox'] {
   border-top: 1px solid rgba(255, 255, 255, 0.08);
   display: flex;
   justify-content: flex-end;
-}
+}
